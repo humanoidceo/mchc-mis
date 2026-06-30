@@ -1,0 +1,68 @@
+{% extends "pharmacy/base_pharmacy.html" %}
+
+{% block content %}
+<h2>New Pharmacy Bill</h2>
+
+<form method="post" id="sale-form">
+    {% csrf_token %}
+
+    <label>Customer / Patient Name</label>
+    <input type="text" name="customer_name" placeholder="Optional">
+
+    <table id="items-table">
+        <thead>
+            <tr>
+                <th>Medicine</th>
+                <th style="width:140px;">Qty</th>
+                <th style="width:90px;">Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>
+                    <select name="medicine_id" required>
+                        <option value="">Select medicine</option>
+                        {% for medicine in medicines %}
+                            <option value="{{ medicine.id }}">
+                                {{ medicine.name }}{% if medicine.generic_name %} - {{ medicine.generic_name }}{% endif %}
+                                | Stock: {{ medicine.quantity }}
+                                | Price: {{ medicine.sell_price }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </td>
+                <td>
+                    <input type="number" name="quantity" value="1" min="1" required>
+                </td>
+                <td>
+                    <button type="button" class="btn btn-light" onclick="removeRow(this)">Remove</button>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <br>
+    <button type="button" class="btn btn-light" onclick="addRow()">+ Add Item</button>
+    <button type="submit" class="btn">Create Bill</button>
+</form>
+
+<script>
+    function addRow() {
+        const tbody = document.querySelector("#items-table tbody");
+        const first = tbody.querySelector("tr");
+        const clone = first.cloneNode(true);
+
+        clone.querySelector("select").value = "";
+        clone.querySelector("input").value = "1";
+        tbody.appendChild(clone);
+    }
+
+    function removeRow(btn) {
+        const tbody = document.querySelector("#items-table tbody");
+
+        if (tbody.querySelectorAll("tr").length > 1) {
+            btn.closest("tr").remove();
+        }
+    }
+</script>
+{% endblock %}

@@ -10,6 +10,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from accounts.access import get_user_permissions, user_has_permission
+from pharmacy.models import Medicine as PharmacyMedicine
 from .models import ClinicalDocument, LabTest, Medicine, MedicineStockMovement, Patient, Payment, WebsitePageContent, WebsiteSettings
 from .serializers import (
     ClinicalDocumentSerializer,
@@ -224,7 +225,43 @@ class MedicineViewSet(PermissionedModelViewSet):
 
     @action(detail=False, methods=['get'])
     def search(self, request):
-        return search_response(self.get_queryset(), self.get_serializer_class(), request, ('name', 'unit'))
+        queryset = self.get_queryset()
+        if queryset.exists():
+            return search_response(queryset, self.get_serializer_class(), request, ('name', 'unit'))
+
+        search = request.query_params.get('q', '').strip()
+        try:
+            offset = max(0, int(request.query_params.get('offset', '0')))
+        except ValueError:
+            offset = 0
+
+        pharmacy_queryset = PharmacyMedicine.objects.filter(quantity__gt=0).order_by('name')
+        if search:
+            pharmacy_queryset = pharmacy_queryset.filter(
+                Q(name__icontains=search) | Q(generic_name__icontains=search)
+            )
+
+        total = pharmacy_queryset.count()
+        results = pharmacy_queryset[offset:offset + 5]
+        next_offset = offset + 5 if offset + 5 < total else None
+        return Response(
+            {
+                'results': [
+                    {
+                        'id': medicine.id,
+                        'name': medicine.name,
+                        'unit': medicine.generic_name or 'medicine',
+                        'sale_price': str(medicine.sell_price),
+                        'current_stock': medicine.quantity,
+                        'low_stock_threshold': 10,
+                        'is_active': True,
+                        'is_low_stock': medicine.quantity <= 10,
+                    }
+                    for medicine in results
+                ],
+                'next_offset': next_offset,
+            }
+        )
 
 
 class LabTestViewSet(PermissionedModelViewSet):

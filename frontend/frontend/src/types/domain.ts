@@ -101,6 +101,57 @@ export type ClinicalDocument = {
   created_by_name: string
 }
 
+export type LaboratoryPatientSearchOption = {
+  id: number
+  registration_number: string
+  first_name: string
+  last_name: string
+  age: number | null
+  phone: string
+}
+
+export type LaboratoryOrderItem = {
+  test: number | null
+  test_name: string
+  instructions: string
+  matched: boolean
+}
+
+export type LaboratoryOrder = {
+  id: number
+  title: string
+  created_at: string
+  patient: number
+  patient_name: string
+  items: LaboratoryOrderItem[]
+}
+
+export type LaboratoryBill = {
+  id: number
+  patient: number
+  patient_name: string
+  title: string
+  payload: Record<string, unknown>
+  total_amount: string
+  created_at: string
+  payment_id: number | null
+  payment_status: 'pending' | 'approved' | null
+  customer_type: 'internal' | 'external'
+  customer_type_label: string
+  lab_order_document_id: number | null
+  item_count: number
+  has_results: boolean
+}
+
+export type LaboratoryDashboardStats = {
+  pending_lab_orders: number
+  bills_created: number
+  pending_reception_payments: number
+  approved_reception_payments: number
+  monthly_amount: string
+  recent_bills: LaboratoryBill[]
+}
+
 export type SearchResponse<T> = {
   results: T[]
   next_offset: number | null
@@ -172,6 +223,96 @@ export type WebsitePageContent = {
   image_file: string
   updated_at: string
   updated_by_name: string
+}
+
+export type PharmacySetting = {
+  id: number
+  pharmacy_name: string
+  phone: string
+  address: string
+  default_profit_percentage: string
+}
+
+export type PharmacyMedicine = {
+  id: number
+  name: string
+  generic_name: string
+  quantity: number
+  buy_price: string
+  profit_percentage: string
+  sell_price: string
+  stock_status: 'low' | 'medium' | 'healthy'
+  created_at: string
+  updated_at: string
+}
+
+export type PharmacySaleItem = {
+  id: number
+  medicine: number
+  medicine_name: string
+  generic_name: string
+  quantity: number
+  unit_price: string
+  total_price: string
+}
+
+export type PharmacySale = {
+  id: number
+  bill_no: string
+  customer_type: 'internal' | 'external'
+  customer_type_label: string
+  patient: number | null
+  patient_name: string
+  customer_name: string
+  created_at: string
+  items: PharmacySaleItem[]
+  item_count: number
+  total_amount: string
+  payment_id: number | null
+  payment_status: 'pending' | 'approved' | null
+  prescription_document_id: number | null
+}
+
+export type PharmacyDashboardStats = {
+  medicines_count: number
+  low_stock_count: number
+  sales_count: number
+  stock_units: number
+  inventory_value: string
+  today_revenue: string
+  monthly_revenue: string
+  recent_sales: PharmacySale[]
+  low_stock_items: PharmacyMedicine[]
+}
+
+export type PharmacyPatientSearchOption = {
+  id: number
+  registration_number: string
+  first_name: string
+  last_name: string
+  age: number | null
+  phone: string
+}
+
+export type PharmacyPrescriptionItem = {
+  medicine: number | null
+  medicine_name: string
+  quantity: string
+  instructions: string
+  pharmacy_medicine: number | null
+  pharmacy_medicine_name: string
+  pharmacy_stock: number
+  pharmacy_sell_price: string
+  matched: boolean
+}
+
+export type PharmacyPrescription = {
+  id: number
+  title: string
+  created_at: string
+  patient: number
+  patient_name: string
+  items: PharmacyPrescriptionItem[]
 }
 
 export type WebsiteSettings = {

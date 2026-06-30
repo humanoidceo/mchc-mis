@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Bill {{ sale.bill_no }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            color: #111;
+            margin: 0;
+            background: #eee;
+        }
+        .toolbar {
+            padding: 12px;
+            text-align: center;
+            background: #0f172a;
+        }
+        .toolbar button,
+        .toolbar a {
+            color: white;
+            background: #334155;
+            border: 0;
+            padding: 9px 14px;
+            border-radius: 7px;
+            text-decoration: none;
+            cursor: pointer;
+            margin: 0 4px;
+        }
+        .bill {
+            width: 190mm;
+            min-height: 135mm;
+            margin: 10mm auto;
+            background: white;
+            padding: 8mm;
+            box-sizing: border-box;
+            border: 1px solid #ddd;
+        }
+        .header {
+            text-align: center;
+            border-bottom: 1px solid #000;
+            padding-bottom: 6px;
+            margin-bottom: 8px;
+        }
+        .header h2 {
+            margin: 0 0 4px;
+            font-size: 20px;
+        }
+        .meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        th, td {
+            border: 1px solid #333;
+            padding: 5px;
+            text-align: left;
+        }
+        th {
+            background: #f2f2f2;
+        }
+        .right {
+            text-align: right;
+        }
+        .total {
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .footer {
+            margin-top: 12px;
+            font-size: 11px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        @page {
+            size: A4 portrait;
+            margin: 8mm;
+        }
+
+        @media print {
+            body {
+                background: white;
+            }
+            .toolbar {
+                display: none;
+            }
+            .bill {
+                margin: 0;
+                width: 194mm;
+                min-height: 135mm;
+                border: none;
+                padding: 4mm;
+            }
+            table, tr, td, th {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <button onclick="window.print()">Print Bill</button>
+        <a href="{% url 'pharmacy:sale_create' %}">New Bill</a>
+        <a href="{% url 'pharmacy:medicine_list' %}">Stock</a>
+    </div>
+
+    <div class="bill">
+        <div class="header">
+            <h2>{{ setting.pharmacy_name }}</h2>
+
+            {% if setting.address %}
+                <div>{{ setting.address }}</div>
+            {% endif %}
+
+            {% if setting.phone %}
+                <div>Phone: {{ setting.phone }}</div>
+            {% endif %}
+
+            <strong>Pharmacy Bill</strong>
+        </div>
+
+        <div class="meta">
+            <div>
+                <div><strong>Bill No:</strong> {{ sale.bill_no }}</div>
+                <div><strong>Customer:</strong> {{ sale.customer_name|default:"Walk-in Customer" }}</div>
+            </div>
+            <div>
+                <div><strong>Date:</strong> {{ sale.created_at|date:"Y-m-d" }}</div>
+                <div><strong>Time:</strong> {{ sale.created_at|date:"H:i" }}</div>
+            </div>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Medicine</th>
+                    <th>Generic</th>
+                    <th class="right">Qty</th>
+                    <th class="right">Price</th>
+                    <th class="right">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in sale.items.all %}
+                <tr>
+                    <td>{{ forloop.counter }}</td>
+                    <td>{{ item.medicine_name }}</td>
+                    <td>{{ item.generic_name }}</td>
+                    <td class="right">{{ item.quantity }}</td>
+                    <td class="right">{{ item.unit_price }}</td>
+                    <td class="right">{{ item.total_price }}</td>
+                </tr>
+                {% endfor %}
+
+                <tr>
+                    <td colspan="5" class="right total">Grand Total</td>
+                    <td class="right total">{{ sale.total_amount }}</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="footer">
+            <div>Thank you.</div>
+            <div>Signature: __________________</div>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,6 +1,8 @@
 import { NavLink, Route, Routes, Navigate } from 'react-router-dom'
 
 import { useAuth } from '../auth/useAuth'
+import { LaboratoryDashboardLayout } from '../laboratory/LaboratoryDashboardLayout'
+import { PharmacyDashboardLayout } from '../pharmacy/PharmacyDashboardLayout'
 import { UserAdminPage } from '../users/UserAdminPage'
 import { WebsiteContentEditorPage } from '../website/WebsiteContentEditorPage'
 import { ClinicWorkspace } from './ClinicWorkspace'
@@ -18,6 +20,15 @@ const links = [
 
 export function DashboardLayout() {
   const { user, logout, hasPermission } = useAuth()
+
+  if (user?.profile?.role === 'pharmacist') {
+    return <PharmacyDashboardLayout />
+  }
+
+  if (user?.profile?.role === 'laboratory') {
+    return <LaboratoryDashboardLayout />
+  }
+
   const visibleLinks = links.filter((link) => {
     if (user?.profile?.role === 'receptionist' && link.to === '/patients') return false
     if (user?.profile?.role === 'receptionist' && link.to === '/documents') return false

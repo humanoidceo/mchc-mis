@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'accounts',
     'clinic',
+    'pharmacy',
 ]
 
 MIDDLEWARE = [

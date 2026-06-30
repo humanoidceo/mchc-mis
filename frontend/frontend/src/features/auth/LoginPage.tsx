@@ -5,6 +5,12 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import { ApiError } from '../../api/client'
 import { useAuth } from './useAuth'
 
+function landingPathForRole(role?: string | null) {
+  if (role === 'pharmacist') return '/pharmacy/dashboard'
+  if (role === 'laboratory') return '/laboratory/dashboard'
+  return '/dashboard'
+}
+
 export function LoginPage() {
   const { login, user } = useAuth()
   const navigate = useNavigate()
@@ -15,7 +21,7 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false)
 
   if (user) {
-    return <Navigate to="/dashboard" replace />
+    return <Navigate to={landingPathForRole(user.profile?.role)} replace />
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -23,8 +29,8 @@ export function LoginPage() {
     setError('')
     setSubmitting(true)
     try {
-      await login(email, password)
-      navigate('/dashboard', { replace: true })
+      const loggedInUser = await login(email, password)
+      navigate(landingPathForRole(loggedInUser.profile?.role), { replace: true })
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Unable to login')
     } finally {

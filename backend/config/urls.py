@@ -24,7 +24,9 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('accounts.urls')),
     path('api/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/pharmacy/', include('pharmacy.api_urls')),
     path('api/', include('clinic.urls')),
+    path("pharmacy/", include("pharmacy.urls")),
 ]
 
 if settings.DEBUG:

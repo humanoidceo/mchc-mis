@@ -1,0 +1,25 @@
+# From your local computer, upload the zip:
+scp mchc_mis_pharmacy_ready_upload.zip root@195.35.20.176:/var/www/mchc-mis/
+
+# SSH into your server:
+ssh root@195.35.20.176
+
+# Go to project:
+cd /var/www/mchc-mis
+
+# Unzip:
+unzip mchc_mis_pharmacy_ready_upload.zip
+
+# Activate virtual environment:
+source venv/bin/activate
+
+# Run migrations and create Pharmacist group:
+python manage.py migrate
+python manage.py setup_pharmacy
+
+# Restart your app service.
+# Use the service name that your project uses, for example:
+sudo systemctl restart gunicorn
+
+# If your service has another name, check:
+sudo systemctl list-units --type=service | grep -i gunicorn

@@ -1,0 +1,15 @@
+{% extends "pharmacy/base_pharmacy.html" %}
+
+{% block content %}
+<h2>Pharmacy Settings</h2>
+<p>
+    The default profit percentage is used when a pharmacist adds a new medicine.
+    Example: buy price 100 with 20% profit gives sell price 120.
+</p>
+
+<form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button class="btn" type="submit">Save Settings</button>
+</form>
+{% endblock %}

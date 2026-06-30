@@ -79,6 +79,13 @@ class ClinicalDocument(TimestampedModel):
     title = models.CharField(max_length=160)
     payload = models.JSONField(default=dict, blank=True)
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    payment = models.OneToOneField(
+        Payment,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='clinical_document',
+    )
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='clinical_documents')
 
     class Meta:

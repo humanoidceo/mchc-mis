@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>MCHC-MIS Pharmacy</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            background: #f5f7fb;
+            color: #111827;
+        }
+        .nav {
+            background: #0f172a;
+            padding: 12px 18px;
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+        .nav a {
+            color: white;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 24px auto;
+            background: white;
+            padding: 22px;
+            border-radius: 12px;
+            box-shadow: 0 8px 30px rgba(15,23,42,.08);
+        }
+        .btn {
+            display: inline-block;
+            background: #0f172a;
+            color: white;
+            padding: 9px 14px;
+            border-radius: 8px;
+            text-decoration: none;
+            border: 0;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .btn-light {
+            background: #e5e7eb;
+            color: #111827;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 14px;
+        }
+        th, td {
+            border-bottom: 1px solid #e5e7eb;
+            padding: 10px;
+            text-align: left;
+            vertical-align: top;
+        }
+        th {
+            background: #f9fafb;
+        }
+        input, select {
+            width: 100%;
+            padding: 9px;
+            border: 1px solid #cbd5e1;
+            border-radius: 7px;
+            box-sizing: border-box;
+        }
+        label {
+            font-weight: 700;
+            display: block;
+            margin: 12px 0 6px;
+        }
+        .messages {
+            margin-bottom: 14px;
+        }
+        .message {
+            padding: 10px;
+            border-radius: 7px;
+            margin-bottom: 8px;
+            background: #eef2ff;
+        }
+        .cards {
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+        .card {
+            flex: 1;
+            min-width: 180px;
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 18px;
+        }
+        .card strong {
+            font-size: 30px;
+            display: block;
+            margin-top: 8px;
+        }
+        .actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="nav">
+        <a href="{% url 'pharmacy:dashboard' %}">Pharmacy</a>
+        <a href="{% url 'pharmacy:medicine_list' %}">Medicine Stock</a>
+        <a href="{% url 'pharmacy:medicine_create' %}">Add Medicine</a>
+        <a href="{% url 'pharmacy:sale_create' %}">New Bill</a>
+        <a href="{% url 'pharmacy:sale_list' %}">Bills</a>
+        <a href="{% url 'pharmacy:settings' %}">Settings</a>
+    </div>
+
+    <div class="container">
+        {% if messages %}
+            <div class="messages">
+                {% for message in messages %}
+                    <div class="message">{{ message }}</div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>

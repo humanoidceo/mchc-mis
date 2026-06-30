@@ -1,0 +1,18 @@
+{% extends "pharmacy/base_pharmacy.html" %}
+
+{% block content %}
+<h2>{{ title }}</h2>
+
+<form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+
+    <p>
+        <strong>Sell price</strong> is calculated automatically:
+        buy price + profit percentage.
+    </p>
+
+    <button class="btn" type="submit">Save</button>
+    <a class="btn btn-light" href="{% url 'pharmacy:medicine_list' %}">Cancel</a>
+</form>
+{% endblock %}

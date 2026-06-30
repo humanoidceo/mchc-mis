@@ -103,7 +103,7 @@ class ClinicalDocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model = ClinicalDocument
         fields = '__all__'
-        read_only_fields = ('created_by', 'created_at', 'updated_at')
+        read_only_fields = ('created_by', 'payment', 'created_at', 'updated_at')
 
 
 class MedicineSerializer(serializers.ModelSerializer):
