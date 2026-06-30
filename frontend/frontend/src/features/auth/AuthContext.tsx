@@ -28,8 +28,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       user,
       loading,
-      async login(username, password) {
-        const loggedInUser = await loginRequest(username, password)
+      async login(email, password) {
+        const loggedInUser = await loginRequest(email, password)
         setUser(loggedInUser)
       },
       logout() {

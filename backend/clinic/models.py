@@ -19,6 +19,7 @@ class Patient(TimestampedModel):
     registration_number = models.CharField(max_length=32, unique=True)
     first_name = models.CharField(max_length=80)
     last_name = models.CharField(max_length=80, blank=True)
+    age = models.PositiveIntegerField(null=True, blank=True)
     gender = models.CharField(max_length=16, choices=Gender.choices)
     date_of_birth = models.DateField(null=True, blank=True)
     phone = models.CharField(max_length=32, blank=True)
@@ -38,8 +39,20 @@ class Payment(TimestampedModel):
         PENDING = 'pending', 'Pending'
         APPROVED = 'approved', 'Approved'
 
+    class PaymentType(models.TextChoices):
+        FULL = 'full', 'Full payment'
+        FREE = 'free', 'Free'
+        DISCOUNT = 'discount', 'Discount'
+
     patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='payments')
     service = models.CharField(max_length=120)
+    department = models.CharField(max_length=120, blank=True)
+    doctor_name = models.CharField(max_length=120, blank=True)
+    patient_age = models.PositiveIntegerField(null=True, blank=True)
+    doctor_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    payment_type = models.CharField(max_length=16, choices=PaymentType.choices, default=PaymentType.FULL)
+    discount_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
     notes = models.TextField(blank=True)
@@ -93,6 +106,20 @@ class Medicine(TimestampedModel):
         return self.name
 
 
+class LabTest(TimestampedModel):
+    name = models.CharField(max_length=160, unique=True)
+    normal_range_from = models.CharField(max_length=80, blank=True)
+    normal_range_to = models.CharField(max_length=80, blank=True)
+    unit = models.CharField(max_length=40, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ('name',)
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class MedicineStockMovement(TimestampedModel):
     class MovementType(models.TextChoices):
         IN = 'in', 'Stock in'
@@ -120,3 +147,66 @@ class MedicineStockMovement(TimestampedModel):
             else:
                 medicine.current_stock = self.quantity
             medicine.save(update_fields=['current_stock', 'updated_at'])
+
+
+def website_page_image_upload_path(instance, filename: str) -> str:
+    return f'website/pages/{instance.page}/{instance.language}/{filename}'
+
+
+def website_logo_upload_path(instance, filename: str) -> str:
+    return f'website/logo/{filename}'
+
+
+class WebsitePageContent(TimestampedModel):
+    class Page(models.TextChoices):
+        HOME = 'home', 'Home'
+        ABOUT = 'about', 'About'
+        MISSION = 'mission', 'Our mission'
+        VISION = 'vision', 'Our vision'
+        SERVICES = 'services', 'Services'
+        CONTACT = 'contact', 'Contact'
+
+    class Language(models.TextChoices):
+        ENGLISH = 'en', 'English'
+        DARI = 'fa', 'Dari'
+        PASHTO = 'ps', 'Pashto'
+
+    page = models.CharField(max_length=32, choices=Page.choices)
+    language = models.CharField(max_length=2, choices=Language.choices)
+    content = models.JSONField(default=dict, blank=True)
+    image_url = models.CharField(max_length=500, blank=True)
+    image_file = models.FileField(upload_to=website_page_image_upload_path, blank=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='updated_website_pages',
+    )
+
+    class Meta:
+        ordering = ('page', 'language')
+        constraints = (
+            models.UniqueConstraint(fields=('page', 'language'), name='unique_website_page_language'),
+        )
+
+    def __str__(self) -> str:
+        return f'{self.get_page_display()} ({self.get_language_display()})'
+
+
+class WebsiteSettings(TimestampedModel):
+    logo_url = models.CharField(max_length=500, blank=True)
+    logo_file = models.FileField(upload_to=website_logo_upload_path, blank=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='updated_website_settings',
+    )
+
+    class Meta:
+        verbose_name_plural = 'website settings'
+
+    def __str__(self) -> str:
+        return 'Website settings'

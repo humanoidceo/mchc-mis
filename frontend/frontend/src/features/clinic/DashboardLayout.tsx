@@ -2,21 +2,27 @@ import { NavLink, Route, Routes, Navigate } from 'react-router-dom'
 
 import { useAuth } from '../auth/useAuth'
 import { UserAdminPage } from '../users/UserAdminPage'
+import { WebsiteContentEditorPage } from '../website/WebsiteContentEditorPage'
 import { ClinicWorkspace } from './ClinicWorkspace'
 import { SectionHeader } from '../../components/ui'
 
 const links = [
   { to: '/dashboard', label: 'Dashboard', permission: null },
   { to: '/patients', label: 'Patients', permission: 'patients.view' },
-  { to: '/payments', label: 'Payments', permission: 'payments.view' },
+  { to: '/payments', label: 'Reception', permission: 'payments.view' },
   { to: '/documents', label: 'Clinical documents', permission: null },
   { to: '/stock', label: 'Medicine stock', permission: 'stock.manage' },
+  { to: '/website-content', label: 'Website content', permission: 'website.content.manage' },
   { to: '/users', label: 'Users', permission: 'users.manage' },
 ]
 
 export function DashboardLayout() {
   const { user, logout, hasPermission } = useAuth()
-  const visibleLinks = links.filter((link) => !link.permission || hasPermission(link.permission))
+  const visibleLinks = links.filter((link) => {
+    if (user?.profile?.role === 'receptionist' && link.to === '/patients') return false
+    if (user?.profile?.role === 'receptionist' && link.to === '/documents') return false
+    return !link.permission || hasPermission(link.permission)
+  })
 
   return (
     <div className="min-h-screen bg-sky-50 text-slate-900">
@@ -58,6 +64,7 @@ export function DashboardLayout() {
             <Route path="/payments" element={<ClinicWorkspace view="payments" />} />
             <Route path="/documents" element={<ClinicWorkspace view="documents" />} />
             <Route path="/stock" element={<ClinicWorkspace view="stock" />} />
+            <Route path="/website-content" element={<WebsiteContentEditorPage />} />
             <Route path="/users" element={<UserAdminPage />} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="*" element={<SectionHeader title="Not found" subtitle="The requested MIS page does not exist." />} />

@@ -8,8 +8,9 @@ import { useAuth } from './useAuth'
 export function LoginPage() {
   const { login, user } = useAuth()
   const navigate = useNavigate()
-  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -22,7 +23,7 @@ export function LoginPage() {
     setError('')
     setSubmitting(true)
     try {
-      await login(username, password)
+      await login(email, password)
       navigate('/dashboard', { replace: true })
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Unable to login')
@@ -44,26 +45,50 @@ export function LoginPage() {
           {error ? <div className="mb-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
 
           <label className="mb-4 block">
-            <span className="mb-1 block text-sm font-medium text-slate-700">Username</span>
+            <span className="mb-1 block text-sm font-medium text-slate-700">Email</span>
             <input
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
               className="w-full rounded border border-sky-200 px-3 py-2 outline-none focus:border-pink-400 focus:ring-2 focus:ring-pink-100"
-              autoComplete="username"
+              type="email"
+              autoComplete="email"
               required
             />
           </label>
 
           <label className="mb-6 block">
             <span className="mb-1 block text-sm font-medium text-slate-700">Password</span>
-            <input
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              className="w-full rounded border border-sky-200 px-3 py-2 outline-none focus:border-pink-400 focus:ring-2 focus:ring-pink-100"
-              type="password"
-              autoComplete="current-password"
-              required
-            />
+            <span className="relative block">
+              <input
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className="w-full rounded border border-sky-200 px-3 py-2 pr-11 outline-none focus:border-pink-400 focus:ring-2 focus:ring-pink-100"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                required
+              />
+              <button
+                type="button"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showPassword}
+                onClick={() => setShowPassword((visible) => !visible)}
+                className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r text-slate-500 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-pink-100"
+              >
+                {showPassword ? (
+                  <svg aria-hidden="true" className="h-5 w-5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24">
+                    <path d="M3 3l18 18" />
+                    <path d="M10.6 10.6A2 2 0 0 0 12 14a2 2 0 0 0 1.4-.6" />
+                    <path d="M9.9 4.2A9.5 9.5 0 0 1 12 4c5 0 8.3 4.1 9.5 6a11.8 11.8 0 0 1-2.3 2.8" />
+                    <path d="M6.6 6.6A12.2 12.2 0 0 0 2.5 10c1.2 1.9 4.5 6 9.5 6a9 9 0 0 0 4-.9" />
+                  </svg>
+                ) : (
+                  <svg aria-hidden="true" className="h-5 w-5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24">
+                    <path d="M2.5 12S5.8 6 12 6s9.5 6 9.5 6-3.3 6-9.5 6-9.5-6-9.5-6Z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                )}
+              </button>
+            </span>
           </label>
 
           <button

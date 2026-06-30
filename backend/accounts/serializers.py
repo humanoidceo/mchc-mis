@@ -30,7 +30,23 @@ class CurrentUserSerializer(serializers.ModelSerializer):
 
 
 class MchcTokenObtainPairSerializer(TokenObtainPairSerializer):
+    email = serializers.EmailField(write_only=True)
+    username = serializers.CharField(required=False, write_only=True)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields[self.username_field].required = False
+
     def validate(self, attrs):
+        email = attrs.pop('email', '').strip()
+        if email:
+            try:
+                user = User.objects.get(email__iexact=email, is_active=True)
+            except User.DoesNotExist as exc:
+                raise serializers.ValidationError({'email': 'No active user found with this email address.'}) from exc
+            except User.MultipleObjectsReturned as exc:
+                raise serializers.ValidationError({'email': 'Multiple users use this email address. Contact an administrator.'}) from exc
+            attrs[self.username_field] = user.get_username()
         data = super().validate(attrs)
         data['user'] = CurrentUserSerializer(self.user).data
         return data

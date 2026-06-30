@@ -42,12 +42,44 @@ export function UserAdminPage() {
     loadData().catch(() => setError('Unable to load users.'))
   }, [])
 
+  useEffect(() => {
+    if (!editingId && catalog.permissions.length && form.allowed_permissions.length === 0) {
+      setForm((current) => ({
+        ...current,
+        allowed_permissions: catalog.permissions
+          .filter((permission) => permission.default_roles.includes(current.role))
+          .map((permission) => permission.code),
+      }))
+    }
+  }, [catalog.permissions, editingId, form.allowed_permissions.length])
+
   const groupedPermissions = useMemo(() => {
     return catalog.permissions.reduce<Record<string, PermissionDefinition[]>>((groups, permission) => {
       groups[permission.group] = [...(groups[permission.group] ?? []), permission]
       return groups
     }, {})
   }, [catalog.permissions])
+
+  function defaultPermissionsForRole(role: RoleCode) {
+    return catalog.permissions
+      .filter((permission) => permission.default_roles.includes(role))
+      .map((permission) => permission.code)
+  }
+
+  function resetForm() {
+    setForm({
+      ...emptyUser,
+      allowed_permissions: defaultPermissionsForRole(emptyUser.role),
+    })
+  }
+
+  function changeRole(role: RoleCode) {
+    setForm({
+      ...form,
+      role,
+      allowed_permissions: defaultPermissionsForRole(role),
+    })
+  }
 
   function togglePermission(code: string) {
     const hasPermission = form.allowed_permissions.includes(code)
@@ -88,7 +120,7 @@ export function UserAdminPage() {
       } else {
         await apiFetch<User>('/auth/users/', { method: 'POST', body: JSON.stringify(payload) })
       }
-      setForm(emptyUser)
+      resetForm()
       setEditingId(null)
       await loadData()
     } catch {
@@ -111,7 +143,7 @@ export function UserAdminPage() {
             <Field label="Email"><input className={inputClassName} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} type="email" /></Field>
             <Field label="Phone"><input className={inputClassName} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
             <Field label="Role">
-              <select className={inputClassName} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as RoleCode })}>
+              <select className={inputClassName} value={form.role} onChange={(e) => changeRole(e.target.value as RoleCode)}>
                 {catalog.roles.map((role) => <option key={role.code} value={role.code}>{role.label}</option>)}
               </select>
             </Field>
@@ -139,7 +171,7 @@ export function UserAdminPage() {
 
           <div className="flex gap-2">
             <button className={buttonClassName}>{editingId ? 'Update user' : 'Create user'}</button>
-            {editingId ? <button type="button" className="rounded border border-zinc-300 px-4 py-2 text-sm font-medium" onClick={() => { setEditingId(null); setForm(emptyUser) }}>Cancel</button> : null}
+            {editingId ? <button type="button" className="rounded border border-zinc-300 px-4 py-2 text-sm font-medium" onClick={() => { setEditingId(null); resetForm() }}>Cancel</button> : null}
           </div>
         </form>
       </Panel>

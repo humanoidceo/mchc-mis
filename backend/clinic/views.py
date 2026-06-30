@@ -1,18 +1,25 @@
+from datetime import timedelta
+
 from django.utils import timezone
-from django.db.models import F
+from django.db import transaction
+from django.db.models import Count, F, Sum
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from accounts.access import get_user_permissions, user_has_permission
-from .models import ClinicalDocument, Medicine, MedicineStockMovement, Patient, Payment
+from .models import ClinicalDocument, LabTest, Medicine, MedicineStockMovement, Patient, Payment, WebsitePageContent, WebsiteSettings
 from .serializers import (
     ClinicalDocumentSerializer,
+    LabTestSerializer,
     MedicineSerializer,
     MedicineStockMovementSerializer,
     PatientSerializer,
     PaymentSerializer,
+    WebsitePageContentSerializer,
+    WebsiteSettingsSerializer,
 )
 
 
@@ -25,6 +32,53 @@ DOCUMENT_CREATE_PERMISSIONS = {
     ClinicalDocument.DocumentType.VACCINATION: 'documents.vaccination.create',
     ClinicalDocument.DocumentType.RUTF: 'documents.rutf.create',
 }
+
+
+def dashboard_period_start(period: str):
+    now = timezone.localtime(timezone.now())
+    if period == 'annual':
+        return now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0), 'Annual'
+    if period == 'monthly':
+        return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0), 'Monthly'
+    if period == 'weekly':
+        start = now - timedelta(days=now.weekday())
+        return start.replace(hour=0, minute=0, second=0, microsecond=0), 'Weekly'
+    return now.replace(hour=0, minute=0, second=0, microsecond=0), 'Daily'
+
+
+def next_patient_registration_number() -> str:
+    numeric_registration_numbers = [
+        int(registration_number)
+        for registration_number in Patient.objects.select_for_update().values_list('registration_number', flat=True)
+        if registration_number.isdigit()
+    ]
+    return str(max(numeric_registration_numbers, default=0) + 1)
+
+
+def search_response(queryset, serializer_class, request, search_fields: tuple[str, ...], limit: int = 5):
+    search = request.query_params.get('q', '').strip()
+    try:
+        offset = max(0, int(request.query_params.get('offset', '0')))
+    except ValueError:
+        offset = 0
+
+    if search:
+        from django.db.models import Q
+
+        condition = Q()
+        for field in search_fields:
+            condition |= Q(**{f'{field}__icontains': search})
+        queryset = queryset.filter(condition)
+
+    total = queryset.count()
+    results = queryset[offset:offset + limit]
+    next_offset = offset + limit if offset + limit < total else None
+    return Response(
+        {
+            'results': serializer_class(results, many=True, context={'request': request}).data,
+            'next_offset': next_offset,
+        }
+    )
 
 
 class PermissionedModelViewSet(viewsets.ModelViewSet):
@@ -54,7 +108,15 @@ class PatientViewSet(PermissionedModelViewSet):
     }
 
     def perform_create(self, serializer):
-        serializer.save(registered_by=self.request.user)
+        with transaction.atomic():
+            serializer.save(
+                registered_by=self.request.user,
+                registration_number=next_patient_registration_number(),
+            )
+
+    @action(detail=False, methods=['get'])
+    def search(self, request):
+        return search_response(self.get_queryset(), self.get_serializer_class(), request, ('registration_number', 'first_name', 'last_name'))
 
 
 class PaymentViewSet(PermissionedModelViewSet):
@@ -67,10 +129,35 @@ class PaymentViewSet(PermissionedModelViewSet):
         'partial_update': 'payments.approve',
         'destroy': 'payments.approve',
         'approve': 'payments.approve',
+        'reception_bill': 'payments.approve',
     }
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+    @action(detail=False, methods=['post'], url_path='reception-bill')
+    def reception_bill(self, request):
+        patient_data = request.data.get('patient') or {}
+        payment_data = request.data.get('payment') or {}
+
+        with transaction.atomic():
+            patient_serializer = PatientSerializer(data=patient_data, context=self.get_serializer_context())
+            patient_serializer.is_valid(raise_exception=True)
+            patient = patient_serializer.save(
+                registered_by=request.user,
+                registration_number=next_patient_registration_number(),
+            )
+
+            payment_serializer = self.get_serializer(
+                data={
+                    **payment_data,
+                    'patient': patient.id,
+                },
+            )
+            payment_serializer.is_valid(raise_exception=True)
+            payment = payment_serializer.save(created_by=request.user)
+
+        return Response(self.get_serializer(payment).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
@@ -122,7 +209,37 @@ class ClinicalDocumentViewSet(PermissionedModelViewSet):
 class MedicineViewSet(PermissionedModelViewSet):
     queryset = Medicine.objects.all()
     serializer_class = MedicineSerializer
-    permission_map = {'*': 'stock.manage'}
+    permission_map = {
+        'create': 'stock.manage',
+        'update': 'stock.manage',
+        'partial_update': 'stock.manage',
+        'destroy': 'stock.manage',
+    }
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if self.action in {'list', 'retrieve', 'search'}:
+            queryset = queryset.filter(is_active=True)
+        return queryset
+
+    @action(detail=False, methods=['get'])
+    def search(self, request):
+        return search_response(self.get_queryset(), self.get_serializer_class(), request, ('name', 'unit'))
+
+
+class LabTestViewSet(PermissionedModelViewSet):
+    queryset = LabTest.objects.all()
+    serializer_class = LabTestSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if self.action in {'list', 'retrieve', 'search'}:
+            queryset = queryset.filter(is_active=True)
+        return queryset
+
+    @action(detail=False, methods=['get'])
+    def search(self, request):
+        return search_response(self.get_queryset(), self.get_serializer_class(), request, ('name', 'unit'))
 
 
 class MedicineStockMovementViewSet(PermissionedModelViewSet):
@@ -138,12 +255,110 @@ class DashboardViewSet(viewsets.ViewSet):
     permission_classes = (IsAuthenticated,)
 
     def list(self, request):
+        period = request.query_params.get('period', 'daily')
+        if period not in {'daily', 'weekly', 'monthly', 'annual'}:
+            period = 'daily'
+
+        start_at, period_label = dashboard_period_start(period)
+        patients = Patient.objects.filter(created_at__gte=start_at)
+        payments = Payment.objects.filter(created_at__gte=start_at)
+
+        pending_payments = payments.filter(status=Payment.Status.PENDING).count()
+        approved_payments = payments.filter(status=Payment.Status.APPROVED).count()
+        pending_amount = payments.filter(status=Payment.Status.PENDING).aggregate(total=Sum('amount'))['total'] or 0
+        approved_amount = payments.filter(status=Payment.Status.APPROVED).aggregate(total=Sum('amount'))['total'] or 0
+
+        departments = [
+            {
+                'department': row['department'] or 'Unassigned',
+                'patients': row['patients'],
+                'payments': row['payments'],
+                'amount': str(row['amount'] or 0),
+            }
+            for row in payments.values('department').annotate(
+                patients=Count('patient', distinct=True),
+                payments=Count('id'),
+                amount=Sum('amount'),
+            ).order_by('department')
+        ]
+
         return Response(
             {
-                'patients': Patient.objects.count(),
-                'pending_payments': Payment.objects.filter(status=Payment.Status.PENDING).count(),
-                'approved_payments': Payment.objects.filter(status=Payment.Status.APPROVED).count(),
+                'period': period,
+                'period_label': period_label,
+                'patients': patients.count(),
+                'full_paid': payments.filter(payment_type=Payment.PaymentType.FULL).count(),
+                'free': payments.filter(payment_type=Payment.PaymentType.FREE).count(),
+                'discounted': payments.filter(payment_type=Payment.PaymentType.DISCOUNT).count(),
+                'pending_payments': pending_payments,
+                'approved_payments': approved_payments,
+                'total_payments': pending_payments + approved_payments,
+                'pending_amount': str(pending_amount),
+                'approved_amount': str(approved_amount),
+                'total_amount': str(pending_amount + approved_amount),
+                'departments': departments,
                 'documents': ClinicalDocument.objects.count(),
                 'low_stock_medicines': Medicine.objects.filter(current_stock__lte=F('low_stock_threshold')).count(),
             }
         )
+
+
+class WebsitePageContentViewSet(viewsets.ModelViewSet):
+    queryset = WebsitePageContent.objects.select_related('updated_by')
+    serializer_class = WebsitePageContentSerializer
+    parser_classes = (JSONParser, FormParser, MultiPartParser)
+
+    def get_permissions(self):
+        if self.action in {'list', 'retrieve'}:
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        if request.method not in {'GET', 'HEAD', 'OPTIONS'} and not user_has_permission(request.user, 'website.content.manage'):
+            self.permission_denied(request, message='Missing permission: website.content.manage')
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        page = self.request.query_params.get('page')
+        language = self.request.query_params.get('language')
+        if page:
+            queryset = queryset.filter(page=page)
+        if language:
+            queryset = queryset.filter(language=language)
+        return queryset
+
+    def perform_create(self, serializer):
+        serializer.save(updated_by=self.request.user)
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
+
+
+class WebsiteSettingsViewSet(viewsets.ViewSet):
+    parser_classes = (JSONParser, FormParser, MultiPartParser)
+
+    def get_permissions(self):
+        if self.action in {'list', 'retrieve'}:
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        if request.method not in {'GET', 'HEAD', 'OPTIONS'} and not user_has_permission(request.user, 'website.content.manage'):
+            self.permission_denied(request, message='Missing permission: website.content.manage')
+
+    def get_settings(self):
+        settings, _created = WebsiteSettings.objects.select_related('updated_by').get_or_create(pk=1)
+        return settings
+
+    def list(self, request):
+        return Response(WebsiteSettingsSerializer(self.get_settings()).data)
+
+    @action(detail=False, methods=['patch', 'put'], url_path='current')
+    def current(self, request):
+        settings = self.get_settings()
+        serializer = WebsiteSettingsSerializer(settings, data=request.data, partial=request.method == 'PATCH')
+        serializer.is_valid(raise_exception=True)
+        serializer.save(updated_by=request.user)
+        return Response(serializer.data)

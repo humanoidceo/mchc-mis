@@ -41,7 +41,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   const token = getAccessToken()
   const headers = new Headers(options.headers)
 
-  if (!headers.has('Content-Type') && options.body) {
+  if (!headers.has('Content-Type') && options.body && !(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json')
   }
   if (token) {
@@ -62,10 +62,10 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   return data as T
 }
 
-export async function login(username: string, password: string): Promise<User> {
+export async function login(email: string, password: string): Promise<User> {
   const data = await apiFetch<LoginResponse>('/auth/login/', {
     method: 'POST',
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ email, password }),
   })
   authStorage.setTokens(data.access, data.refresh)
   return data.user

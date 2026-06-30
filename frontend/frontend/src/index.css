@@ -22,6 +22,11 @@ textarea {
 }
 
 @media print {
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+
   body * {
     visibility: hidden;
   }
@@ -36,6 +41,33 @@ textarea {
     inset: 0;
     width: 100%;
     background: #fff;
+  }
+
+  .half-a4-bill {
+    box-sizing: border-box;
+    width: 210mm;
+    min-height: 148.5mm;
+    max-height: 148.5mm;
+    overflow: hidden;
+    border: 0 !important;
+    border-radius: 0 !important;
+    padding: 10mm !important;
+  }
+
+  .a4-report {
+    box-sizing: border-box;
+    width: 210mm;
+    min-height: 297mm;
+    border: 0 !important;
+    border-radius: 0 !important;
+    padding: 10mm !important;
+  }
+
+  .a4-report,
+  .a4-report * {
+    color-adjust: exact;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
 
   .no-print {

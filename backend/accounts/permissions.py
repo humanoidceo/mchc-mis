@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 class Role:
     SUPER_ADMIN = 'super_admin'
+    WEBSITE_CONTENT_EDITOR = 'website_content_editor'
     RECEPTIONIST = 'receptionist'
     DOCTOR = 'doctor'
     LABORATORY = 'laboratory'
@@ -16,6 +17,7 @@ class Role:
 
 ROLE_CHOICES = (
     (Role.SUPER_ADMIN, 'Super admin'),
+    (Role.WEBSITE_CONTENT_EDITOR, 'Website content editor'),
     (Role.RECEPTIONIST, 'Receptionist'),
     (Role.DOCTOR, 'Doctor'),
     (Role.LABORATORY, 'Laboratory'),
@@ -36,6 +38,7 @@ class PermissionDefinition:
 
 PERMISSION_DEFINITIONS = (
     PermissionDefinition('users.manage', 'Manage users and permissions', 'Administration', (Role.SUPER_ADMIN,)),
+    PermissionDefinition('website.content.manage', 'Edit website pages, logo, and pictures', 'Website', (Role.SUPER_ADMIN, Role.WEBSITE_CONTENT_EDITOR)),
     PermissionDefinition('patients.view', 'View patients', 'Reception', (Role.SUPER_ADMIN, Role.RECEPTIONIST, Role.DOCTOR, Role.LABORATORY, Role.PHARMACIST, Role.MIDWIFE, Role.VACCINATOR, Role.MALNUTRITION)),
     PermissionDefinition('patients.register', 'Register patients', 'Reception', (Role.SUPER_ADMIN, Role.RECEPTIONIST)),
     PermissionDefinition('payments.view', 'View payments', 'Finance', (Role.SUPER_ADMIN, Role.RECEPTIONIST)),
