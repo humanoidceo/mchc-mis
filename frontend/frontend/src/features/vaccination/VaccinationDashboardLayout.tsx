@@ -4,15 +4,15 @@ import { Navigate, NavLink, Route, Routes } from 'react-router-dom'
 import { SectionHeader } from '../../components/ui'
 import { AccountSettingsPage } from '../account/AccountSettingsPage'
 import { useAuth } from '../auth/useAuth'
-import { LaboratoryWorkspace } from './LaboratoryWorkspace'
+import { VaccinationWorkspace } from './VaccinationWorkspace'
 
 const links = [
-  { to: '/laboratory/dashboard', label: 'Dashboard' },
-  { to: '/laboratory/billing', label: 'Billing' },
-  { to: '/laboratory/account', label: 'My account' },
+  { to: '/vaccination/dashboard', label: 'Dashboard' },
+  { to: '/vaccination/records', label: 'Vaccinations' },
+  { to: '/vaccination/account', label: 'My account' },
 ]
 
-export function LaboratoryDashboardLayout() {
+export function VaccinationDashboardLayout() {
   const { user, logout } = useAuth()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
@@ -27,7 +27,7 @@ export function LaboratoryDashboardLayout() {
               <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-12 w-12 rounded-2xl object-cover" />
               <div>
                 <p className="text-sm font-semibold text-sky-600">MCHC</p>
-                <p className="text-xs text-zinc-500">Management Information System</p>
+                <p className="text-xs text-zinc-500">Vaccination Department</p>
               </div>
             </div>
             <button className="rounded border border-pink-200 px-2 py-1 text-xs font-medium lg:hidden" onClick={() => setMobileMenuOpen(false)}>Close</button>
@@ -65,12 +65,12 @@ export function LaboratoryDashboardLayout() {
 
         <main className="mx-auto max-w-7xl px-4 py-6">
           <Routes>
-            <Route path="/laboratory" element={<Navigate to="/laboratory/dashboard" replace />} />
-            <Route path="/laboratory/dashboard" element={<LaboratoryWorkspace view="dashboard" />} />
-            <Route path="/laboratory/billing" element={<LaboratoryWorkspace view="billing" />} />
-            <Route path="/laboratory/account" element={<AccountSettingsPage />} />
-            <Route path="/" element={<Navigate to="/laboratory/dashboard" replace />} />
-            <Route path="*" element={<SectionHeader title="Not found" subtitle="The requested laboratory page does not exist." />} />
+            <Route path="/vaccination" element={<Navigate to="/vaccination/dashboard" replace />} />
+            <Route path="/vaccination/dashboard" element={<VaccinationWorkspace view="dashboard" />} />
+            <Route path="/vaccination/records" element={<VaccinationWorkspace view="records" />} />
+            <Route path="/vaccination/account" element={<AccountSettingsPage />} />
+            <Route path="/" element={<Navigate to="/vaccination/dashboard" replace />} />
+            <Route path="*" element={<SectionHeader title="Not found" subtitle="The requested vaccination page does not exist." />} />
           </Routes>
         </main>
       </div>

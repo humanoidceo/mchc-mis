@@ -174,10 +174,13 @@ class PharmacyMedicineViewSet(PharmacyBaseViewSet, viewsets.ModelViewSet):
         queryset = Medicine.objects.filter(pharmacist=self.request.user).order_by("name")
         search = self.request.query_params.get("q", "").strip()
         available_only = self.request.query_params.get("available")
+        low_stock_only = self.request.query_params.get("low_stock")
         if search:
             queryset = queryset.filter(Q(name__icontains=search) | Q(generic_name__icontains=search))
         if available_only in {"1", "true", "yes"}:
             queryset = queryset.filter(quantity__gt=0)
+        if low_stock_only in {"1", "true", "yes"}:
+            queryset = queryset.filter(quantity__lt=10)
         return queryset
 
     def perform_create(self, serializer):
@@ -261,13 +264,14 @@ class PharmacyPatientViewSet(PharmacyBaseViewSet, mixins.ListModelMixin):
 class PharmacySaleViewSet(
     PharmacyBaseViewSet,
     mixins.CreateModelMixin,
+    mixins.DestroyModelMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
 ):
     serializer_class = PharmacySaleSerializer
 
     def get_queryset(self):
-        return (
+        queryset = (
             Sale.objects.filter(pharmacist=self.request.user)
             .select_related("patient", "payment", "prescription_document")
             .prefetch_related(
@@ -275,6 +279,16 @@ class PharmacySaleViewSet(
             )
             .order_by("-created_at")
         )
+        search = self.request.query_params.get("q", "").strip()
+        if search:
+            queryset = queryset.filter(
+                Q(bill_no__icontains=search)
+                | Q(customer_name__icontains=search)
+                | Q(patient__first_name__icontains=search)
+                | Q(patient__last_name__icontains=search)
+                | Q(patient__registration_number__icontains=search)
+            )
+        return queryset
 
     def get_serializer_class(self):
         if self.action == "create":
@@ -378,3 +392,17 @@ class PharmacySaleViewSet(
 
         output = PharmacySaleSerializer(sale, context=self.get_serializer_context())
         return Response(output.data, status=status.HTTP_201_CREATED)
+
+    def destroy(self, request, *args, **kwargs):
+        sale = self.get_object()
+        with transaction.atomic():
+            for item in sale.items.select_related("medicine").all():
+                medicine = Medicine.objects.select_for_update().filter(pk=item.medicine_id, pharmacist=request.user).first()
+                if medicine is not None:
+                    medicine.quantity += item.quantity
+                    medicine.save(update_fields=["quantity", "sell_price", "updated_at"])
+            payment = sale.payment
+            sale.delete()
+            if payment is not None:
+                payment.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

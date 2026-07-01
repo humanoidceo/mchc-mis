@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { apiFetch } from '../../api/client'
-import { buttonClassName, Field, inputClassName, Panel, SectionHeader } from '../../components/ui'
-import type { PermissionDefinition, RoleCode, RoleDefinition, User } from '../../types/domain'
+import { buttonClassName, Field, inputClassName, PaginationControls, Panel, SectionHeader } from '../../components/ui'
+import type { PaginatedResponse, PermissionDefinition, RoleCode, RoleDefinition, User } from '../../types/domain'
 
 type Catalog = {
   permissions: PermissionDefinition[]
@@ -28,19 +28,22 @@ export function UserAdminPage() {
   const [form, setForm] = useState(emptyUser)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [error, setError] = useState('')
+  const [page, setPage] = useState(1)
+  const [totalUsers, setTotalUsers] = useState(0)
 
-  async function loadData() {
+  async function loadData(currentPage = page) {
     const [userData, catalogData] = await Promise.all([
-      apiFetch<User[]>('/auth/users/'),
+      apiFetch<PaginatedResponse<User>>(`/auth/users/?page=${currentPage}`),
       apiFetch<Catalog>('/auth/permissions/'),
     ])
-    setUsers(userData)
+    setUsers(userData.results)
+    setTotalUsers(userData.count)
     setCatalog(catalogData)
   }
 
   useEffect(() => {
-    loadData().catch(() => setError('Unable to load users.'))
-  }, [])
+    loadData(page).catch(() => setError('Unable to load users.'))
+  }, [page])
 
   useEffect(() => {
     if (!editingId && catalog.permissions.length && form.allowed_permissions.length === 0) {
@@ -106,6 +109,16 @@ export function UserAdminPage() {
     })
   }
 
+  async function deleteUser(userId: number) {
+    setError('')
+    try {
+      await apiFetch(`/auth/users/${userId}/`, { method: 'DELETE' })
+      await loadData(page)
+    } catch {
+      setError('Unable to delete user.')
+    }
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
@@ -122,7 +135,7 @@ export function UserAdminPage() {
       }
       resetForm()
       setEditingId(null)
-      await loadData()
+      await loadData(page)
     } catch {
       setError('Unable to save user. Check required fields and permissions.')
     }
@@ -187,12 +200,18 @@ export function UserAdminPage() {
                   <td>{user.profile?.role_label ?? 'No role'}</td>
                   <td>{user.is_active ? 'Active' : 'Inactive'}</td>
                   <td>{user.permissions.length}</td>
-                  <td><button className="rounded border border-zinc-300 px-3 py-1 text-sm" onClick={() => editUser(user)}>Edit</button></td>
+                  <td className="py-2">
+                    <div className="flex gap-2">
+                      <button className="rounded border border-zinc-300 px-3 py-1 text-sm" onClick={() => editUser(user)}>Edit</button>
+                      <button className="rounded border border-zinc-300 px-3 py-1 text-sm" onClick={() => void deleteUser(user.id)}>Delete</button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        <PaginationControls page={page} totalCount={totalUsers} onPageChange={setPage} />
       </Panel>
     </div>
   )

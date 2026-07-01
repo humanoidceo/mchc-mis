@@ -20,6 +20,30 @@ export function Field({ label, children }: { label: string; children: React.Reac
   )
 }
 
+export function PaginationControls({
+  page,
+  totalCount,
+  onPageChange,
+}: {
+  page: number
+  totalCount: number
+  onPageChange: (page: number) => void
+}) {
+  const totalPages = Math.max(1, Math.ceil(totalCount / 10))
+  if (totalCount <= 10) {
+    return null
+  }
+  return (
+    <div className="mt-4 flex items-center justify-between rounded border border-zinc-200 bg-white px-4 py-3 text-sm text-slate-700">
+      <p>Page {page} of {totalPages}</p>
+      <div className="flex gap-2">
+        <button className={ghostButtonClassName} disabled={page === 1} onClick={() => onPageChange(Math.max(1, page - 1))}>Previous</button>
+        <button className={ghostButtonClassName} disabled={page === totalPages} onClick={() => onPageChange(Math.min(totalPages, page + 1))}>Next</button>
+      </div>
+    </div>
+  )
+}
+
 export const inputClassName = 'w-full rounded border border-sky-200 bg-white px-3 py-2 text-sm outline-none focus:border-pink-400 focus:ring-2 focus:ring-pink-100'
 export const buttonClassName = 'rounded bg-sky-500 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-sky-200 hover:bg-sky-600'
 export const ghostButtonClassName = 'rounded border border-pink-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-pink-50'

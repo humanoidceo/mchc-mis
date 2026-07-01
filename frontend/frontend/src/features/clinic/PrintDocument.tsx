@@ -6,13 +6,17 @@ function asLineItems(payload: Record<string, unknown>) {
 }
 
 function documentRowDetails(row: Record<string, unknown>): string {
-  const details = [row.quantity ? `Qty: ${String(row.quantity)}` : '', row.instructions ? String(row.instructions) : '', row.result ? String(row.result) : '', row.notes ? String(row.notes) : '']
+  const quantityLabel = row.vaccine ? 'Dose(s)' : 'Qty'
+  const details = [row.quantity ? `${quantityLabel}: ${String(row.quantity)}` : '', row.instructions ? String(row.instructions) : '', row.result ? String(row.result) : '', row.notes ? String(row.notes) : '']
   return details.filter(Boolean).join(' | ')
 }
 
 export function PrintDocument({ document }: { document: ClinicalDocument }) {
   const lines = asLineItems(document.payload)
   const halfA4 = document.document_type === 'prescription' || document.document_type === 'lab_order'
+  const showCosts = document.document_type !== 'prescription'
+  const patientStatus = typeof document.payload.patient_status === 'string' ? document.payload.patient_status : ''
+  const patientStatusLabel = patientStatus === 'follow_up' ? 'Follow-up' : patientStatus === 'new' ? 'New' : ''
 
   return (
     <section className={`print-area rounded-md border border-zinc-200 bg-white p-6 text-zinc-950 ${halfA4 ? 'half-a4-bill' : ''}`}>
@@ -30,6 +34,7 @@ export function PrintDocument({ document }: { document: ClinicalDocument }) {
         <p><strong>Date:</strong> {new Date(document.created_at).toLocaleString()}</p>
         <p><strong>Patient:</strong> {document.patient_name}</p>
         <p><strong>Prepared by:</strong> {document.created_by_name || 'MCHC staff'}</p>
+        {patientStatusLabel ? <p><strong>Patient status:</strong> {patientStatusLabel}</p> : null}
       </div>
 
       <h3 className="mt-6 text-lg font-semibold">{document.title}</h3>
@@ -40,7 +45,7 @@ export function PrintDocument({ document }: { document: ClinicalDocument }) {
             <tr className="border-b border-zinc-300 text-left">
               <th className="py-2">Item</th>
               <th className="py-2">Details</th>
-              <th className="py-2 text-right">Cost</th>
+              {showCosts ? <th className="py-2 text-right">Cost</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -50,7 +55,7 @@ export function PrintDocument({ document }: { document: ClinicalDocument }) {
                 <tr key={index} className="border-b border-zinc-100">
                   <td className="py-2">{String(row.name ?? row.test_name ?? row.test ?? row.medicine_name ?? row.medicine ?? row.vaccine ?? 'Item')}</td>
                   <td className="py-2">{documentRowDetails(row)}</td>
-                  <td className="py-2 text-right">{String(row.cost ?? row.amount ?? '')}</td>
+                  {showCosts ? <td className="py-2 text-right">{String(row.cost ?? row.amount ?? '')}</td> : null}
                 </tr>
               )
             })}
@@ -63,7 +68,7 @@ export function PrintDocument({ document }: { document: ClinicalDocument }) {
       )}
 
       <div className="mt-6 flex justify-between border-t border-zinc-200 pt-4 text-sm">
-        <span>Total cost: {document.total_amount}</span>
+        {showCosts ? <span>Total cost: {document.total_amount}</span> : <span />}
         <span>Signature: __________________</span>
       </div>
     </section>

@@ -40,6 +40,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       hasPermission(permission) {
         return Boolean(user?.permissions.includes(permission))
       },
+      setCurrentUser(nextUser) {
+        setUser(nextUser)
+      },
     }),
     [loading, user],
   )

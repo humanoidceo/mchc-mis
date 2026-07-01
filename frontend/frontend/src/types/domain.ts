@@ -40,6 +40,24 @@ export type User = {
   permissions: string[]
 }
 
+export type Employee = {
+  id: number
+  first_name: string
+  last_name: string
+  position: string
+  salary: string
+  join_date: string
+  national_id_card_number: string
+  email: string
+  contact_info: string
+  mobile_number: string
+  image: string
+  image_url: string
+  created_by_name: string
+  created_at: string
+  updated_at: string
+}
+
 export type Patient = {
   id: number
   registration_number: string
@@ -157,6 +175,13 @@ export type SearchResponse<T> = {
   next_offset: number | null
 }
 
+export type PaginatedResponse<T> = {
+  count: number
+  next: string | null
+  previous: string | null
+  results: T[]
+}
+
 export type Medicine = {
   id: number
   name: string
@@ -200,6 +225,10 @@ export type DashboardStats = {
   pending_amount: string
   approved_amount: string
   total_amount: string
+  patient_trend: Array<{
+    label: string
+    value: number
+  }>
   departments: Array<{
     department: string
     patients: number

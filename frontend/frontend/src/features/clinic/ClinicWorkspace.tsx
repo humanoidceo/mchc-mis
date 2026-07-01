@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import type { FormEvent, UIEvent } from 'react'
 
 import { ApiError, apiFetch } from '../../api/client'
-import { buttonClassName, Field, ghostButtonClassName, inputClassName, Panel, SectionHeader } from '../../components/ui'
-import type { ClinicalDocument, DashboardStats, DocumentType, DocumentTypeDefinition, LabTest, Medicine, Patient, Payment, SearchResponse } from '../../types/domain'
+import { buttonClassName, Field, ghostButtonClassName, inputClassName, PaginationControls, Panel, SectionHeader } from '../../components/ui'
+import type { ClinicalDocument, DashboardStats, DocumentType, DocumentTypeDefinition, LabTest, Medicine, PaginatedResponse, Patient, Payment, SearchResponse } from '../../types/domain'
 import { useAuth } from '../auth/useAuth'
 import { PrintDocument, PrintPaymentBill } from './PrintDocument'
 
@@ -27,6 +27,7 @@ const emptyStats: DashboardStats = {
   pending_amount: '0',
   approved_amount: '0',
   total_amount: '0',
+  patient_trend: [],
   departments: [],
   documents: 0,
   low_stock_medicines: 0,
@@ -43,6 +44,7 @@ const documentTemplates: Record<DocumentType, Record<string, unknown>> = {
 }
 
 const departmentOptions = ['Maternal care', 'Child care', 'General health', 'Laboratory', 'Ultrasound', 'Vaccination', 'Malnutrition']
+const freeDepartments = new Set(['vaccination', 'malnutrition'])
 const dashboardPeriodOptions: Array<{ value: DashboardStats['period']; label: string }> = [
   { value: 'daily', label: 'Daily' },
   { value: 'weekly', label: 'Weekly' },
@@ -65,6 +67,10 @@ function formatPercent(value: number): string {
 
 function formatStatMoney(value: string | number): string {
   return Number(value || 0).toFixed(2)
+}
+
+function isFreeDepartment(department: string): boolean {
+  return freeDepartments.has(department.trim().toLowerCase())
 }
 
 function flattenValidationDetails(value: unknown, prefix = ''): string[] {
@@ -99,7 +105,22 @@ export function ClinicWorkspace({ view }: { view: View }) {
   const [selectedDocument, setSelectedDocument] = useState<ClinicalDocument | null>(null)
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null)
   const [error, setError] = useState('')
+  const [patientsPage, setPatientsPage] = useState(1)
+  const [paymentsPage, setPaymentsPage] = useState(1)
+  const [documentsPage, setDocumentsPage] = useState(1)
+  const [documentsSearch, setDocumentsSearch] = useState('')
+  const [documentsTypeFilter, setDocumentsTypeFilter] = useState<'all' | 'prescription' | 'lab_order'>('all')
+  const [medicinesPage, setMedicinesPage] = useState(1)
+  const [patientsCount, setPatientsCount] = useState(0)
+  const [paymentsCount, setPaymentsCount] = useState(0)
+  const [documentsCount, setDocumentsCount] = useState(0)
+  const [medicinesCount, setMedicinesCount] = useState(0)
   const printedBy = `${user?.username ?? 'MCHC staff'}-${user?.profile?.role_label ?? 'Staff'}`
+  const deferredDocumentsSearch = useDeferredValue(documentsSearch)
+
+  useEffect(() => {
+    setDocumentsPage(1)
+  }, [deferredDocumentsSearch, documentsTypeFilter])
 
   const loadData = useCallback(async function loadData() {
     setError('')
@@ -110,56 +131,74 @@ export function ClinicWorkspace({ view }: { view: View }) {
       }
 
       if (view === 'patients') {
-        setPatients(await apiFetch<Patient[]>('/patients/'))
+        const response = await apiFetch<PaginatedResponse<Patient>>(`/patients/?page=${patientsPage}`)
+        setPatients(response.results)
+        setPatientsCount(response.count)
         return
       }
 
       if (view === 'payments') {
-        setPayments(await apiFetch<Payment[]>('/payments/'))
+        const response = await apiFetch<PaginatedResponse<Payment>>(`/payments/?page=${paymentsPage}`)
+        setPayments(response.results)
+        setPaymentsCount(response.count)
         return
       }
 
       if (view === 'documents') {
+        const params = new URLSearchParams({ page: String(documentsPage) })
+        if (user?.profile?.role === 'doctor') {
+          if (documentsTypeFilter !== 'all') {
+            params.set('document_type', documentsTypeFilter)
+          }
+          if (deferredDocumentsSearch.trim()) {
+            params.set('q', deferredDocumentsSearch.trim())
+          }
+        }
         if (user?.profile?.role === 'doctor') {
           const [documentData, documentTypeData] = await Promise.all([
-            apiFetch<ClinicalDocument[]>('/documents/'),
+            apiFetch<PaginatedResponse<ClinicalDocument>>(`/documents/?${params.toString()}`),
             apiFetch<DocumentTypeDefinition[]>('/documents/types/'),
           ])
-          setDocuments(documentData)
+          setDocuments(documentData.results)
+          setDocumentsCount(documentData.count)
           setDocumentTypes(documentTypeData)
           return
         }
 
-        const [patientData, documentData, documentTypeData] = await Promise.all([
-          apiFetch<Patient[]>('/patients/'),
-          apiFetch<ClinicalDocument[]>('/documents/'),
+        const [documentData, documentTypeData] = await Promise.all([
+          apiFetch<PaginatedResponse<ClinicalDocument>>(`/documents/?${params.toString()}`),
           apiFetch<DocumentTypeDefinition[]>('/documents/types/'),
         ])
-        setPatients(patientData)
-        setDocuments(documentData)
+        setDocuments(documentData.results)
+        setDocumentsCount(documentData.count)
         setDocumentTypes(documentTypeData)
         return
       }
 
       if (view === 'stock') {
-        setMedicines(await apiFetch<Medicine[]>('/medicines/'))
+        const response = await apiFetch<PaginatedResponse<Medicine>>(`/medicines/?page=${medicinesPage}`)
+        setMedicines(response.results)
+        setMedicinesCount(response.count)
       }
     } catch {
       setError('Unable to load clinic data.')
     }
-  }, [user?.profile?.role, view])
+  }, [deferredDocumentsSearch, documentsPage, documentsTypeFilter, medicinesPage, patientsPage, paymentsPage, user?.profile?.role, view])
 
   useEffect(() => {
     void loadData()
   }, [loadData])
 
   const content = useMemo(() => {
-    if (view === 'dashboard') return <Dashboard stats={stats} />
-    if (view === 'patients') return <Patients patients={patients} onSaved={loadData} />
+    if (view === 'dashboard') return <Dashboard stats={stats} role={user?.profile?.role} />
+    if (view === 'patients') return <Patients patients={patients} totalCount={patientsCount} page={patientsPage} onPageChange={setPatientsPage} onSaved={loadData} />
     if (view === 'payments') {
       return (
         <Payments
           payments={payments}
+          totalCount={paymentsCount}
+          page={paymentsPage}
+          onPageChange={setPaymentsPage}
           onCreated={(payment) => {
             setSelectedDocument(null)
             setSelectedPayment(payment)
@@ -173,11 +212,18 @@ export function ClinicWorkspace({ view }: { view: View }) {
         />
       )
     }
-    if (view === 'stock') return <MedicineStock medicines={medicines} onSaved={loadData} />
+    if (view === 'stock') return <MedicineStock medicines={medicines} totalCount={medicinesCount} page={medicinesPage} onPageChange={setMedicinesPage} onSaved={loadData} />
     if (user?.profile?.role === 'doctor') {
       return (
         <DoctorDocuments
           documents={documents}
+          totalCount={documentsCount}
+          page={documentsPage}
+          onPageChange={setDocumentsPage}
+          search={documentsSearch}
+          onSearchChange={setDocumentsSearch}
+          typeFilter={documentsTypeFilter}
+          onTypeFilterChange={setDocumentsTypeFilter}
           documentTypes={documentTypes}
           onCreated={(document) => {
             setSelectedPayment(null)
@@ -193,8 +239,10 @@ export function ClinicWorkspace({ view }: { view: View }) {
     }
     return (
       <Documents
-        patients={patients}
         documents={documents}
+        totalCount={documentsCount}
+        page={documentsPage}
+        onPageChange={setDocumentsPage}
         documentTypes={documentTypes}
         onCreated={(document) => {
           setSelectedPayment(null)
@@ -207,7 +255,7 @@ export function ClinicWorkspace({ view }: { view: View }) {
         }}
       />
     )
-  }, [documentTypes, documents, loadData, medicines, patients, payments, stats, user?.profile?.role, view])
+  }, [documentTypes, documents, documentsCount, documentsPage, documentsSearch, documentsTypeFilter, loadData, medicines, medicinesCount, medicinesPage, patients, patientsCount, patientsPage, payments, paymentsCount, paymentsPage, stats, user?.profile?.role, view])
 
   return (
     <div className="space-y-5">
@@ -235,10 +283,11 @@ export function ClinicWorkspace({ view }: { view: View }) {
   )
 }
 
-function Dashboard({ stats }: { stats: DashboardStats }) {
+function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
   const [period, setPeriod] = useState<DashboardStats['period']>('daily')
   const [report, setReport] = useState(stats)
   const [error, setError] = useState('')
+  const isDoctorDashboard = role === 'doctor'
 
   useEffect(() => {
     let ignore = false
@@ -262,39 +311,46 @@ function Dashboard({ stats }: { stats: DashboardStats }) {
   const maxDepartmentAmount = Math.max(1, ...report.departments.map((department) => Number(department.amount || 0)))
   const maxDepartmentPatients = Math.max(1, ...report.departments.map((department) => department.patients))
   const paymentCards = [
-    { label: 'Patients came', value: report.patients, tone: 'border-sky-100 bg-sky-50 text-sky-700' },
+    { label: isDoctorDashboard ? 'Patients seen' : 'Patients came', value: report.patients, tone: 'border-sky-100 bg-sky-50 text-sky-700' },
     { label: 'Full paid', value: report.full_paid, tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
     { label: 'Free', value: report.free, tone: 'border-rose-100 bg-rose-50 text-rose-700' },
     { label: 'Discounted', value: report.discounted, tone: 'border-violet-100 bg-violet-50 text-violet-700' },
-    { label: 'Pending', value: report.pending_payments, tone: 'border-amber-100 bg-amber-50 text-amber-700' },
-    { label: 'Approved', value: report.approved_payments, tone: 'border-teal-100 bg-teal-50 text-teal-700' },
-    { label: 'Total payments', value: report.total_payments, tone: 'border-slate-200 bg-slate-50 text-slate-700' },
+    ...(isDoctorDashboard ? [] : [
+      { label: 'Pending', value: report.pending_payments, tone: 'border-amber-100 bg-amber-50 text-amber-700' },
+      { label: 'Approved', value: report.approved_payments, tone: 'border-teal-100 bg-teal-50 text-teal-700' },
+      { label: 'Total payments', value: report.total_payments, tone: 'border-slate-200 bg-slate-50 text-slate-700' },
+    ]),
   ]
 
   return (
     <section className="print-area a4-report space-y-5">
-      <div className="no-print flex flex-wrap items-end justify-between gap-3">
-        <SectionHeader title="Reception dashboard" subtitle="Patient and payment report for the selected period." />
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="text-sm font-medium text-zinc-700">
-            Period
-            <select className={`${inputClassName} ml-2 w-36`} value={period} onChange={(event) => setPeriod(event.target.value as DashboardStats['period'])}>
+      <div className="no-print flex flex-wrap items-start justify-between gap-4">
+        <SectionHeader title={isDoctorDashboard ? 'Doctor dashboard' : 'Reception dashboard'} subtitle={isDoctorDashboard ? 'Patient and payment summary for this doctor in the selected period.' : 'Patient and payment report for the selected period.'} />
+        <div className="flex min-w-[18rem] flex-col gap-3 rounded-2xl border border-sky-100 bg-white px-4 py-3 shadow-sm shadow-sky-100/70 sm:min-w-[22rem] sm:flex-row sm:items-end sm:justify-end">
+          <label className="flex-1 text-sm font-medium text-zinc-700">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">Report period</span>
+            <select className={`${inputClassName} w-full`} value={period} onChange={(event) => setPeriod(event.target.value as DashboardStats['period'])}>
               {dashboardPeriodOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
-          <button className={buttonClassName} onClick={() => window.print()}>Print A4 report</button>
+          <button
+            className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white shadow-sm shadow-slate-200 transition hover:bg-slate-800"
+            onClick={() => window.print()}
+          >
+            Print dashboard report
+          </button>
         </div>
       </div>
 
       <div className="hidden print:block">
         <p className="text-sm font-medium text-sky-600">MCHC MIS</p>
-        <h1 className="text-2xl font-semibold text-slate-950">Reception Dashboard Report</h1>
+        <h1 className="text-2xl font-semibold text-slate-950">{isDoctorDashboard ? 'Doctor Dashboard Report' : 'Reception Dashboard Report'}</h1>
         <p className="text-sm text-zinc-600">Period: {report.period_label}</p>
       </div>
 
       {error ? <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+      <div className={`grid gap-3 sm:grid-cols-2 lg:grid-cols-4 ${isDoctorDashboard ? 'xl:grid-cols-4' : 'xl:grid-cols-7'}`}>
         {paymentCards.map((card) => (
           <div key={card.label} className={`rounded-md border p-4 shadow-sm ${card.tone}`}>
             <p className="text-xs font-semibold uppercase tracking-wide opacity-80">{card.label}</p>
@@ -303,9 +359,9 @@ function Dashboard({ stats }: { stats: DashboardStats }) {
         ))}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className={`grid gap-4 ${isDoctorDashboard ? 'lg:grid-cols-2' : 'lg:grid-cols-3'}`}>
         <Panel>
-          <p className="text-sm font-semibold text-slate-950">Payment money</p>
+          <p className="text-sm font-semibold text-slate-950">{isDoctorDashboard ? 'Patient money summary' : 'Payment money'}</p>
           <div className="mt-4 space-y-3 text-sm">
             <MoneyBar label="Pending amount" value={Number(report.pending_amount || 0)} max={Number(report.total_amount || 0) || 1} className="bg-amber-400" />
             <MoneyBar label="Approved amount" value={Number(report.approved_amount || 0)} max={Number(report.total_amount || 0) || 1} className="bg-emerald-500" />
@@ -322,38 +378,58 @@ function Dashboard({ stats }: { stats: DashboardStats }) {
           </div>
         </Panel>
 
-        <Panel>
-          <p className="text-sm font-semibold text-slate-950">Payment status</p>
-          <div className="mt-4 space-y-3 text-sm">
-            <CountBar label="Pending" value={report.pending_payments} max={report.total_payments || 1} className="bg-amber-400" />
-            <CountBar label="Approved" value={report.approved_payments} max={report.total_payments || 1} className="bg-teal-500" />
-          </div>
-        </Panel>
+        {!isDoctorDashboard ? (
+          <Panel>
+            <p className="text-sm font-semibold text-slate-950">Payment status</p>
+            <div className="mt-4 space-y-3 text-sm">
+              <CountBar label="Pending" value={report.pending_payments} max={report.total_payments || 1} className="bg-amber-400" />
+              <CountBar label="Approved" value={report.approved_payments} max={report.total_payments || 1} className="bg-teal-500" />
+            </div>
+          </Panel>
+        ) : null}
       </div>
 
       <Panel>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm font-semibold text-slate-950">Patients and money by department</p>
-          <p className="text-xs font-medium text-zinc-500">{report.period_label} report</p>
+          <p className="text-sm font-semibold text-slate-950">Patient trend</p>
+          <p className="text-xs font-medium text-zinc-500">
+            {report.period === 'weekly' ? 'Daily trend for this week' : report.period === 'monthly' ? 'Daily trend for this month' : report.period === 'annual' ? 'Monthly trend for this year' : 'Select weekly, monthly, or annual'}
+          </p>
         </div>
-        <div className="mt-4 grid gap-3">
-          {report.departments.length ? report.departments.map((department) => {
-            const amount = Number(department.amount || 0)
-            return (
-              <div key={department.department} className="grid gap-2 rounded border border-sky-100 bg-white p-3 md:grid-cols-[11rem_1fr_1fr] md:items-center">
-                <div>
-                  <p className="font-semibold text-slate-950">{department.department}</p>
-                  <p className="text-xs text-zinc-500">{department.payments} payment(s)</p>
-                </div>
-                <DepartmentBar label={`${department.patients} patient(s)`} percent={(department.patients / maxDepartmentPatients) * 100} className="bg-sky-500" />
-                <DepartmentBar label={`${formatStatMoney(amount)} money`} percent={(amount / maxDepartmentAmount) * 100} className="bg-pink-500" />
-              </div>
-            )
-          }) : (
-            <div className="rounded border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500">No department payments for this period.</div>
-          )}
-        </div>
+        {report.period === 'daily' ? (
+          <div className="mt-4 rounded border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500">
+            Change the period to weekly, monthly, or annual to view the patient trend graph.
+          </div>
+        ) : (
+          <PatientTrendChart data={report.patient_trend} />
+        )}
       </Panel>
+
+      {!isDoctorDashboard ? (
+        <Panel>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-slate-950">Patients and money by department</p>
+            <p className="text-xs font-medium text-zinc-500">{report.period_label} report</p>
+          </div>
+          <div className="mt-4 grid gap-3">
+            {report.departments.length ? report.departments.map((department) => {
+              const amount = Number(department.amount || 0)
+              return (
+                <div key={department.department} className="grid gap-2 rounded border border-sky-100 bg-white p-3 md:grid-cols-[11rem_1fr_1fr] md:items-center">
+                  <div>
+                    <p className="font-semibold text-slate-950">{department.department}</p>
+                    <p className="text-xs text-zinc-500">{department.payments} payment(s)</p>
+                  </div>
+                  <DepartmentBar label={`${department.patients} patient(s)`} percent={(department.patients / maxDepartmentPatients) * 100} className="bg-sky-500" />
+                  <DepartmentBar label={`${formatStatMoney(amount)} money`} percent={(amount / maxDepartmentAmount) * 100} className="bg-pink-500" />
+                </div>
+              )
+            }) : (
+              <div className="rounded border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500">No department payments for this period.</div>
+            )}
+          </div>
+        </Panel>
+      ) : null}
     </section>
   )
 }
@@ -397,13 +473,62 @@ function DepartmentBar({ label, percent, className }: { label: string; percent: 
   )
 }
 
-function Patients({ patients, onSaved }: { patients: Patient[]; onSaved: () => Promise<void> }) {
+function PatientTrendChart({ data }: { data: Array<{ label: string; value: number }> }) {
+  const maxValue = Math.max(1, ...data.map((item) => item.value))
+
+  if (!data.length) {
+    return <div className="mt-4 rounded border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500">No trend data available.</div>
+  }
+
+  return (
+    <div className="mt-5">
+      <div className="flex h-64 items-end gap-2 rounded-xl border border-sky-100 bg-sky-50/60 p-4">
+        {data.map((item) => {
+          const height = item.value > 0 ? `${Math.max(6, (item.value / maxValue) * 100)}%` : '0%'
+          return (
+            <div key={item.label} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
+              <span className="text-xs font-semibold text-slate-700">{item.value}</span>
+              <div className="flex h-full w-full items-end">
+                <div className="w-full rounded-t-lg bg-gradient-to-t from-sky-500 to-pink-400" style={{ height }} title={`${item.label}: ${item.value}`} />
+              </div>
+              <span className="text-[11px] font-medium text-zinc-500">{item.label}</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function Patients({
+  patients,
+  totalCount,
+  page,
+  onPageChange,
+  onSaved,
+}: {
+  patients: Patient[]
+  totalCount: number
+  page: number
+  onPageChange: (page: number) => void
+  onSaved: () => Promise<void>
+}) {
   const [form, setForm] = useState({ first_name: '', last_name: '', gender: 'female', date_of_birth: '', phone: '', address: '', guardian_name: '' })
+  const [editingId, setEditingId] = useState<number | null>(null)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    await apiFetch<Patient>('/patients/', { method: 'POST', body: JSON.stringify({ ...form, date_of_birth: form.date_of_birth || null }) })
+    await apiFetch<Patient>(editingId ? `/patients/${editingId}/` : '/patients/', {
+      method: editingId ? 'PATCH' : 'POST',
+      body: JSON.stringify({ ...form, date_of_birth: form.date_of_birth || null }),
+    })
     setForm({ first_name: '', last_name: '', gender: 'female', date_of_birth: '', phone: '', address: '', guardian_name: '' })
+    setEditingId(null)
+    await onSaved()
+  }
+
+  async function deletePatient(patientId: number) {
+    await apiFetch(`/patients/${patientId}/`, { method: 'DELETE' })
     await onSaved()
   }
 
@@ -419,15 +544,58 @@ function Patients({ patients, onSaved }: { patients: Patient[]; onSaved: () => P
           <Field label="Phone"><input className={inputClassName} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
           <Field label="Guardian"><input className={inputClassName} value={form.guardian_name} onChange={(e) => setForm({ ...form, guardian_name: e.target.value })} /></Field>
           <Field label="Address"><input className={inputClassName} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></Field>
-          <div className="md:col-span-4"><button className={buttonClassName}>Register patient</button></div>
+          <div className="md:col-span-4 flex gap-2">
+            <button className={buttonClassName}>{editingId ? 'Update patient' : 'Register patient'}</button>
+            {editingId ? <button className={ghostButtonClassName} type="button" onClick={() => { setEditingId(null); setForm({ first_name: '', last_name: '', gender: 'female', date_of_birth: '', phone: '', address: '', guardian_name: '' }) }}>Cancel</button> : null}
+          </div>
         </form>
       </Panel>
-      <DataTable headers={['Reg no.', 'Name', 'Age', 'Gender', 'Phone']} rows={patients.map((patient) => [patient.registration_number, `${patient.first_name} ${patient.last_name}`, patient.age?.toString() ?? '', patient.gender, patient.phone])} />
+      <Panel>
+        <div className="overflow-auto">
+          <table className="w-full text-left text-sm">
+            <thead><tr className="border-b border-zinc-200"><th className="py-2 font-semibold">Reg no.</th><th className="py-2 font-semibold">Name</th><th className="py-2 font-semibold">Age</th><th className="py-2 font-semibold">Gender</th><th className="py-2 font-semibold">Phone</th><th className="py-2 font-semibold">Action</th></tr></thead>
+            <tbody>
+              {patients.map((patient) => (
+                <tr key={patient.id} className="border-b border-zinc-100">
+                  <td className="py-2">{patient.registration_number}</td>
+                  <td className="py-2">{patient.first_name} {patient.last_name}</td>
+                  <td className="py-2">{patient.age?.toString() ?? ''}</td>
+                  <td className="py-2">{patient.gender}</td>
+                  <td className="py-2">{patient.phone}</td>
+                  <td className="py-2">
+                    <div className="flex gap-2">
+                      <button className={ghostButtonClassName} onClick={() => { setEditingId(patient.id); setForm({ first_name: patient.first_name, last_name: patient.last_name, gender: patient.gender, date_of_birth: patient.date_of_birth ?? '', phone: patient.phone, address: patient.address, guardian_name: patient.guardian_name }) }}>Edit</button>
+                      <button className={ghostButtonClassName} onClick={() => void deletePatient(patient.id)}>Delete</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <PaginationControls page={page} totalCount={totalCount} onPageChange={onPageChange} />
+      </Panel>
     </>
   )
 }
 
-function Payments({ payments, onCreated, onSaved, onPrint }: { payments: Payment[]; onCreated: (payment: Payment) => void; onSaved: () => Promise<void>; onPrint: (payment: Payment) => void }) {
+function Payments({
+  payments,
+  totalCount,
+  page,
+  onPageChange,
+  onCreated,
+  onSaved,
+  onPrint,
+}: {
+  payments: Payment[]
+  totalCount: number
+  page: number
+  onPageChange: (page: number) => void
+  onCreated: (payment: Payment) => void
+  onSaved: () => Promise<void>
+  onPrint: (payment: Payment) => void
+}) {
   const [form, setForm] = useState({
     patient_name: '',
     age: '',
@@ -440,18 +608,34 @@ function Payments({ payments, onCreated, onSaved, onPrint }: { payments: Payment
   const [formError, setFormError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  const doctorFee = parseAmount(form.doctor_fee)
-  const discountPercent = form.payment_type === 'discount' ? Math.min(100, Math.max(0, parseAmount(form.discount_percentage))) : form.payment_type === 'free' ? 100 : 0
+  const departmentIsFree = isFreeDepartment(form.department)
+  const effectivePaymentType: Payment['payment_type'] = departmentIsFree ? 'free' : form.payment_type
+  const doctorFee = departmentIsFree ? 0 : parseAmount(form.doctor_fee)
+  const discountPercent = effectivePaymentType === 'discount' ? Math.min(100, Math.max(0, parseAmount(form.discount_percentage))) : effectivePaymentType === 'free' ? 100 : 0
   const discountAmount = doctorFee * (discountPercent / 100)
   const paymentAmount = Math.max(0, doctorFee - discountAmount)
 
   function choosePaymentType(paymentType: Payment['payment_type']) {
+    if (departmentIsFree) {
+      return
+    }
     setForm({
       ...form,
       payment_type: paymentType,
       discount_percentage: paymentType === 'discount' ? form.discount_percentage : '',
     })
   }
+
+  useEffect(() => {
+    if (!departmentIsFree) return
+    if (form.payment_type === 'free' && (form.doctor_fee === '' || form.doctor_fee === '0' || form.doctor_fee === '0.00') && form.discount_percentage === '') return
+    setForm((current) => ({
+      ...current,
+      doctor_fee: '0',
+      payment_type: 'free',
+      discount_percentage: '',
+    }))
+  }, [departmentIsFree, form.discount_percentage, form.doctor_fee, form.payment_type])
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -477,8 +661,8 @@ function Payments({ payments, onCreated, onSaved, onPrint }: { payments: Payment
             doctor_name: '',
             patient_age: Number(form.age),
             doctor_fee: formatMoney(doctorFee),
-            payment_type: form.payment_type,
-            discount_percentage: form.payment_type === 'discount' ? form.discount_percentage || '0' : '0',
+            payment_type: effectivePaymentType,
+            discount_percentage: effectivePaymentType === 'discount' ? form.discount_percentage || '0' : '0',
             notes: form.notes,
           },
         }),
@@ -506,20 +690,33 @@ function Payments({ payments, onCreated, onSaved, onPrint }: { payments: Payment
           <Field label="Patient name"><input className={inputClassName} value={form.patient_name} onChange={(e) => setForm({ ...form, patient_name: e.target.value })} required /></Field>
           <Field label="Age"><input className={inputClassName} type="number" min="0" value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} required /></Field>
           <Field label="Department">
-            <select className={inputClassName} value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })}>
+            <select
+              className={inputClassName}
+              value={form.department}
+              onChange={(e) =>
+                setForm((current) => ({
+                  ...current,
+                  department: e.target.value,
+                  payment_type: isFreeDepartment(e.target.value) ? 'free' : (isFreeDepartment(current.department) ? 'full' : current.payment_type),
+                }))
+              }
+            >
               {departmentOptions.map((department) => <option key={department} value={department}>{department}</option>)}
             </select>
           </Field>
-          <Field label="Doctor fee"><input className={inputClassName} type="number" min="0" step="0.01" value={form.doctor_fee} onChange={(e) => setForm({ ...form, doctor_fee: e.target.value })} required /></Field>
+          <Field label="Doctor fee">
+            <input className={inputClassName} type="number" min="0" step="0.01" value={departmentIsFree ? '0.00' : form.doctor_fee} onChange={(e) => setForm({ ...form, doctor_fee: e.target.value })} disabled={departmentIsFree} required={!departmentIsFree} />
+          </Field>
           <div className="md:col-span-4">
             <span className="mb-1 block text-sm font-medium text-zinc-700">Payment option</span>
             <div className="flex flex-wrap gap-3 rounded border border-sky-200 bg-white px-3 py-2 text-sm">
-              <label className="flex items-center gap-2"><input type="radio" checked={form.payment_type === 'full'} onChange={() => choosePaymentType('full')} /> Full payment</label>
-              <label className="flex items-center gap-2"><input type="radio" checked={form.payment_type === 'free'} onChange={() => choosePaymentType('free')} /> Free</label>
-              <label className="flex items-center gap-2"><input type="radio" checked={form.payment_type === 'discount'} onChange={() => choosePaymentType('discount')} /> Discount percentage</label>
+              <label className="flex items-center gap-2"><input type="radio" checked={effectivePaymentType === 'full'} onChange={() => choosePaymentType('full')} disabled={departmentIsFree} /> Full payment</label>
+              <label className="flex items-center gap-2"><input type="radio" checked={effectivePaymentType === 'free'} onChange={() => choosePaymentType('free')} /> Free</label>
+              <label className="flex items-center gap-2"><input type="radio" checked={effectivePaymentType === 'discount'} onChange={() => choosePaymentType('discount')} disabled={departmentIsFree} /> Discount percentage</label>
             </div>
+            {departmentIsFree ? <p className="mt-2 text-xs text-emerald-700">Vaccination and Malnutrition registrations are always free of charge.</p> : null}
           </div>
-          {form.payment_type === 'discount' ? (
+          {effectivePaymentType === 'discount' ? (
             <Field label="Discount percentage">
               <input className={inputClassName} type="number" min="0" max="100" step="0.01" value={form.discount_percentage} onChange={(e) => setForm({ ...form, discount_percentage: e.target.value })} placeholder="Type 20 for 20%" required />
             </Field>
@@ -527,8 +724,8 @@ function Payments({ payments, onCreated, onSaved, onPrint }: { payments: Payment
           <Field label="Notes"><input className={inputClassName} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
           <div className="grid gap-2 rounded border border-pink-100 bg-pink-50 p-3 text-sm md:col-span-4 md:grid-cols-3">
             <p><strong>Doctor fee:</strong> {formatMoney(doctorFee)}</p>
-            <p><strong>Payment option:</strong> {form.payment_type === 'free' ? 'Free' : form.payment_type === 'discount' ? `${formatPercent(discountPercent)}% discount (${formatMoney(discountAmount)})` : 'Full payment'}</p>
-            <p><strong>Amount after discount:</strong> {form.payment_type === 'free' ? 'Free' : formatMoney(paymentAmount)}</p>
+            <p><strong>Payment option:</strong> {effectivePaymentType === 'free' ? 'Free' : effectivePaymentType === 'discount' ? `${formatPercent(discountPercent)}% discount (${formatMoney(discountAmount)})` : 'Full payment'}</p>
+            <p><strong>Amount after discount:</strong> {effectivePaymentType === 'free' ? 'Free' : formatMoney(paymentAmount)}</p>
           </div>
           <div className="md:col-span-4"><button className={buttonClassName} disabled={submitting}>{submitting ? 'Creating bill...' : 'Create and preview bill'}</button></div>
         </form>
@@ -540,6 +737,7 @@ function Payments({ payments, onCreated, onSaved, onPrint }: { payments: Payment
             <tbody>{payments.map((payment) => <tr key={payment.id} className="border-b border-zinc-100"><td className="py-2">{payment.patient_full_name || payment.patient_name}</td><td>{payment.patient_age ?? ''}</td><td>{payment.department || payment.service}</td><td>{payment.doctor_fee}</td><td>{payment.payment_type === 'free' ? 'Free' : payment.payment_type === 'discount' ? `${payment.discount_percentage}% discount` : 'Full payment'}</td><td>{payment.payment_type === 'free' ? 'Free' : payment.amount}</td><td>{payment.status}</td><td className="flex gap-2 py-2"><button className={ghostButtonClassName} onClick={() => onPrint(payment)}>Print</button>{payment.status === 'pending' ? <button className={ghostButtonClassName} onClick={() => void approve(payment.id)}>Approve</button> : null}</td></tr>)}</tbody>
           </table>
         </div>
+        <PaginationControls page={page} totalCount={totalCount} onPageChange={onPageChange} />
       </Panel>
     </>
   )
@@ -615,7 +813,31 @@ function SearchCombo<T extends { id: number }>({ label, placeholder, searchPath,
   )
 }
 
-function DoctorDocuments({ documents, documentTypes, onCreated, onPrint }: { documents: ClinicalDocument[]; documentTypes: DocumentTypeDefinition[]; onCreated: (document: ClinicalDocument) => void; onPrint: (document: ClinicalDocument) => void }) {
+function DoctorDocuments({
+  documents,
+  totalCount,
+  page,
+  onPageChange,
+  search,
+  onSearchChange,
+  typeFilter,
+  onTypeFilterChange,
+  documentTypes,
+  onCreated,
+  onPrint,
+}: {
+  documents: ClinicalDocument[]
+  totalCount: number
+  page: number
+  onPageChange: (page: number) => void
+  search: string
+  onSearchChange: (value: string) => void
+  typeFilter: 'all' | 'prescription' | 'lab_order'
+  onTypeFilterChange: (value: 'all' | 'prescription' | 'lab_order') => void
+  documentTypes: DocumentTypeDefinition[]
+  onCreated: (document: ClinicalDocument) => void
+  onPrint: (document: ClinicalDocument) => void
+}) {
   const canCreatePrescription = documentTypes.some((type) => type.code === 'prescription')
   const canCreateLabOrder = documentTypes.some((type) => type.code === 'lab_order')
   const [documentType, setDocumentType] = useState<DocumentType>(canCreatePrescription ? 'prescription' : 'lab_order')
@@ -762,6 +984,18 @@ function DoctorDocuments({ documents, documentTypes, onCreated, onPrint }: { doc
         </form>
       </Panel>
       <Panel>
+        <div className="mb-4 grid gap-3 md:grid-cols-[1fr_15rem]">
+          <Field label="Search documents">
+            <input className={inputClassName} value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search patient or document title" />
+          </Field>
+          <Field label="Filter by type">
+            <select className={inputClassName} value={typeFilter} onChange={(event) => onTypeFilterChange(event.target.value as 'all' | 'prescription' | 'lab_order')}>
+              <option value="all">All documents</option>
+              <option value="prescription">Prescriptions</option>
+              <option value="lab_order">Laboratory orders</option>
+            </select>
+          </Field>
+        </div>
         <div className="grid gap-2">
           {documents.filter((document) => document.document_type === 'prescription' || document.document_type === 'lab_order').map((document) => (
             <button key={document.id} className="rounded border border-zinc-200 px-3 py-2 text-left text-sm hover:bg-zinc-50" onClick={() => onPrint(document)}>
@@ -769,6 +1003,7 @@ function DoctorDocuments({ documents, documentTypes, onCreated, onPrint }: { doc
             </button>
           ))}
         </div>
+        <PaginationControls page={page} totalCount={totalCount} onPageChange={onPageChange} />
       </Panel>
     </>
   )
@@ -794,7 +1029,23 @@ function DocumentItemList({ empty, rows }: { empty: string; rows: Array<{ key: s
   )
 }
 
-function Documents({ patients, documents, documentTypes, onCreated, onPrint }: { patients: Patient[]; documents: ClinicalDocument[]; documentTypes: DocumentTypeDefinition[]; onCreated: (document: ClinicalDocument) => void; onPrint: (document: ClinicalDocument) => void }) {
+function Documents({
+  documents,
+  totalCount,
+  page,
+  onPageChange,
+  documentTypes,
+  onCreated,
+  onPrint,
+}: {
+  documents: ClinicalDocument[]
+  totalCount: number
+  page: number
+  onPageChange: (page: number) => void
+  documentTypes: DocumentTypeDefinition[]
+  onCreated: (document: ClinicalDocument) => void
+  onPrint: (document: ClinicalDocument) => void
+}) {
   const firstType = documentTypes[0]?.code ?? 'prescription'
   const [form, setForm] = useState({ patient: '', document_type: firstType, title: '', total_amount: '0', payload: JSON.stringify(documentTemplates[firstType], null, 2) })
 
@@ -830,7 +1081,13 @@ function Documents({ patients, documents, documentTypes, onCreated, onPrint }: {
       <Panel>
         <form onSubmit={submit} className="grid gap-3">
           <div className="grid gap-3 md:grid-cols-4">
-            <Field label="Patient"><PatientSelect patients={patients} value={form.patient} onChange={(patient) => setForm({ ...form, patient })} /></Field>
+            <SearchCombo<PatientSearchOption>
+              label="Patient"
+              placeholder="Search patient name or registration number"
+              searchPath="/patients/search/"
+              renderOption={(patient) => `${patient.registration_number} - ${patient.first_name} ${patient.last_name}${patient.age ? ` (${patient.age})` : ''}`}
+              onSelect={(patient) => setForm((current) => ({ ...current, patient: String(patient.id) }))}
+            />
             <Field label="Document type"><select className={inputClassName} value={form.document_type} onChange={(e) => changeDocumentType(e.target.value as DocumentType)}>{documentTypes.map((type) => <option key={type.code} value={type.code}>{type.label}</option>)}</select></Field>
             <Field label="Title"><input className={inputClassName} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></Field>
             <Field label="Total cost"><input className={inputClassName} value={form.total_amount} onChange={(e) => setForm({ ...form, total_amount: e.target.value })} /></Field>
@@ -847,19 +1104,37 @@ function Documents({ patients, documents, documentTypes, onCreated, onPrint }: {
             </button>
           ))}
         </div>
+        <PaginationControls page={page} totalCount={totalCount} onPageChange={onPageChange} />
       </Panel>
     </>
   )
 }
 
-function MedicineStock({ medicines, onSaved }: { medicines: Medicine[]; onSaved: () => Promise<void> }) {
+function MedicineStock({
+  medicines,
+  totalCount,
+  page,
+  onPageChange,
+  onSaved,
+}: {
+  medicines: Medicine[]
+  totalCount: number
+  page: number
+  onPageChange: (page: number) => void
+  onSaved: () => Promise<void>
+}) {
   const [medicine, setMedicine] = useState({ name: '', unit: 'tablet', sale_price: '0', low_stock_threshold: '10' })
+  const [editingMedicineId, setEditingMedicineId] = useState<number | null>(null)
   const [movement, setMovement] = useState({ medicine: '', movement_type: 'in', quantity: '0', note: '' })
 
   async function addMedicine(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    await apiFetch<Medicine>('/medicines/', { method: 'POST', body: JSON.stringify(medicine) })
+    await apiFetch<Medicine>(editingMedicineId ? `/medicines/${editingMedicineId}/` : '/medicines/', {
+      method: editingMedicineId ? 'PATCH' : 'POST',
+      body: JSON.stringify(medicine),
+    })
     setMedicine({ name: '', unit: 'tablet', sale_price: '0', low_stock_threshold: '10' })
+    setEditingMedicineId(null)
     await onSaved()
   }
 
@@ -867,6 +1142,11 @@ function MedicineStock({ medicines, onSaved }: { medicines: Medicine[]; onSaved:
     event.preventDefault()
     await apiFetch('/stock-movements/', { method: 'POST', body: JSON.stringify({ ...movement, medicine: Number(movement.medicine), quantity: Number(movement.quantity) }) })
     setMovement({ medicine: '', movement_type: 'in', quantity: '0', note: '' })
+    await onSaved()
+  }
+
+  async function deleteMedicine(medicineId: number) {
+    await apiFetch(`/medicines/${medicineId}/`, { method: 'DELETE' })
     await onSaved()
   }
 
@@ -880,12 +1160,21 @@ function MedicineStock({ medicines, onSaved }: { medicines: Medicine[]; onSaved:
             <Field label="Unit"><input className={inputClassName} value={medicine.unit} onChange={(e) => setMedicine({ ...medicine, unit: e.target.value })} /></Field>
             <Field label="Sale price"><input className={inputClassName} value={medicine.sale_price} onChange={(e) => setMedicine({ ...medicine, sale_price: e.target.value })} /></Field>
             <Field label="Low stock threshold"><input className={inputClassName} value={medicine.low_stock_threshold} onChange={(e) => setMedicine({ ...medicine, low_stock_threshold: e.target.value })} /></Field>
-            <button className={buttonClassName}>Add medicine</button>
+            <div className="flex gap-2 md:col-span-2">
+              <button className={buttonClassName}>{editingMedicineId ? 'Update medicine' : 'Add medicine'}</button>
+              {editingMedicineId ? <button className={ghostButtonClassName} type="button" onClick={() => { setEditingMedicineId(null); setMedicine({ name: '', unit: 'tablet', sale_price: '0', low_stock_threshold: '10' }) }}>Cancel</button> : null}
+            </div>
           </form>
         </Panel>
         <Panel>
           <form onSubmit={addMovement} className="grid gap-3 md:grid-cols-2">
-            <Field label="Medicine"><select className={inputClassName} value={movement.medicine} onChange={(e) => setMovement({ ...movement, medicine: e.target.value })} required><option value="">Select</option>{medicines.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
+            <SearchCombo<MedicineSearchOption>
+              label="Medicine"
+              placeholder="Search medicine"
+              searchPath="/medicines/search/"
+              renderOption={(item) => `${item.name} (${item.unit}) - stock ${item.current_stock}`}
+              onSelect={(item) => setMovement((current) => ({ ...current, medicine: String(item.id) }))}
+            />
             <Field label="Movement"><select className={inputClassName} value={movement.movement_type} onChange={(e) => setMovement({ ...movement, movement_type: e.target.value })}><option value="in">Stock in</option><option value="out">Stock out</option><option value="adjustment">Adjustment</option></select></Field>
             <Field label="Quantity"><input className={inputClassName} value={movement.quantity} onChange={(e) => setMovement({ ...movement, quantity: e.target.value })} /></Field>
             <Field label="Note"><input className={inputClassName} value={movement.note} onChange={(e) => setMovement({ ...movement, note: e.target.value })} /></Field>
@@ -893,33 +1182,30 @@ function MedicineStock({ medicines, onSaved }: { medicines: Medicine[]; onSaved:
           </form>
         </Panel>
       </div>
-      <DataTable headers={['Medicine', 'Unit', 'Price', 'Stock']} rows={medicines.map((item) => [item.name, item.unit, item.sale_price, `${item.current_stock}${item.is_low_stock ? ' low' : ''}`])} />
+      <Panel>
+        <div className="overflow-auto">
+          <table className="w-full text-left text-sm">
+            <thead><tr className="border-b border-zinc-200"><th className="py-2 font-semibold">Medicine</th><th className="py-2 font-semibold">Unit</th><th className="py-2 font-semibold">Price</th><th className="py-2 font-semibold">Stock</th><th className="py-2 font-semibold">Action</th></tr></thead>
+            <tbody>
+              {medicines.map((item) => (
+                <tr key={item.id} className="border-b border-zinc-100">
+                  <td className="py-2">{item.name}</td>
+                  <td className="py-2">{item.unit}</td>
+                  <td className="py-2">{item.sale_price}</td>
+                  <td className="py-2">{item.current_stock}{item.is_low_stock ? ' low' : ''}</td>
+                  <td className="py-2">
+                    <div className="flex gap-2">
+                      <button className={ghostButtonClassName} onClick={() => { setEditingMedicineId(item.id); setMedicine({ name: item.name, unit: item.unit, sale_price: item.sale_price, low_stock_threshold: String(item.low_stock_threshold) }) }}>Edit</button>
+                      <button className={ghostButtonClassName} onClick={() => void deleteMedicine(item.id)}>Delete</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <PaginationControls page={page} totalCount={totalCount} onPageChange={onPageChange} />
+      </Panel>
     </>
-  )
-}
-
-function PatientSelect({ patients, value, onChange }: { patients: Patient[]; value: string; onChange: (value: string) => void }) {
-  return (
-    <select className={inputClassName} value={value} onChange={(event) => onChange(event.target.value)} required>
-      <option value="">Select patient</option>
-      {patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.registration_number} - {patient.first_name} {patient.last_name}</option>)}
-    </select>
-  )
-}
-
-function DataTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
-  return (
-    <Panel>
-      <div className="overflow-auto">
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr className="border-b border-zinc-200">{headers.map((header) => <th key={header} className="py-2 font-semibold">{header}</th>)}</tr>
-          </thead>
-          <tbody>
-            {rows.map((row, rowIndex) => <tr key={rowIndex} className="border-b border-zinc-100">{row.map((cell, cellIndex) => <td key={`${rowIndex}-${cellIndex}`} className="py-2">{cell}</td>)}</tr>)}
-          </tbody>
-        </table>
-      </div>
-    </Panel>
   )
 }

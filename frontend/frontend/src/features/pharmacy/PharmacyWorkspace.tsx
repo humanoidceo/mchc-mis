@@ -2,8 +2,9 @@ import { startTransition, useCallback, useEffect, useState } from 'react'
 import type { FormEvent, UIEvent } from 'react'
 
 import { ApiError, apiFetch } from '../../api/client'
-import { buttonClassName, Field, ghostButtonClassName, inputClassName, Panel, SectionHeader } from '../../components/ui'
+import { buttonClassName, Field, ghostButtonClassName, inputClassName, PaginationControls, Panel, SectionHeader } from '../../components/ui'
 import type {
+  PaginatedResponse,
   PharmacyDashboardStats,
   PharmacyMedicine,
   PharmacyPatientSearchOption,
@@ -94,8 +95,6 @@ function describeApiError(caught: unknown, fallback: string): string {
 export function PharmacyWorkspace({ view }: { view: View }) {
   const { user } = useAuth()
   const [dashboard, setDashboard] = useState<PharmacyDashboardStats>(emptyDashboard)
-  const [medicines, setMedicines] = useState<PharmacyMedicine[]>([])
-  const [sales, setSales] = useState<PharmacySale[]>([])
   const [setting, setSetting] = useState<PharmacySetting>(emptySetting)
   const [selectedSale, setSelectedSale] = useState<PharmacySale | null>(null)
   const [error, setError] = useState('')
@@ -113,23 +112,8 @@ export function PharmacyWorkspace({ view }: { view: View }) {
         return
       }
 
-      if (currentView === 'medicines' || currentView === 'low-stock') {
-        const [medicineData, settingData] = await Promise.all([
-          apiFetch<PharmacyMedicine[]>('/pharmacy/medicines/'),
-          apiFetch<PharmacySetting>('/pharmacy/settings/'),
-        ])
-        setMedicines(medicineData)
-        setSetting(settingData)
-        return
-      }
-
-      if (currentView === 'sales') {
-        const [salesData, settingData] = await Promise.all([
-          apiFetch<PharmacySale[]>('/pharmacy/sales/'),
-          apiFetch<PharmacySetting>('/pharmacy/settings/'),
-        ])
-        setSales(salesData)
-        setSetting(settingData)
+      if (currentView === 'medicines' || currentView === 'low-stock' || currentView === 'sales') {
+        setSetting(await apiFetch<PharmacySetting>('/pharmacy/settings/'))
         return
       }
 
@@ -147,17 +131,12 @@ export function PharmacyWorkspace({ view }: { view: View }) {
     <div className="space-y-6">
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
       {view === 'dashboard' ? <PharmacyDashboard dashboard={dashboard} onRefresh={() => void loadData('dashboard')} /> : null}
-      {view === 'medicines' ? <MedicineManager medicines={medicines} setting={setting} onSaved={() => void loadData('medicines')} /> : null}
-      {view === 'low-stock' ? <LowStockReport medicines={medicines} onRefresh={() => void loadData('low-stock')} /> : null}
+      {view === 'medicines' ? <MedicineManager setting={setting} /> : null}
+      {view === 'low-stock' ? <LowStockReport /> : null}
       {view === 'sales' ? (
         <SalesWorkspace
-          sales={sales}
           setting={setting}
-          onCreated={(sale) => {
-            setSelectedSale(sale)
-            void loadData('sales')
-          }}
-          onRefresh={() => void loadData('sales')}
+          onCreated={setSelectedSale}
           onSelectSale={setSelectedSale}
         />
       ) : null}
@@ -284,21 +263,16 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
   )
 }
 
-function MedicineManager({
-  medicines,
-  setting,
-  onSaved,
-}: {
-  medicines: PharmacyMedicine[]
-  setting: PharmacySetting
-  onSaved: () => void
-}) {
+function MedicineManager({ setting }: { setting: PharmacySetting }) {
+  const [medicines, setMedicines] = useState<PharmacyMedicine[]>([])
   const [form, setForm] = useState<MedicineFormState>(emptyMedicineForm)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [query, setQuery] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
 
   useEffect(() => {
     if (editingId === null) {
@@ -309,23 +283,37 @@ function MedicineManager({
     }
   }, [editingId, setting.default_profit_percentage])
 
-  const filtered = medicines.filter((medicine) => {
-    const term = query.trim().toLowerCase()
-    if (!term) return true
-    return [medicine.name, medicine.generic_name].some((value) => value.toLowerCase().includes(term))
-  })
-  const totalPages = Math.max(1, Math.ceil(filtered.length / 10))
-  const paginatedMedicines = filtered.slice((page - 1) * 10, page * 10)
-
   useEffect(() => {
     setPage(1)
   }, [query])
 
   useEffect(() => {
-    if (page > totalPages) {
-      setPage(totalPages)
+    let ignore = false
+
+    async function loadMedicines() {
+      setLoading(true)
+      try {
+        const response = await apiFetch<PaginatedResponse<PharmacyMedicine>>(`/pharmacy/medicines/?page=${page}&q=${encodeURIComponent(query)}`)
+        if (!ignore) {
+          setMedicines(response.results)
+          setTotalCount(response.count)
+        }
+      } catch {
+        if (!ignore) {
+          setError('Unable to load medicines.')
+        }
+      } finally {
+        if (!ignore) {
+          setLoading(false)
+        }
+      }
     }
-  }, [page, totalPages])
+
+    void loadMedicines()
+    return () => {
+      ignore = true
+    }
+  }, [page, query])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -344,11 +332,25 @@ function MedicineManager({
         ...emptyMedicineForm,
         profit_percentage: setting.default_profit_percentage,
       })
-      onSaved()
+      const response = await apiFetch<PaginatedResponse<PharmacyMedicine>>(`/pharmacy/medicines/?page=${page}&q=${encodeURIComponent(query)}`)
+      setMedicines(response.results)
+      setTotalCount(response.count)
     } catch (caught) {
       setError(describeApiError(caught, 'Unable to save medicine.'))
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function deleteMedicine(medicineId: number) {
+    setError('')
+    try {
+      await apiFetch(`/pharmacy/medicines/${medicineId}/`, { method: 'DELETE' })
+      const response = await apiFetch<PaginatedResponse<PharmacyMedicine>>(`/pharmacy/medicines/?page=${page}&q=${encodeURIComponent(query)}`)
+      setMedicines(response.results)
+      setTotalCount(response.count)
+    } catch (caught) {
+      setError(describeApiError(caught, 'Unable to delete medicine.'))
     }
   }
 
@@ -376,7 +378,7 @@ function MedicineManager({
               </tr>
             </thead>
             <tbody className="divide-y divide-sky-100">
-              {paginatedMedicines.map((medicine) => (
+              {medicines.map((medicine) => (
                 <tr key={medicine.id}>
                   <td className="py-3 pr-4">
                     <p className="font-medium text-slate-900">{medicine.name}</p>
@@ -387,25 +389,28 @@ function MedicineManager({
                   <td className="py-3 pr-4 text-slate-700">{formatMoney(medicine.sell_price)}</td>
                   <td className="py-3 pr-4 text-slate-700">{medicine.profit_percentage}%</td>
                   <td className="py-3 text-right">
-                    <button
-                      className={ghostButtonClassName}
-                      onClick={() => {
-                        setEditingId(medicine.id)
-                        setForm({
-                          name: medicine.name,
-                          generic_name: medicine.generic_name,
-                          quantity: String(medicine.quantity),
-                          buy_price: medicine.buy_price,
-                          profit_percentage: medicine.profit_percentage,
-                        })
-                      }}
-                    >
-                      Edit
-                    </button>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        className={ghostButtonClassName}
+                        onClick={() => {
+                          setEditingId(medicine.id)
+                          setForm({
+                            name: medicine.name,
+                            generic_name: medicine.generic_name,
+                            quantity: String(medicine.quantity),
+                            buy_price: medicine.buy_price,
+                            profit_percentage: medicine.profit_percentage,
+                          })
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button className={ghostButtonClassName} onClick={() => void deleteMedicine(medicine.id)}>Delete</button>
+                    </div>
                   </td>
                 </tr>
               ))}
-              {!paginatedMedicines.length ? (
+              {!medicines.length && !loading ? (
                 <tr>
                   <td colSpan={6} className="py-8 text-center text-slate-500">No medicines match this search.</td>
                 </tr>
@@ -413,15 +418,7 @@ function MedicineManager({
             </tbody>
           </table>
         </div>
-        {filtered.length ? (
-          <div className="mt-4 flex items-center justify-between rounded border border-zinc-200 bg-white px-4 py-3 text-sm text-slate-700">
-            <p>Page {page} of {totalPages}</p>
-            <div className="flex gap-2">
-              <button className={ghostButtonClassName} disabled={page === 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
-              <button className={ghostButtonClassName} disabled={page === totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>Next</button>
-            </div>
-          </div>
-        ) : null}
+        <PaginationControls page={page} totalCount={totalCount} onPageChange={setPage} />
       </Panel>
 
       <Panel>
@@ -468,23 +465,26 @@ function MedicineManager({
   )
 }
 
-function LowStockReport({
-  medicines,
-  onRefresh,
-}: {
-  medicines: PharmacyMedicine[]
-  onRefresh: () => void
-}) {
+function LowStockReport() {
+  const [medicines, setMedicines] = useState<PharmacyMedicine[]>([])
   const [page, setPage] = useState(1)
-  const lowStockItems = medicines.filter((medicine) => medicine.quantity < 10)
-  const totalPages = Math.max(1, Math.ceil(lowStockItems.length / 10))
-  const paginatedItems = lowStockItems.slice((page - 1) * 10, page * 10)
+  const [totalCount, setTotalCount] = useState(0)
+
+  async function loadLowStock(currentPage = page) {
+    const response = await apiFetch<PaginatedResponse<PharmacyMedicine>>(`/pharmacy/medicines/?page=${currentPage}&low_stock=1`)
+    setMedicines(response.results)
+    setTotalCount(response.count)
+  }
 
   useEffect(() => {
-    if (page > totalPages) {
-      setPage(totalPages)
-    }
-  }, [page, totalPages])
+    void loadLowStock(page)
+  }, [page])
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / 10))
+
+  function onRefresh() {
+    void loadLowStock(page)
+  }
 
   return (
     <section className="space-y-5">
@@ -506,7 +506,7 @@ function LowStockReport({
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="rounded-md border border-amber-100 bg-amber-50 p-4 shadow-sm">
             <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Low stock medicines</p>
-            <p className="mt-3 text-3xl font-semibold text-slate-950">{lowStockItems.length}</p>
+            <p className="mt-3 text-3xl font-semibold text-slate-950">{totalCount}</p>
           </div>
           <div className="rounded-md border border-sky-100 bg-sky-50 p-4 shadow-sm">
             <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Current page</p>
@@ -532,7 +532,7 @@ function LowStockReport({
                 </tr>
               </thead>
               <tbody>
-                {paginatedItems.map((medicine) => (
+                {medicines.map((medicine) => (
                   <tr key={medicine.id} className="border-b border-zinc-100">
                     <td className="py-2">{medicine.name}</td>
                     <td className="py-2">{medicine.generic_name || '-'}</td>
@@ -542,7 +542,7 @@ function LowStockReport({
                     <td className="py-2">{medicine.stock_status}</td>
                   </tr>
                 ))}
-                {!paginatedItems.length ? (
+                {!medicines.length ? (
                   <tr>
                     <td colSpan={6} className="py-8 text-center text-zinc-500">No medicines are below quantity 10.</td>
                   </tr>
@@ -552,33 +552,25 @@ function LowStockReport({
           </div>
         </Panel>
 
-        {lowStockItems.length ? (
-          <div className="no-print flex items-center justify-between rounded border border-zinc-200 bg-white px-4 py-3 text-sm text-slate-700">
-            <p>Page {page} of {totalPages}</p>
-            <div className="flex gap-2">
-              <button className={ghostButtonClassName} disabled={page === 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
-              <button className={ghostButtonClassName} disabled={page === totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>Next</button>
-            </div>
-          </div>
-        ) : null}
+        <div className="no-print">
+          <PaginationControls page={page} totalCount={totalCount} onPageChange={setPage} />
+        </div>
       </div>
     </section>
   )
 }
 
 function SalesWorkspace({
-  sales,
   setting,
   onCreated,
-  onRefresh,
   onSelectSale,
 }: {
-  sales: PharmacySale[]
   setting: PharmacySetting
   onCreated: (sale: PharmacySale) => void
-  onRefresh: () => void
   onSelectSale: (sale: PharmacySale) => void
 }) {
+  const [sales, setSales] = useState<PharmacySale[]>([])
+  const [totalCount, setTotalCount] = useState(0)
   const [customerType, setCustomerType] = useState<'internal' | 'external'>('internal')
   const [customerName, setCustomerName] = useState('')
   const [selectedPatient, setSelectedPatient] = useState<PharmacyPatientSearchOption | null>(null)
@@ -592,33 +584,29 @@ function SalesWorkspace({
   const [deferredFilterText, setDeferredFilterText] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
 
+  async function loadSales(page = currentPage, search = deferredFilterText) {
+    const response = await apiFetch<PaginatedResponse<PharmacySale>>(`/pharmacy/sales/?page=${page}&q=${encodeURIComponent(search)}`)
+    setSales(response.results)
+    setTotalCount(response.count)
+  }
+
   useEffect(() => {
     startTransition(() => {
       setDeferredFilterText(filterText)
     })
   }, [filterText])
 
-  const filteredSales = sales.filter((sale) => {
-    const term = deferredFilterText.trim().toLowerCase()
-    if (!term) return true
-    return [sale.bill_no, sale.customer_name, sale.patient_name].some((value) => value.toLowerCase().includes(term))
-  })
-  const totalPages = Math.max(1, Math.ceil(filteredSales.length / 10))
-  const paginatedSales = filteredSales.slice((currentPage - 1) * 10, currentPage * 10)
-
-  const totalAmount = rows.reduce((sum, row) => {
-    return sum + (Number(row.unit_price || 0) * Number(row.quantity || 0))
-  }, 0)
-
   useEffect(() => {
     setCurrentPage(1)
   }, [deferredFilterText])
 
   useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages)
-    }
-  }, [currentPage, totalPages])
+    void loadSales(currentPage, deferredFilterText)
+  }, [currentPage, deferredFilterText])
+
+  const totalAmount = rows.reduce((sum, row) => {
+    return sum + (Number(row.unit_price || 0) * Number(row.quantity || 0))
+  }, 0)
 
   async function loadPrescription(patient: PharmacyPatientSearchOption) {
     setSelectedPatient(patient)
@@ -676,10 +664,23 @@ function SalesWorkspace({
       setRows([{ medicine: '', quantity: '1' }])
       setNotice(`Bill ${sale.bill_no} created. Reception must approve payment ${sale.payment_status ?? 'pending'}.`)
       onCreated(sale)
+      await loadSales(currentPage, deferredFilterText)
     } catch (caught) {
       setError(caught instanceof Error && !(caught instanceof ApiError) ? caught.message : describeApiError(caught, 'Unable to create bill.'))
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function deleteSale(saleId: number) {
+    setError('')
+    setNotice('')
+    try {
+      await apiFetch(`/pharmacy/sales/${saleId}/`, { method: 'DELETE' })
+      setNotice('Bill deleted and stock restored.')
+      await loadSales(currentPage, deferredFilterText)
+    } catch (caught) {
+      setError(describeApiError(caught, 'Unable to delete bill.'))
     }
   }
 
@@ -810,12 +811,12 @@ function SalesWorkspace({
           <SectionHeader title="Recent bills" subtitle="Search and reopen any bill for review or printing." />
           <div className="flex gap-2">
             <input value={filterText} onChange={(event) => setFilterText(event.target.value)} className={inputClassName} placeholder="Search by bill or customer" />
-            <button className={ghostButtonClassName} onClick={onRefresh}>Refresh</button>
+            <button className={ghostButtonClassName} onClick={() => void loadSales(currentPage, deferredFilterText)}>Refresh</button>
           </div>
         </div>
 
         <div className="mt-5 space-y-3">
-          {paginatedSales.map((sale) => (
+          {sales.map((sale) => (
             <div key={sale.id} className="rounded border border-sky-100 bg-white p-4 shadow-sm shadow-sky-100/60">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -844,19 +845,12 @@ function SalesWorkspace({
               </div>
               <div className="mt-4 flex gap-2">
                 <button className={buttonClassName} onClick={() => onSelectSale(sale)}>Print bill</button>
+                <button className={ghostButtonClassName} onClick={() => void deleteSale(sale.id)}>Delete</button>
               </div>
             </div>
           ))}
-          {!filteredSales.length ? <p className="rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-600">No bills found.</p> : null}
-          {filteredSales.length ? (
-            <div className="flex items-center justify-between rounded border border-zinc-200 bg-white px-4 py-3 text-sm text-slate-700">
-              <p>Page {currentPage} of {totalPages}</p>
-              <div className="flex gap-2">
-                <button className={ghostButtonClassName} disabled={currentPage === 1} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}>Previous</button>
-                <button className={ghostButtonClassName} disabled={currentPage === totalPages} onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}>Next</button>
-              </div>
-            </div>
-          ) : null}
+          {!sales.length ? <p className="rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-600">No bills found.</p> : null}
+          <PaginationControls page={currentPage} totalCount={totalCount} onPageChange={setCurrentPage} />
         </div>
       </Panel>
     </div>
@@ -1039,11 +1033,14 @@ function PrintPharmacyBill({
     <div className="print-area">
       <article className="a4-report mx-auto max-w-3xl rounded-3xl border border-slate-200 bg-white p-8 shadow-lg shadow-slate-200">
         <header className="flex items-start justify-between gap-6 border-b border-slate-200 pb-6">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-sky-600">Pharmacy bill</p>
-            <h1 className="mt-2 text-3xl font-semibold text-slate-950">{setting.pharmacy_name}</h1>
-            <p className="mt-2 text-sm text-slate-500">{setting.address || 'Address not set'}</p>
-            <p className="text-sm text-slate-500">{setting.phone || 'Phone not set'}</p>
+          <div className="flex items-start gap-4">
+            <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-16 w-16 rounded-2xl object-cover" />
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-sky-600">Pharmacy bill</p>
+              <h1 className="mt-2 text-3xl font-semibold text-slate-950">{setting.pharmacy_name}</h1>
+              <p className="mt-2 text-sm text-slate-500">{setting.address || 'Address not set'}</p>
+              <p className="text-sm text-slate-500">{setting.phone || 'Phone not set'}</p>
+            </div>
           </div>
           <div className="rounded-2xl bg-slate-950 px-5 py-4 text-right text-white">
             <p className="text-xs uppercase tracking-[0.25em] text-sky-200">Bill no</p>

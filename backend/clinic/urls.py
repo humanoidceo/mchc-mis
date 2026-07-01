@@ -52,7 +52,7 @@ urlpatterns = [
     ),
     path(
         'laboratory/bills/<int:pk>/',
-        LaboratoryBillViewSet.as_view({'get': 'retrieve'}),
+        LaboratoryBillViewSet.as_view({'get': 'retrieve', 'delete': 'destroy'}),
         name='laboratory-bill-detail',
     ),
     path(

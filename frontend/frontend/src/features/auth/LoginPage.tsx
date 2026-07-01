@@ -8,6 +8,7 @@ import { useAuth } from './useAuth'
 function landingPathForRole(role?: string | null) {
   if (role === 'pharmacist') return '/pharmacy/dashboard'
   if (role === 'laboratory') return '/laboratory/dashboard'
+  if (role === 'vaccinator') return '/vaccination/dashboard'
   return '/dashboard'
 }
 

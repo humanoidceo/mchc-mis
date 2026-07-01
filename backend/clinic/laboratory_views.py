@@ -166,13 +166,14 @@ class LaboratoryPatientViewSet(LaboratoryBaseViewSet, mixins.ListModelMixin):
 class LaboratoryBillViewSet(
     LaboratoryBaseViewSet,
     mixins.CreateModelMixin,
+    mixins.DestroyModelMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
 ):
     serializer_class = LaboratoryBillSerializer
 
     def get_queryset(self):
-        return (
+        queryset = (
             ClinicalDocument.objects.filter(
                 document_type=ClinicalDocument.DocumentType.LAB_BILL,
                 created_by=self.request.user,
@@ -180,6 +181,15 @@ class LaboratoryBillViewSet(
             .select_related('patient', 'payment')
             .order_by('-created_at')
         )
+        search = self.request.query_params.get('q', '').strip()
+        if search:
+            queryset = queryset.filter(
+                Q(title__icontains=search)
+                | Q(patient__first_name__icontains=search)
+                | Q(patient__last_name__icontains=search)
+                | Q(patient__registration_number__icontains=search)
+            )
+        return queryset
 
     def get_serializer_class(self):
         if self.action == 'create':
@@ -303,3 +313,12 @@ class LaboratoryBillViewSet(
 
         output = LaboratoryBillSerializer(document, context=self.get_serializer_context())
         return Response(output.data)
+
+    def destroy(self, request, *args, **kwargs):
+        document = self.get_object()
+        with transaction.atomic():
+            payment = document.payment
+            document.delete()
+            if payment is not None:
+                payment.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

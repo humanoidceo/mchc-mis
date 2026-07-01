@@ -10,6 +10,7 @@ from .models import ClinicalDocument, LabTest, Medicine, MedicineStockMovement, 
 MONEY_QUANT = Decimal('0.01')
 MAX_WEBSITE_IMAGE_SIZE = 8 * 1024 * 1024
 ALLOWED_WEBSITE_IMAGE_EXTENSIONS = {'.avif', '.gif', '.heic', '.jpeg', '.jpg', '.png', '.webp'}
+FREE_PAYMENT_DEPARTMENTS = {'vaccination', 'malnutrition'}
 
 
 def money(value: Decimal) -> Decimal:
@@ -33,6 +34,10 @@ def media_or_fallback_url(request, file, fallback: str) -> str:
         url = file.url
         return request.build_absolute_uri(url) if request else url
     return fallback
+
+
+def is_free_payment_department(department: str | None) -> bool:
+    return (department or '').strip().lower() in FREE_PAYMENT_DEPARTMENTS
 
 
 class PatientSerializer(serializers.ModelSerializer):
@@ -64,9 +69,15 @@ class PaymentSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        department = attrs.get('department', getattr(self.instance, 'department', ''))
         doctor_fee = attrs.get('doctor_fee', getattr(self.instance, 'doctor_fee', Decimal('0'))) or Decimal('0')
         payment_type = attrs.get('payment_type', getattr(self.instance, 'payment_type', Payment.PaymentType.FULL))
         discount_percentage = attrs.get('discount_percentage', getattr(self.instance, 'discount_percentage', Decimal('0'))) or Decimal('0')
+
+        if is_free_payment_department(department):
+            doctor_fee = Decimal('0')
+            payment_type = Payment.PaymentType.FREE
+            discount_percentage = Decimal('100')
 
         if doctor_fee < 0:
             raise serializers.ValidationError({'doctor_fee': 'Doctor fee cannot be negative.'})

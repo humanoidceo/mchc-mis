@@ -1,8 +1,8 @@
-import { startTransition, useCallback, useEffect, useMemo, useState } from 'react'
+import { startTransition, useCallback, useEffect, useState } from 'react'
 import type { FormEvent, UIEvent } from 'react'
 
 import { ApiError, apiFetch } from '../../api/client'
-import { buttonClassName, Field, ghostButtonClassName, inputClassName, Panel, SectionHeader } from '../../components/ui'
+import { buttonClassName, Field, ghostButtonClassName, inputClassName, PaginationControls, Panel, SectionHeader } from '../../components/ui'
 import type {
   ClinicalDocument,
   LaboratoryBill,
@@ -10,6 +10,7 @@ import type {
   LaboratoryOrder,
   LaboratoryPatientSearchOption,
   LabTest,
+  PaginatedResponse,
   SearchResponse,
 } from '../../types/domain'
 import { useAuth } from '../auth/useAuth'
@@ -84,7 +85,6 @@ function asBillDocument(bill: LaboratoryBill, printedBy: string): ClinicalDocume
 export function LaboratoryWorkspace({ view }: { view: View }) {
   const { user } = useAuth()
   const [dashboard, setDashboard] = useState<LaboratoryDashboardStats>(emptyDashboard)
-  const [bills, setBills] = useState<LaboratoryBill[]>([])
   const [selectedBill, setSelectedBill] = useState<LaboratoryBill | null>(null)
   const [selectedPrintMode, setSelectedPrintMode] = useState<'bill' | 'result'>('bill')
   const [error, setError] = useState('')
@@ -96,9 +96,7 @@ export function LaboratoryWorkspace({ view }: { view: View }) {
     try {
       if (currentView === 'dashboard') {
         setDashboard(await apiFetch<LaboratoryDashboardStats>('/laboratory/dashboard/'))
-        return
       }
-      setBills(await apiFetch<LaboratoryBill[]>('/laboratory/bills/'))
     } catch {
       setError('Unable to load laboratory data.')
     }
@@ -114,19 +112,18 @@ export function LaboratoryWorkspace({ view }: { view: View }) {
       {view === 'dashboard' ? <LaboratoryDashboard dashboard={dashboard} onRefresh={() => void loadData('dashboard')} /> : null}
       {view === 'billing' ? (
         <LaboratoryBilling
-          bills={bills}
           onCreated={(bill) => {
             setSelectedPrintMode('bill')
             setSelectedBill(bill)
-            void loadData('billing')
           }}
-          onRefresh={() => void loadData('billing')}
           onSelectBill={(bill, mode) => {
             setSelectedPrintMode(mode)
             setSelectedBill(bill)
           }}
           onBillUpdated={(bill) => {
-            setBills((current) => current.map((row) => row.id === bill.id ? bill : row))
+            if (selectedBill?.id === bill.id) {
+              setSelectedBill(bill)
+            }
           }}
         />
       ) : null}
@@ -214,18 +211,16 @@ function LaboratoryDashboard({ dashboard, onRefresh }: { dashboard: LaboratoryDa
 }
 
 function LaboratoryBilling({
-  bills,
   onCreated,
-  onRefresh,
   onSelectBill,
   onBillUpdated,
 }: {
-  bills: LaboratoryBill[]
   onCreated: (bill: LaboratoryBill) => void
-  onRefresh: () => void
   onSelectBill: (bill: LaboratoryBill, mode: 'bill' | 'result') => void
   onBillUpdated: (bill: LaboratoryBill) => void
 }) {
+  const [bills, setBills] = useState<LaboratoryBill[]>([])
+  const [totalCount, setTotalCount] = useState(0)
   const [customerType, setCustomerType] = useState<'internal' | 'external'>('internal')
   const [customerName, setCustomerName] = useState('')
   const [selectedPatient, setSelectedPatient] = useState<LaboratoryPatientSearchOption | null>(null)
@@ -242,20 +237,15 @@ function LaboratoryBilling({
   const [resultRows, setResultRows] = useState<ResultRow[]>([])
   const [savingResults, setSavingResults] = useState(false)
 
+  async function loadBills(currentPage = page, search = deferredFilterText) {
+    const response = await apiFetch<PaginatedResponse<LaboratoryBill>>(`/laboratory/bills/?page=${currentPage}&q=${encodeURIComponent(search)}`)
+    setBills(response.results)
+    setTotalCount(response.count)
+  }
+
   useEffect(() => {
     startTransition(() => setDeferredFilterText(filterText))
   }, [filterText])
-
-  const filteredBills = useMemo(() => (
-    bills.filter((bill) => {
-      const term = deferredFilterText.trim().toLowerCase()
-      if (!term) return true
-      return [billCustomerLabel(bill), bill.title, String(bill.id)].some((value) => value.toLowerCase().includes(term))
-    })
-  ), [bills, deferredFilterText])
-
-  const totalPages = Math.max(1, Math.ceil(filteredBills.length / 10))
-  const paginatedBills = filteredBills.slice((page - 1) * 10, page * 10)
   const totalAmount = rows.reduce((sum, row) => sum + Number(row.cost || 0), 0)
 
   useEffect(() => {
@@ -263,8 +253,8 @@ function LaboratoryBilling({
   }, [deferredFilterText])
 
   useEffect(() => {
-    if (page > totalPages) setPage(totalPages)
-  }, [page, totalPages])
+    void loadBills(page, deferredFilterText)
+  }, [page, deferredFilterText])
 
   async function loadLatestOrder(patient: LaboratoryPatientSearchOption) {
     setSelectedPatient(patient)
@@ -322,6 +312,7 @@ function LaboratoryBilling({
       setRows([{ test: '', test_label: '', cost: '', instructions: '' }])
       setNotice(`Laboratory bill created. Reception must approve payment ${bill.payment_status ?? 'pending'}.`)
       onCreated(bill)
+      await loadBills(page, deferredFilterText)
     } catch (caught) {
       setError(caught instanceof Error && !(caught instanceof ApiError) ? caught.message : describeApiError(caught, 'Unable to create laboratory bill.'))
     } finally {
@@ -358,6 +349,7 @@ function LaboratoryBilling({
           items: resultRows.map((row) => ({ test: row.test, result: row.result })),
         }),
       })
+      setBills((current) => current.map((row) => row.id === bill.id ? bill : row))
       onBillUpdated(bill)
       setEditingResultsBillId(null)
       setNotice('Laboratory results saved.')
@@ -365,6 +357,18 @@ function LaboratoryBilling({
       setError(describeApiError(caught, 'Unable to save laboratory results.'))
     } finally {
       setSavingResults(false)
+    }
+  }
+
+  async function deleteBill(billId: number) {
+    setError('')
+    setNotice('')
+    try {
+      await apiFetch(`/laboratory/bills/${billId}/`, { method: 'DELETE' })
+      setNotice('Laboratory bill deleted.')
+      await loadBills(page, deferredFilterText)
+    } catch (caught) {
+      setError(describeApiError(caught, 'Unable to delete laboratory bill.'))
     }
   }
 
@@ -490,7 +494,7 @@ function LaboratoryBilling({
           <SectionHeader title="Recent laboratory bills" subtitle="Review and print bills created in this account." />
           <div className="flex gap-2">
             <input value={filterText} onChange={(event) => setFilterText(event.target.value)} className={inputClassName} placeholder="Search by patient or bill" />
-            <button className={ghostButtonClassName} onClick={onRefresh}>Refresh</button>
+            <button className={ghostButtonClassName} onClick={() => void loadBills(page, deferredFilterText)}>Refresh</button>
           </div>
         </div>
 
@@ -531,7 +535,7 @@ function LaboratoryBilling({
               </div>
             </form>
           ) : null}
-          {paginatedBills.map((bill) => (
+          {bills.map((bill) => (
             <div key={bill.id} className="rounded border border-sky-100 bg-white p-4 shadow-sm shadow-sky-100/60">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -555,19 +559,12 @@ function LaboratoryBilling({
                 <button className={buttonClassName} onClick={() => onSelectBill(bill, 'bill')}>Print bill</button>
                 {bill.payment_status === 'approved' ? <button className={ghostButtonClassName} onClick={() => openResultsEditor(bill)}>Enter results</button> : null}
                 {bill.has_results ? <button className={ghostButtonClassName} onClick={() => onSelectBill(bill, 'result')}>Print result</button> : null}
+                <button className={ghostButtonClassName} onClick={() => void deleteBill(bill.id)}>Delete</button>
               </div>
             </div>
           ))}
-          {!filteredBills.length ? <p className="rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-600">No laboratory bills found.</p> : null}
-          {filteredBills.length ? (
-            <div className="flex items-center justify-between rounded border border-zinc-200 bg-white px-4 py-3 text-sm text-slate-700">
-              <p>Page {page} of {totalPages}</p>
-              <div className="flex gap-2">
-                <button className={ghostButtonClassName} disabled={page === 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
-                <button className={ghostButtonClassName} disabled={page === totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>Next</button>
-              </div>
-            </div>
-          ) : null}
+          {!bills.length ? <p className="rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-600">No laboratory bills found.</p> : null}
+          <PaginationControls page={page} totalCount={totalCount} onPageChange={setPage} />
         </div>
       </Panel>
     </div>
@@ -670,6 +667,7 @@ function PrintLaboratoryBill({ bill, printedBy }: { bill: LaboratoryBill; printe
   return (
     <section className="print-area a4-report rounded-md border border-zinc-200 bg-white p-6 text-zinc-950">
       <header className="flex items-center gap-4 border-b border-zinc-200 pb-4">
+        <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-16 w-16 rounded object-cover" />
         <div>
           <p className="text-sm font-medium text-sky-600">AFZENDA</p>
           <h2 className="text-xl font-semibold">Mother and Child Health Care Center</h2>
@@ -717,10 +715,13 @@ function PrintLaboratoryResult({ bill, printedBy }: { bill: LaboratoryBill; prin
 
   return (
     <section className="print-area a4-report rounded-md border border-zinc-200 bg-white p-6 text-zinc-950">
-      <header className="border-b border-zinc-200 pb-4">
-        <p className="text-sm font-medium text-sky-600">AFZENDA</p>
-        <h2 className="text-xl font-semibold">Mother and Child Health Care Center</h2>
-        <p className="text-sm text-zinc-600">Laboratory result report</p>
+      <header className="flex items-center gap-4 border-b border-zinc-200 pb-4">
+        <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-16 w-16 rounded object-cover" />
+        <div>
+          <p className="text-sm font-medium text-sky-600">AFZENDA</p>
+          <h2 className="text-xl font-semibold">Mother and Child Health Care Center</h2>
+          <p className="text-sm text-zinc-600">Laboratory result report</p>
+        </div>
       </header>
 
       <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
@@ -750,10 +751,6 @@ function PrintLaboratoryResult({ bill, printedBy }: { bill: LaboratoryBill; prin
           ))}
         </tbody>
       </table>
-
-      <div className="mt-6 border-t border-zinc-200 pt-4 text-sm">
-        <p><strong>Laboratory total bill:</strong> {bill.total_amount}</p>
-      </div>
     </section>
   )
 }
