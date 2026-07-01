@@ -239,11 +239,17 @@ class ClinicalDocumentViewSet(PermissionedModelViewSet):
         queryset = super().get_queryset()
         document_type = self.request.query_params.get('document_type')
         mine_only = self.request.query_params.get('mine')
+        midwife_record = self.request.query_params.get('midwife_record')
         search = self.request.query_params.get('q', '').strip()
         if document_type:
             queryset = queryset.filter(document_type=document_type)
         if mine_only in {'1', 'true', 'yes'}:
             queryset = queryset.filter(created_by=self.request.user)
+        if midwife_record in {'1', 'true', 'yes'}:
+            queryset = queryset.filter(
+                document_type=ClinicalDocument.DocumentType.ULTRASOUND,
+                payload__midwife_record=True,
+            )
         if search:
             queryset = queryset.filter(
                 Q(title__icontains=search)

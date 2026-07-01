@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, UIEvent } from 'react'
 
 import { ApiError, apiFetch } from '../../api/client'
@@ -749,6 +749,7 @@ function SearchCombo<T extends { id: number }>({ label, placeholder, searchPath,
   const [nextOffset, setNextOffset] = useState<number | null>(0)
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const rootRef = useRef<HTMLDivElement | null>(null)
 
   const loadOptions = useCallback(async (offset: number, replace = false, search = query) => {
     setLoading(true)
@@ -770,6 +771,23 @@ function SearchCombo<T extends { id: number }>({ label, placeholder, searchPath,
     return () => window.clearTimeout(timer)
   }, [loadOptions, open, query])
 
+  useEffect(() => {
+    if (!open) return
+
+    function handlePointerDown(event: MouseEvent | TouchEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('touchstart', handlePointerDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('touchstart', handlePointerDown)
+    }
+  }, [open])
+
   function handleScroll(event: UIEvent<HTMLDivElement>) {
     const element = event.currentTarget
     if (nextOffset === null || loading) return
@@ -779,7 +797,7 @@ function SearchCombo<T extends { id: number }>({ label, placeholder, searchPath,
   }
 
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       <Field label={label}>
         <input
           className={inputClassName}

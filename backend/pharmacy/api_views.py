@@ -1,7 +1,9 @@
+from datetime import timedelta
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Prefetch, Q, Sum
+from django.db.models import Count, Prefetch, Q, Sum
+from django.db.models.functions import TruncDate, TruncMonth
 from django.utils import timezone
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -78,6 +80,64 @@ def latest_prescription_for_patient(patient_id: int):
     )
 
 
+def dashboard_period_start(period: str):
+    now = timezone.localtime(timezone.now())
+    if period == "annual":
+        return now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0), "Annual"
+    if period == "monthly":
+        return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0), "Monthly"
+    if period == "weekly":
+        start = now - timedelta(days=now.weekday())
+        return start.replace(hour=0, minute=0, second=0, microsecond=0), "Weekly"
+    return now.replace(hour=0, minute=0, second=0, microsecond=0), "Daily"
+
+
+def build_patient_trend(period: str, sales_queryset):
+    now = timezone.localtime(timezone.now())
+
+    if period == "annual":
+        month_rows = (
+            sales_queryset
+            .annotate(bucket=TruncMonth("created_at"))
+            .values("bucket")
+            .annotate(value=Count("patient", distinct=True))
+            .order_by("bucket")
+        )
+        counts = {row["bucket"].month: row["value"] for row in month_rows if row["bucket"] is not None}
+        return [
+            {"label": month_label, "value": counts.get(index, 0)}
+            for index, month_label in enumerate(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], start=1)
+        ]
+
+    if period == "weekly":
+        start = now - timedelta(days=now.weekday())
+        bucket_count = 7
+        labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    elif period == "monthly":
+        start = now.replace(day=1)
+        bucket_count = now.day
+        labels = None
+    else:
+        return []
+
+    start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_rows = (
+        sales_queryset
+        .annotate(bucket=TruncDate("created_at"))
+        .values("bucket")
+        .annotate(value=Count("patient", distinct=True))
+        .order_by("bucket")
+    )
+    counts = {row["bucket"]: row["value"] for row in day_rows if row["bucket"] is not None}
+    return [
+        {
+            "label": labels[index] if labels else str((start + timedelta(days=index)).day),
+            "value": counts.get((start + timedelta(days=index)).date(), 0),
+        }
+        for index in range(bucket_count)
+    ]
+
+
 def serialize_prescription_items(pharmacist, prescription: ClinicalDocument):
     items = prescription.payload.get("items") if isinstance(prescription.payload, dict) else []
     rows = []
@@ -104,8 +164,14 @@ class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
     serializer_class = PharmacyDashboardSerializer
 
     def list(self, request, *args, **kwargs):
-        today_start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
-        month_start = today_start.replace(day=1)
+        period = request.query_params.get("period", "monthly")
+        if period not in {"daily", "weekly", "monthly", "annual"}:
+            period = "monthly"
+        try:
+            recent_page = max(1, int(request.query_params.get("recent_page", "1")))
+        except ValueError:
+            recent_page = 1
+        start_at, period_label = dashboard_period_start(period)
 
         medicines = Medicine.objects.filter(pharmacist=request.user)
         sales = (
@@ -113,31 +179,67 @@ class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
             .select_related("patient", "payment", "prescription_document")
             .prefetch_related("items")
         )
+        page_size = 10
+        recent_sales_count = sales.count()
         low_stock_queryset = medicines.filter(quantity__lte=10).order_by("quantity", "name")
         low_stock_count = low_stock_queryset.count()
         low_stock_items = list(low_stock_queryset[:6])
-        recent_sales = list(sales.order_by("-created_at")[:6])
+        recent_sales = list(sales.order_by("-created_at")[(recent_page - 1) * page_size:recent_page * page_size])
         inventory_value = Decimal("0.00")
         for medicine in medicines:
             inventory_value += medicine.buy_price * medicine.quantity
 
-        today_revenue = Decimal("0.00")
-        monthly_revenue = Decimal("0.00")
-        for sale in sales.filter(created_at__gte=month_start):
-            total = sale.total_amount
-            monthly_revenue += total
-            if sale.created_at >= today_start:
-                today_revenue += total
+        period_sales = sales.filter(created_at__gte=start_at)
+        internal_patients = period_sales.filter(customer_type=Sale.CustomerType.INTERNAL).aggregate(total=Count("patient", distinct=True))["total"] or 0
+        external_patients = period_sales.filter(customer_type=Sale.CustomerType.EXTERNAL).aggregate(total=Count("patient", distinct=True))["total"] or 0
+        internal_amount = Decimal("0.00")
+        external_amount = Decimal("0.00")
+        total_billed = Decimal("0.00")
+        for sale in period_sales:
+            sale_total = sale.total_amount
+            total_billed += sale_total
+            if sale.customer_type == Sale.CustomerType.INTERNAL:
+                internal_amount += sale_total
+            else:
+                external_amount += sale_total
+        patient_trend = build_patient_trend(period, period_sales)
+        full_paid = period_sales.filter(payment__payment_type=Payment.PaymentType.FULL).count()
+        discounted = period_sales.filter(payment__payment_type=Payment.PaymentType.DISCOUNT).count()
+        free = period_sales.filter(payment__payment_type=Payment.PaymentType.FREE).count()
+        pending_reception_payments = period_sales.filter(payment__status=Payment.Status.PENDING).count()
+        approved_reception_payments = period_sales.filter(payment__status=Payment.Status.APPROVED).count()
+        full_paid_amount = period_sales.filter(payment__payment_type=Payment.PaymentType.FULL).aggregate(total=Sum("payment__amount"))["total"] or Decimal("0.00")
+        discounted_amount = period_sales.filter(payment__payment_type=Payment.PaymentType.DISCOUNT).aggregate(total=Sum("payment__amount"))["total"] or Decimal("0.00")
+        free_amount = period_sales.filter(payment__payment_type=Payment.PaymentType.FREE).aggregate(total=Sum("payment__amount"))["total"] or Decimal("0.00")
+        pending_reception_amount = period_sales.filter(payment__status=Payment.Status.PENDING).aggregate(total=Sum("payment__amount"))["total"] or Decimal("0.00")
+        approved_reception_amount = period_sales.filter(payment__status=Payment.Status.APPROVED).aggregate(total=Sum("payment__amount"))["total"] or Decimal("0.00")
 
         serializer = self.get_serializer(
             {
+                "period": period,
+                "period_label": period_label,
                 "medicines_count": medicines.count(),
                 "low_stock_count": low_stock_count,
-                "sales_count": sales.count(),
+                "sales_count": period_sales.count(),
+                "internal_patients": internal_patients,
+                "internal_amount": internal_amount,
+                "external_patients": external_patients,
+                "external_amount": external_amount,
+                "full_paid": full_paid,
+                "full_paid_amount": full_paid_amount,
+                "discounted": discounted,
+                "discounted_amount": discounted_amount,
+                "free": free,
+                "free_amount": free_amount,
+                "pending_reception_payments": pending_reception_payments,
+                "pending_reception_amount": pending_reception_amount,
+                "approved_reception_payments": approved_reception_payments,
+                "approved_reception_amount": approved_reception_amount,
                 "stock_units": medicines.aggregate(total=Sum("quantity"))["total"] or 0,
                 "inventory_value": inventory_value,
-                "today_revenue": today_revenue,
-                "monthly_revenue": monthly_revenue,
+                "total_billed": total_billed,
+                "patient_trend": patient_trend,
+                "recent_sales_count": recent_sales_count,
                 "recent_sales": recent_sales,
                 "low_stock_items": low_stock_items,
             }

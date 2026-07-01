@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useState } from 'react'
+import { startTransition, useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent, UIEvent } from 'react'
 
 import { ApiError, apiFetch } from '../../api/client'
@@ -34,16 +34,40 @@ type SaleDraftRow = {
 }
 
 const emptyDashboard: PharmacyDashboardStats = {
+  period: 'monthly',
+  period_label: 'Monthly',
   medicines_count: 0,
   low_stock_count: 0,
   sales_count: 0,
+  internal_patients: 0,
+  internal_amount: '0.00',
+  external_patients: 0,
+  external_amount: '0.00',
+  full_paid: 0,
+  full_paid_amount: '0.00',
+  discounted: 0,
+  discounted_amount: '0.00',
+  free: 0,
+  free_amount: '0.00',
+  pending_reception_payments: 0,
+  pending_reception_amount: '0.00',
+  approved_reception_payments: 0,
+  approved_reception_amount: '0.00',
   stock_units: 0,
   inventory_value: '0.00',
-  today_revenue: '0.00',
-  monthly_revenue: '0.00',
+  total_billed: '0.00',
+  patient_trend: [],
+  recent_sales_count: 0,
   recent_sales: [],
   low_stock_items: [],
 }
+
+const dashboardPeriodOptions: Array<{ value: PharmacyDashboardStats['period']; label: string }> = [
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'annual', label: 'Annual' },
+]
 
 const emptyMedicineForm: MedicineFormState = {
   name: '',
@@ -63,6 +87,10 @@ const emptySetting: PharmacySetting = {
 
 function formatMoney(value: string | number): string {
   return Number(value || 0).toFixed(2)
+}
+
+function formatMoneyAfn(value: string | number): string {
+  return `${formatMoney(value)} AFN`
 }
 
 function formatDate(value: string): string {
@@ -99,12 +127,12 @@ export function PharmacyWorkspace({ view }: { view: View }) {
   const [selectedSale, setSelectedSale] = useState<PharmacySale | null>(null)
   const [error, setError] = useState('')
 
-  async function loadData(currentView = view) {
+  async function loadData(currentView = view, period: PharmacyDashboardStats['period'] = 'monthly', recentPage = 1) {
     setError('')
     try {
       if (currentView === 'dashboard') {
         const [dashboardData, settingData] = await Promise.all([
-          apiFetch<PharmacyDashboardStats>('/pharmacy/dashboard/'),
+          apiFetch<PharmacyDashboardStats>(`/pharmacy/dashboard/?period=${period}&recent_page=${recentPage}`),
           apiFetch<PharmacySetting>('/pharmacy/settings/'),
         ])
         setDashboard(dashboardData)
@@ -130,7 +158,7 @@ export function PharmacyWorkspace({ view }: { view: View }) {
   return (
     <div className="space-y-6">
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-      {view === 'dashboard' ? <PharmacyDashboard dashboard={dashboard} onRefresh={() => void loadData('dashboard')} /> : null}
+      {view === 'dashboard' ? <PharmacyDashboard dashboard={dashboard} onRefresh={(period, recentPage) => void loadData('dashboard', period, recentPage)} /> : null}
       {view === 'medicines' ? <MedicineManager setting={setting} /> : null}
       {view === 'low-stock' ? <LowStockReport /> : null}
       {view === 'sales' ? (
@@ -154,50 +182,96 @@ export function PharmacyWorkspace({ view }: { view: View }) {
   )
 }
 
-function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashboardStats; onRefresh: () => void }) {
+function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashboardStats; onRefresh: (period: PharmacyDashboardStats['period'], recentPage: number) => void }) {
+  const [period, setPeriod] = useState<PharmacyDashboardStats['period']>(dashboard.period || 'monthly')
+  const [report, setReport] = useState(dashboard)
+  const [recentSalesPage, setRecentSalesPage] = useState(1)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    setReport(dashboard)
+  }, [dashboard])
+
+  useEffect(() => {
+    setRecentSalesPage(1)
+  }, [period])
+
+  useEffect(() => {
+    let ignore = false
+
+    async function loadReport() {
+      setError('')
+      try {
+        const nextReport = await apiFetch<PharmacyDashboardStats>(`/pharmacy/dashboard/?period=${period}&recent_page=${recentSalesPage}`)
+        if (!ignore) setReport(nextReport)
+      } catch {
+        if (!ignore) setError('Unable to load pharmacy dashboard.')
+      }
+    }
+
+    void loadReport()
+    return () => {
+      ignore = true
+    }
+  }, [period, recentSalesPage])
+
   const statCards = [
-    { label: 'Medicines', value: dashboard.medicines_count, tone: 'border-sky-100 bg-sky-50 text-sky-700' },
-    { label: 'Low stock items', value: dashboard.low_stock_count, tone: 'border-amber-100 bg-amber-50 text-amber-700' },
-    { label: 'Bills created', value: dashboard.sales_count, tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
-    { label: 'Stock units', value: dashboard.stock_units, tone: 'border-violet-100 bg-violet-50 text-violet-700' },
+    { label: 'Internal patients', value: report.internal_patients, amount: report.internal_amount, tone: 'border-sky-100 bg-sky-50 text-sky-700' },
+    { label: 'External patients', value: report.external_patients, amount: report.external_amount, tone: 'border-cyan-100 bg-cyan-50 text-cyan-700' },
+    { label: 'Full paid', value: report.full_paid, amount: report.full_paid_amount, tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
+    { label: 'Discounted', value: report.discounted, amount: report.discounted_amount, tone: 'border-violet-100 bg-violet-50 text-violet-700' },
+    { label: 'Free', value: report.free, amount: report.free_amount, tone: 'border-rose-100 bg-rose-50 text-rose-700' },
+    { label: 'Reception pending', value: report.pending_reception_payments, amount: report.pending_reception_amount, tone: 'border-amber-100 bg-amber-50 text-amber-700' },
+    { label: 'Reception approved', value: report.approved_reception_payments, amount: report.approved_reception_amount, tone: 'border-teal-100 bg-teal-50 text-teal-700' },
   ]
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <SectionHeader title="Pharmacy dashboard" subtitle="Track stock pressure, revenue, and recent billing activity from one place." />
-        <button className={ghostButtonClassName} onClick={onRefresh}>Refresh data</button>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <SectionHeader title="Pharmacy dashboard" subtitle="Track internal and external billing activity, payment mix, and patient trends from one place." />
+        <div className="flex min-w-[18rem] flex-col gap-3 rounded-2xl border border-sky-100 bg-white px-4 py-3 shadow-sm shadow-sky-100/70 sm:min-w-[22rem] sm:flex-row sm:items-end sm:justify-end">
+          <label className="flex-1 text-sm font-medium text-zinc-700">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">Report period</span>
+            <select className={`${inputClassName} w-full`} value={period} onChange={(event) => setPeriod(event.target.value as PharmacyDashboardStats['period'])}>
+              {dashboardPeriodOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+          <button className={ghostButtonClassName} onClick={() => onRefresh(period, recentSalesPage)}>Refresh data</button>
+        </div>
       </div>
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         {statCards.map((card) => (
           <div key={card.label} className={`rounded-md border p-4 shadow-sm ${card.tone}`}>
             <p className="text-xs font-semibold uppercase tracking-wide opacity-80">{card.label}</p>
             <p className="mt-3 text-3xl font-semibold text-slate-950">{card.value}</p>
+            <p className="mt-2 text-sm font-medium text-slate-700">Money: {formatMoneyAfn(card.amount)}</p>
           </div>
         ))}
       </section>
+
+      {error ? <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
       <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <Panel>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-slate-500">Revenue snapshot</p>
+              <p className="text-sm font-medium text-slate-500">{report.period_label} pharmacy summary</p>
               <h2 className="mt-1 text-xl font-semibold text-slate-950">Billing performance</h2>
             </div>
           </div>
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <div className="rounded-md border border-emerald-100 bg-emerald-50 p-4">
-              <p className="text-sm text-emerald-700">Today</p>
-              <p className="mt-2 text-2xl font-semibold text-emerald-950">{formatMoney(dashboard.today_revenue)}</p>
+              <p className="text-sm text-emerald-700">Total billed</p>
+              <p className="mt-2 text-2xl font-semibold text-emerald-950">{formatMoneyAfn(report.total_billed)}</p>
             </div>
             <div className="rounded-md border border-sky-100 bg-sky-50 p-4">
-              <p className="text-sm text-sky-700">This month</p>
-              <p className="mt-2 text-2xl font-semibold text-sky-950">{formatMoney(dashboard.monthly_revenue)}</p>
+              <p className="text-sm text-sky-700">Sales created</p>
+              <p className="mt-2 text-2xl font-semibold text-sky-950">{report.sales_count}</p>
             </div>
             <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4 sm:col-span-2">
               <p className="text-sm text-zinc-600">Inventory cost value</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{formatMoney(dashboard.inventory_value)}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{formatMoneyAfn(report.inventory_value)}</p>
             </div>
           </div>
         </Panel>
@@ -208,7 +282,7 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
             <h2 className="mt-1 text-xl font-semibold text-slate-950">Low stock items</h2>
           </div>
           <div className="mt-5 space-y-3">
-            {dashboard.low_stock_items.length ? dashboard.low_stock_items.map((medicine) => (
+            {report.low_stock_items.length ? report.low_stock_items.map((medicine) => (
               <div key={medicine.id} className="flex items-center justify-between rounded border border-amber-100 bg-amber-50 px-4 py-3">
                 <div>
                   <p className="font-medium text-slate-900">{medicine.name}</p>
@@ -223,6 +297,22 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
           </div>
         </Panel>
       </section>
+
+      <Panel>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-slate-950">Patient trend</p>
+          <p className="text-xs font-medium text-zinc-500">
+            {report.period === 'weekly' ? 'Daily trend for this week' : report.period === 'monthly' ? 'Daily trend for this month' : report.period === 'annual' ? 'Monthly trend for this year' : 'Select weekly, monthly, or annual'}
+          </p>
+        </div>
+        {report.period === 'daily' ? (
+          <div className="mt-4 rounded border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500">
+            Change the period to weekly, monthly, or annual to view the patient trend graph.
+          </div>
+        ) : (
+          <PharmacyTrendChart data={report.patient_trend} />
+        )}
+      </Panel>
 
       <Panel>
         <div>
@@ -241,7 +331,7 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
               </tr>
             </thead>
             <tbody className="divide-y divide-sky-100">
-              {dashboard.recent_sales.map((sale) => (
+              {report.recent_sales.map((sale) => (
                 <tr key={sale.id}>
                   <td className="py-3 pr-4 font-medium text-slate-900">{sale.bill_no}</td>
                   <td className="py-3 pr-4 text-slate-600">{saleCustomerLabel(sale)}</td>
@@ -250,7 +340,7 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
                   <td className="py-3 text-right font-medium text-slate-950">{formatMoney(sale.total_amount)}</td>
                 </tr>
               ))}
-              {!dashboard.recent_sales.length ? (
+              {!report.recent_sales.length ? (
                 <tr>
                   <td colSpan={5} className="py-6 text-center text-slate-500">No bills have been created yet.</td>
                 </tr>
@@ -258,7 +348,35 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
             </tbody>
           </table>
         </div>
+        <PaginationControls page={recentSalesPage} totalCount={report.recent_sales_count} onPageChange={setRecentSalesPage} />
       </Panel>
+    </div>
+  )
+}
+
+function PharmacyTrendChart({ data }: { data: Array<{ label: string; value: number }> }) {
+  const maxValue = Math.max(1, ...data.map((item) => item.value))
+
+  if (!data.length) {
+    return <div className="mt-4 rounded border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500">No trend data available.</div>
+  }
+
+  return (
+    <div className="mt-5">
+      <div className="flex h-64 items-end gap-2 rounded-xl border border-sky-100 bg-sky-50/60 p-4">
+        {data.map((item) => {
+          const height = item.value > 0 ? `${Math.max(6, (item.value / maxValue) * 100)}%` : '0%'
+          return (
+            <div key={item.label} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
+              <span className="text-xs font-semibold text-slate-700">{item.value}</span>
+              <div className="flex h-full w-full items-end">
+                <div className="w-full rounded-t-lg bg-gradient-to-t from-sky-500 to-pink-400" style={{ height }} title={`${item.label}: ${item.value}`} />
+              </div>
+              <span className="text-[11px] font-medium text-zinc-500">{item.label}</span>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -827,7 +945,7 @@ function SalesWorkspace({
                 <div className="text-right">
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-400">{sale.customer_type_label}</p>
                   <p className="text-sm text-slate-500">Total</p>
-                  <p className="text-xl font-semibold text-slate-950">{formatMoney(sale.total_amount)}</p>
+                  <p className="text-xl font-semibold text-slate-950">{formatMoneyAfn(sale.total_amount)}</p>
                 </div>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
@@ -879,6 +997,7 @@ function SearchCombo<T extends { id: number }>({
   const [nextOffset, setNextOffset] = useState<number | null>(0)
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const rootRef = useRef<HTMLDivElement | null>(null)
 
   const loadOptions = useCallback(async (offset: number, replace = false, search = query) => {
     setLoading(true)
@@ -906,6 +1025,23 @@ function SearchCombo<T extends { id: number }>({
     return () => window.clearTimeout(timer)
   }, [loadOptions, open, query])
 
+  useEffect(() => {
+    if (!open) return
+
+    function handlePointerDown(event: MouseEvent | TouchEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('touchstart', handlePointerDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('touchstart', handlePointerDown)
+    }
+  }, [open])
+
   function handleScroll(event: UIEvent<HTMLDivElement>) {
     const element = event.currentTarget
     if (nextOffset === null || loading) return
@@ -915,7 +1051,7 @@ function SearchCombo<T extends { id: number }>({
   }
 
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       <Field label={label}>
         <input
           className={inputClassName}
@@ -1078,8 +1214,8 @@ function PrintPharmacyBill({
                   <td className="px-4 py-3 font-medium text-slate-900">{item.medicine_name}</td>
                   <td className="px-4 py-3 text-slate-600">{item.generic_name || '-'}</td>
                   <td className="px-4 py-3 text-right text-slate-600">{item.quantity}</td>
-                  <td className="px-4 py-3 text-right text-slate-600">{formatMoney(item.unit_price)}</td>
-                  <td className="px-4 py-3 text-right font-medium text-slate-900">{formatMoney(item.total_price)}</td>
+                  <td className="px-4 py-3 text-right text-slate-600">{formatMoneyAfn(item.unit_price)}</td>
+                  <td className="px-4 py-3 text-right font-medium text-slate-900">{formatMoneyAfn(item.total_price)}</td>
                 </tr>
               ))}
             </tbody>
@@ -1093,7 +1229,7 @@ function PrintPharmacyBill({
           </div>
           <div className="rounded-2xl bg-emerald-50 px-5 py-4 text-right">
             <p className="text-xs uppercase tracking-[0.2em] text-emerald-700">Grand total</p>
-            <p className="mt-2 text-3xl font-semibold text-emerald-950">{formatMoney(sale.total_amount)}</p>
+            <p className="mt-2 text-3xl font-semibold text-emerald-950">{formatMoneyAfn(sale.total_amount)}</p>
           </div>
         </footer>
       </article>

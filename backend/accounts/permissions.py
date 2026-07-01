@@ -49,7 +49,7 @@ PERMISSION_DEFINITIONS = (
     PermissionDefinition('documents.lab_bill.create', 'Create and print lab bills', 'Laboratory', (Role.SUPER_ADMIN, Role.LABORATORY)),
     PermissionDefinition('documents.medicine_bill.create', 'Create and print medicine bills', 'Pharmacy', (Role.SUPER_ADMIN, Role.PHARMACIST)),
     PermissionDefinition('stock.manage', 'Manage medicine stock', 'Pharmacy', (Role.SUPER_ADMIN, Role.PHARMACIST)),
-    PermissionDefinition('documents.ultrasound.create', 'Create and print ultrasound bills/results', 'Midwife', (Role.SUPER_ADMIN, Role.MIDWIFE)),
+    PermissionDefinition('documents.ultrasound.create', 'Create and print midwife records', 'Midwife', (Role.SUPER_ADMIN, Role.MIDWIFE)),
     PermissionDefinition('documents.vaccination.create', 'Create and print vaccination papers', 'Vaccination', (Role.SUPER_ADMIN, Role.VACCINATOR)),
     PermissionDefinition('documents.rutf.create', 'Create and print RUTF papers', 'Malnutrition', (Role.SUPER_ADMIN, Role.MALNUTRITION)),
 )

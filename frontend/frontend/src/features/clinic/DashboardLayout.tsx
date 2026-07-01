@@ -5,6 +5,7 @@ import { useAuth } from '../auth/useAuth'
 import { AccountSettingsPage } from '../account/AccountSettingsPage'
 import { EmployeeAdminPage } from '../employees/EmployeeAdminPage'
 import { LaboratoryDashboardLayout } from '../laboratory/LaboratoryDashboardLayout'
+import { MidwifeDashboardLayout } from '../midwife/MidwifeDashboardLayout'
 import { PharmacyDashboardLayout } from '../pharmacy/PharmacyDashboardLayout'
 import { UserAdminPage } from '../users/UserAdminPage'
 import { VaccinationDashboardLayout } from '../vaccination/VaccinationDashboardLayout'
@@ -38,6 +39,10 @@ export function DashboardLayout() {
 
   if (user?.profile?.role === 'vaccinator') {
     return <VaccinationDashboardLayout />
+  }
+
+  if (user?.profile?.role === 'midwife') {
+    return <MidwifeDashboardLayout />
   }
 
   const visibleLinks = links.filter((link) => {

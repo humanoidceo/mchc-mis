@@ -17,6 +17,7 @@ from .laboratory_views import (
     LaboratoryDashboardViewSet,
     LaboratoryPatientViewSet,
 )
+from .midwife_views import MidwifeDashboardViewSet, MidwifePatientViewSet
 
 router = DefaultRouter()
 router.register('dashboard', DashboardViewSet, basename='dashboard')
@@ -30,6 +31,16 @@ router.register('website-content', WebsitePageContentViewSet, basename='website-
 router.register('website-settings', WebsiteSettingsViewSet, basename='website-settings')
 
 urlpatterns = [
+    path(
+        'midwife/dashboard/',
+        MidwifeDashboardViewSet.as_view({'get': 'list'}),
+        name='midwife-dashboard',
+    ),
+    path(
+        'midwife/patients/',
+        MidwifePatientViewSet.as_view({'get': 'list'}),
+        name='midwife-patients',
+    ),
     path(
         'laboratory/dashboard/',
         LaboratoryDashboardViewSet.as_view({'get': 'list'}),

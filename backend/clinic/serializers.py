@@ -116,6 +116,39 @@ class ClinicalDocumentSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('created_by', 'payment', 'created_at', 'updated_at')
 
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        document_type = attrs.get('document_type', getattr(self.instance, 'document_type', None))
+        payload = attrs.get('payload', getattr(self.instance, 'payload', {})) or {}
+
+        if document_type == ClinicalDocument.DocumentType.ULTRASOUND and isinstance(payload, dict) and payload.get('midwife_record'):
+            if patient and not patient.payments.filter(department__iexact='Maternal care').exists():
+                raise serializers.ValidationError({'patient': 'This patient is not registered in the Maternal care department.'})
+
+            visit_type = str(payload.get('visit_type', '')).strip().lower()
+            if visit_type not in {'anc', 'pnc'}:
+                raise serializers.ValidationError({'payload': 'Visit type must be ANC or PNC for midwife records.'})
+
+            patient_status = str(payload.get('patient_status', '')).strip().lower()
+            if patient_status not in {'new', 'follow_up'}:
+                raise serializers.ValidationError({'payload': 'Patient status must be new or follow_up for midwife records.'})
+
+        return attrs
+
+
+class MidwifeDashboardSerializer(serializers.Serializer):
+    period = serializers.ChoiceField(choices=(('daily', 'Daily'), ('weekly', 'Weekly'), ('monthly', 'Monthly'), ('annual', 'Annual')))
+    period_label = serializers.CharField()
+    patients = serializers.IntegerField()
+    anc_visits = serializers.IntegerField()
+    pnc_visits = serializers.IntegerField()
+    high_risk = serializers.IntegerField()
+    due_followups = serializers.IntegerField()
+    total_records = serializers.IntegerField()
+    patient_trend = serializers.ListField(child=serializers.DictField())
+    recent_records_count = serializers.IntegerField()
+    recent_records = ClinicalDocumentSerializer(many=True)
+
 
 class MedicineSerializer(serializers.ModelSerializer):
     is_low_stock = serializers.SerializerMethodField()

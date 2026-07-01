@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useState } from 'react'
+import { startTransition, useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent, UIEvent } from 'react'
 
 import { ApiError, apiFetch } from '../../api/client'
@@ -32,16 +32,43 @@ type ResultRow = {
 }
 
 const emptyDashboard: LaboratoryDashboardStats = {
+  period: 'monthly',
+  period_label: 'Monthly',
   pending_lab_orders: 0,
   bills_created: 0,
+  internal_patients: 0,
+  internal_amount: '0.00',
+  external_patients: 0,
+  external_amount: '0.00',
+  full_paid: 0,
+  full_paid_amount: '0.00',
+  discounted: 0,
+  discounted_amount: '0.00',
+  free: 0,
+  free_amount: '0.00',
   pending_reception_payments: 0,
+  pending_reception_amount: '0.00',
   approved_reception_payments: 0,
+  approved_reception_amount: '0.00',
   monthly_amount: '0.00',
+  patient_trend: [],
+  recent_bills_count: 0,
   recent_bills: [],
 }
 
+const dashboardPeriodOptions: Array<{ value: LaboratoryDashboardStats['period']; label: string }> = [
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'annual', label: 'Annual' },
+]
+
 function formatMoney(value: string | number): string {
   return Number(value || 0).toFixed(2)
+}
+
+function formatMoneyAfn(value: string | number): string {
+  return `${formatMoney(value)} AFN`
 }
 
 function formatDate(value: string): string {
@@ -91,11 +118,11 @@ export function LaboratoryWorkspace({ view }: { view: View }) {
 
   const printedBy = user?.first_name || user?.username || 'MCHC staff'
 
-  const loadData = useCallback(async (currentView = view) => {
+  const loadData = useCallback(async (currentView = view, period: LaboratoryDashboardStats['period'] = 'monthly', recentPage = 1) => {
     setError('')
     try {
       if (currentView === 'dashboard') {
-        setDashboard(await apiFetch<LaboratoryDashboardStats>('/laboratory/dashboard/'))
+        setDashboard(await apiFetch<LaboratoryDashboardStats>(`/laboratory/dashboard/?period=${period}&recent_page=${recentPage}`))
       }
     } catch {
       setError('Unable to load laboratory data.')
@@ -109,7 +136,7 @@ export function LaboratoryWorkspace({ view }: { view: View }) {
   return (
     <div className="space-y-6">
       {error ? <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-      {view === 'dashboard' ? <LaboratoryDashboard dashboard={dashboard} onRefresh={() => void loadData('dashboard')} /> : null}
+      {view === 'dashboard' ? <LaboratoryDashboard dashboard={dashboard} onRefresh={(period, recentPage) => void loadData('dashboard', period, recentPage)} /> : null}
       {view === 'billing' ? (
         <LaboratoryBilling
           onCreated={(bill) => {
@@ -142,35 +169,81 @@ export function LaboratoryWorkspace({ view }: { view: View }) {
   )
 }
 
-function LaboratoryDashboard({ dashboard, onRefresh }: { dashboard: LaboratoryDashboardStats; onRefresh: () => void }) {
+function LaboratoryDashboard({ dashboard, onRefresh }: { dashboard: LaboratoryDashboardStats; onRefresh: (period: LaboratoryDashboardStats['period'], recentPage: number) => void }) {
+  const [period, setPeriod] = useState<LaboratoryDashboardStats['period']>(dashboard.period || 'monthly')
+  const [report, setReport] = useState(dashboard)
+  const [recentBillsPage, setRecentBillsPage] = useState(1)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    setReport(dashboard)
+  }, [dashboard])
+
+  useEffect(() => {
+    setRecentBillsPage(1)
+  }, [period])
+
+  useEffect(() => {
+    let ignore = false
+
+    async function loadReport() {
+      setError('')
+      try {
+        const nextReport = await apiFetch<LaboratoryDashboardStats>(`/laboratory/dashboard/?period=${period}&recent_page=${recentBillsPage}`)
+        if (!ignore) setReport(nextReport)
+      } catch {
+        if (!ignore) setError('Unable to load laboratory dashboard.')
+      }
+    }
+
+    void loadReport()
+    return () => {
+      ignore = true
+    }
+  }, [period, recentBillsPage])
+
   const statCards = [
-    { label: 'Pending lab orders', value: dashboard.pending_lab_orders, tone: 'border-sky-100 bg-sky-50 text-sky-700' },
-    { label: 'Bills created', value: dashboard.bills_created, tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
-    { label: 'Reception pending', value: dashboard.pending_reception_payments, tone: 'border-amber-100 bg-amber-50 text-amber-700' },
-    { label: 'Reception approved', value: dashboard.approved_reception_payments, tone: 'border-teal-100 bg-teal-50 text-teal-700' },
+    { label: 'Internal patients', value: report.internal_patients, amount: report.internal_amount, tone: 'border-sky-100 bg-sky-50 text-sky-700' },
+    { label: 'External patients', value: report.external_patients, amount: report.external_amount, tone: 'border-cyan-100 bg-cyan-50 text-cyan-700' },
+    { label: 'Full paid', value: report.full_paid, amount: report.full_paid_amount, tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
+    { label: 'Discounted', value: report.discounted, amount: report.discounted_amount, tone: 'border-violet-100 bg-violet-50 text-violet-700' },
+    { label: 'Free', value: report.free, amount: report.free_amount, tone: 'border-rose-100 bg-rose-50 text-rose-700' },
+    { label: 'Reception pending', value: report.pending_reception_payments, amount: report.pending_reception_amount, tone: 'border-amber-100 bg-amber-50 text-amber-700' },
+    { label: 'Reception approved', value: report.approved_reception_payments, amount: report.approved_reception_amount, tone: 'border-teal-100 bg-teal-50 text-teal-700' },
   ]
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <SectionHeader title="Laboratory dashboard" subtitle="Manage doctor lab orders, external customers, and bills waiting for reception approval." />
-        <button className={ghostButtonClassName} onClick={onRefresh}>Refresh data</button>
+        <div className="flex min-w-[18rem] flex-col gap-3 rounded-2xl border border-sky-100 bg-white px-4 py-3 shadow-sm shadow-sky-100/70 sm:min-w-[22rem] sm:flex-row sm:items-end sm:justify-end">
+          <label className="flex-1 text-sm font-medium text-zinc-700">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">Report period</span>
+            <select className={`${inputClassName} w-full`} value={period} onChange={(event) => setPeriod(event.target.value as LaboratoryDashboardStats['period'])}>
+              {dashboardPeriodOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+          <button className={ghostButtonClassName} onClick={() => onRefresh(period, recentBillsPage)}>Refresh data</button>
+        </div>
       </div>
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         {statCards.map((card) => (
           <div key={card.label} className={`rounded-md border p-4 shadow-sm ${card.tone}`}>
             <p className="text-xs font-semibold uppercase tracking-wide opacity-80">{card.label}</p>
             <p className="mt-3 text-3xl font-semibold text-slate-950">{card.value}</p>
+            <p className="mt-2 text-sm font-medium text-slate-700">Money: {formatMoneyAfn(card.amount)}</p>
           </div>
         ))}
       </section>
 
+      {error ? <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+
       <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
         <Panel>
-          <p className="text-sm font-semibold text-slate-950">Monthly total billed</p>
-          <p className="mt-4 text-3xl font-semibold text-slate-950">{formatMoney(dashboard.monthly_amount)}</p>
-          <p className="mt-2 text-sm text-zinc-600">All laboratory bills created this month by the current account.</p>
+          <p className="text-sm font-semibold text-slate-950">{report.period_label} total billed</p>
+          <p className="mt-4 text-3xl font-semibold text-slate-950">{formatMoneyAfn(report.monthly_amount)}</p>
+          <p className="mt-2 text-sm text-zinc-600">Laboratory bills created in the selected period by the current account.</p>
         </Panel>
 
         <Panel>
@@ -187,7 +260,7 @@ function LaboratoryDashboard({ dashboard, onRefresh }: { dashboard: LaboratoryDa
                 </tr>
               </thead>
               <tbody>
-                {dashboard.recent_bills.map((bill) => (
+                {report.recent_bills.map((bill) => (
                   <tr key={bill.id} className="border-b border-zinc-100">
                     <td className="py-2">{billCustomerLabel(bill)}</td>
                     <td className="py-2">{bill.customer_type_label}</td>
@@ -196,7 +269,7 @@ function LaboratoryDashboard({ dashboard, onRefresh }: { dashboard: LaboratoryDa
                     <td className="py-2">{bill.payment_status ?? 'pending'}</td>
                   </tr>
                 ))}
-                {!dashboard.recent_bills.length ? (
+                {!report.recent_bills.length ? (
                   <tr>
                     <td colSpan={5} className="py-6 text-center text-zinc-500">No laboratory bills created yet.</td>
                   </tr>
@@ -204,7 +277,51 @@ function LaboratoryDashboard({ dashboard, onRefresh }: { dashboard: LaboratoryDa
               </tbody>
             </table>
           </div>
+          <PaginationControls page={recentBillsPage} totalCount={report.recent_bills_count} onPageChange={setRecentBillsPage} />
         </Panel>
+      </div>
+
+      <Panel>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-slate-950">Patient trend</p>
+          <p className="text-xs font-medium text-zinc-500">
+            {report.period === 'weekly' ? 'Daily trend for this week' : report.period === 'monthly' ? 'Daily trend for this month' : report.period === 'annual' ? 'Monthly trend for this year' : 'Select weekly, monthly, or annual'}
+          </p>
+        </div>
+        {report.period === 'daily' ? (
+          <div className="mt-4 rounded border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500">
+            Change the period to weekly, monthly, or annual to view the patient trend graph.
+          </div>
+        ) : (
+          <LaboratoryTrendChart data={report.patient_trend} />
+        )}
+      </Panel>
+    </div>
+  )
+}
+
+function LaboratoryTrendChart({ data }: { data: Array<{ label: string; value: number }> }) {
+  const maxValue = Math.max(1, ...data.map((item) => item.value))
+
+  if (!data.length) {
+    return <div className="mt-4 rounded border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500">No trend data available.</div>
+  }
+
+  return (
+    <div className="mt-5">
+      <div className="flex h-64 items-end gap-2 rounded-xl border border-sky-100 bg-sky-50/60 p-4">
+        {data.map((item) => {
+          const height = item.value > 0 ? `${Math.max(6, (item.value / maxValue) * 100)}%` : '0%'
+          return (
+            <div key={item.label} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
+              <span className="text-xs font-semibold text-slate-700">{item.value}</span>
+              <div className="flex h-full w-full items-end">
+                <div className="w-full rounded-t-lg bg-gradient-to-t from-sky-500 to-pink-400" style={{ height }} title={`${item.label}: ${item.value}`} />
+              </div>
+              <span className="text-[11px] font-medium text-zinc-500">{item.label}</span>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -591,6 +708,7 @@ function SearchCombo<T extends { id: number }>({
   const [nextOffset, setNextOffset] = useState<number | null>(0)
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const rootRef = useRef<HTMLDivElement | null>(null)
 
   const loadOptions = useCallback(async (offset: number, replace = false, search = query) => {
     setLoading(true)
@@ -616,6 +734,23 @@ function SearchCombo<T extends { id: number }>({
     return () => window.clearTimeout(timer)
   }, [loadOptions, open, query])
 
+  useEffect(() => {
+    if (!open) return
+
+    function handlePointerDown(event: MouseEvent | TouchEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('touchstart', handlePointerDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('touchstart', handlePointerDown)
+    }
+  }, [open])
+
   function handleScroll(event: UIEvent<HTMLDivElement>) {
     const element = event.currentTarget
     if (nextOffset === null || loading) return
@@ -625,7 +760,7 @@ function SearchCombo<T extends { id: number }>({
   }
 
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       <Field label={label}>
         <input
           className={inputClassName}

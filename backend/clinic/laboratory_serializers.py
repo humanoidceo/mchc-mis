@@ -174,11 +174,27 @@ class LaboratoryBillSerializer(serializers.ModelSerializer):
 
 
 class LaboratoryDashboardSerializer(serializers.Serializer):
+    period = serializers.ChoiceField(choices=(('daily', 'Daily'), ('weekly', 'Weekly'), ('monthly', 'Monthly'), ('annual', 'Annual')))
+    period_label = serializers.CharField()
     pending_lab_orders = serializers.IntegerField()
     bills_created = serializers.IntegerField()
+    internal_patients = serializers.IntegerField()
+    internal_amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    external_patients = serializers.IntegerField()
+    external_amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    full_paid = serializers.IntegerField()
+    full_paid_amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    discounted = serializers.IntegerField()
+    discounted_amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    free = serializers.IntegerField()
+    free_amount = serializers.DecimalField(max_digits=12, decimal_places=2)
     pending_reception_payments = serializers.IntegerField()
+    pending_reception_amount = serializers.DecimalField(max_digits=12, decimal_places=2)
     approved_reception_payments = serializers.IntegerField()
+    approved_reception_amount = serializers.DecimalField(max_digits=12, decimal_places=2)
     monthly_amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    patient_trend = serializers.ListField(child=serializers.DictField())
+    recent_bills_count = serializers.IntegerField()
     recent_bills = LaboratoryBillSerializer(many=True)
 
 

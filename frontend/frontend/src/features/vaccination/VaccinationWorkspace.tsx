@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useState } from 'react'
+import { startTransition, useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent, UIEvent } from 'react'
 
 import { ApiError, apiFetch } from '../../api/client'
@@ -228,37 +228,52 @@ function VaccinationRecords({ onPrint }: { onPrint: (document: ClinicalDocument)
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-      <Panel>
+    <div className="grid gap-6 xl:grid-cols-[24rem_minmax(0,1fr)]">
+      <div className="xl:sticky xl:top-24 xl:self-start">
+        <Panel>
         <SectionHeader title="Vaccination record" subtitle="Search the patient registered by reception, record the vaccine types and doses, and mark whether the patient is new or follow-up." />
         {error ? <div className="mt-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
         {notice ? <div className="mt-4 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div> : null}
 
         <form onSubmit={submit} className="mt-5 space-y-4">
-          <SearchCombo<PatientSearchOption>
-            label="Patient"
-            placeholder="Search patient name or registration number"
-            searchPath="/patients/search/"
-            valueText={selectedPatientLabel}
-            renderOption={(patient) => `${patient.registration_number} - ${patient.first_name} ${patient.last_name}${patient.age ? ` (${patient.age})` : ''}`}
-            onSelect={(patient) => {
-              setSelectedPatientId(patient.id)
-              setSelectedPatientLabel(`${patient.registration_number} - ${patient.first_name} ${patient.last_name}${patient.age ? ` (${patient.age})` : ''}`)
-            }}
-          />
+          <div className="grid gap-3 lg:grid-cols-[1.15fr_0.85fr] xl:grid-cols-1">
+            <SearchCombo<PatientSearchOption>
+              label="Patient"
+              placeholder="Search patient name or registration number"
+              searchPath="/patients/search/"
+              valueText={selectedPatientLabel}
+              renderOption={(patient) => `${patient.registration_number} - ${patient.first_name} ${patient.last_name}${patient.age ? ` (${patient.age})` : ''}`}
+              onSelect={(patient) => {
+                setSelectedPatientId(patient.id)
+                setSelectedPatientLabel(`${patient.registration_number} - ${patient.first_name} ${patient.last_name}${patient.age ? ` (${patient.age})` : ''}`)
+              }}
+            />
 
-          <div>
-            <span className="mb-2 block text-sm font-medium text-zinc-700">Patient type</span>
-            <div className="flex flex-wrap gap-3 rounded border border-sky-100 bg-white px-3 py-3 text-sm">
-              <label className="flex items-center gap-2"><input type="radio" checked={patientStatus === 'new'} onChange={() => setPatientStatus('new')} /> New patient</label>
-              <label className="flex items-center gap-2"><input type="radio" checked={patientStatus === 'follow_up'} onChange={() => setPatientStatus('follow_up')} /> Follow-up patient</label>
+            <div>
+              <span className="mb-2 block text-sm font-medium text-zinc-700">Patient type</span>
+              <div className="grid grid-cols-2 gap-2 rounded border border-sky-100 bg-white p-2 text-sm">
+                <button
+                  type="button"
+                  className={`rounded px-3 py-2 font-medium transition ${patientStatus === 'new' ? 'bg-sky-500 text-white' : 'bg-slate-50 text-slate-700 hover:bg-sky-50'}`}
+                  onClick={() => setPatientStatus('new')}
+                >
+                  New patient
+                </button>
+                <button
+                  type="button"
+                  className={`rounded px-3 py-2 font-medium transition ${patientStatus === 'follow_up' ? 'bg-sky-500 text-white' : 'bg-slate-50 text-slate-700 hover:bg-sky-50'}`}
+                  onClick={() => setPatientStatus('follow_up')}
+                >
+                  Follow-up
+                </button>
+              </div>
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-2">
             {rows.map((row, index) => (
-              <div key={index} className="grid gap-3 rounded border border-sky-100 bg-slate-50 p-4 md:grid-cols-[1fr_140px_auto]">
-                <Field label={`Vaccination ${index + 1}`}>
+              <div key={index} className="grid gap-3 rounded border border-sky-100 bg-slate-50 p-3 md:grid-cols-[1fr_7rem_auto] md:items-end">
+                <Field label={rows.length === 1 ? 'Vaccine' : `Vaccination ${index + 1}`}>
                   <input className={inputClassName} value={row.vaccine} onChange={(event) => {
                     const nextRows = [...rows]
                     nextRows[index] = { ...row, vaccine: event.target.value }
@@ -279,16 +294,17 @@ function VaccinationRecords({ onPrint }: { onPrint: (document: ClinicalDocument)
             ))}
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 border-t border-sky-100 pt-2">
             <button className={ghostButtonClassName} type="button" onClick={() => setRows([...rows, { vaccine: '', quantity: '1' }])}>Add vaccine</button>
             <button className={buttonClassName} disabled={saving}>{saving ? 'Saving...' : editingId ? 'Update vaccination record' : 'Save vaccination record'}</button>
             {editingId ? <button className={ghostButtonClassName} type="button" onClick={() => { setEditingId(null); setSelectedPatientId(null); setSelectedPatientLabel(''); setPatientStatus('new'); setRows([{ vaccine: '', quantity: '1' }]) }}>Cancel</button> : null}
           </div>
         </form>
-      </Panel>
+        </Panel>
+      </div>
 
       <Panel>
-        <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-sky-100 pb-4">
           <SectionHeader title="Vaccination records" subtitle="Review, print, edit, or delete records created from this account." />
           <label className="w-full max-w-sm">
             <span className="sr-only">Search vaccination records</span>
@@ -296,8 +312,9 @@ function VaccinationRecords({ onPrint }: { onPrint: (document: ClinicalDocument)
           </label>
         </div>
 
-        <div className="mt-5 space-y-3">
-          {documents.map((document) => (
+        <div className="mt-5 xl:max-h-[calc(100vh-16rem)] xl:overflow-y-auto xl:pr-1">
+          <div className="grid gap-3 lg:grid-cols-2">
+            {documents.map((document) => (
             <div key={document.id} className="rounded border border-sky-100 bg-white p-4 shadow-sm shadow-sky-100/60">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -324,9 +341,10 @@ function VaccinationRecords({ onPrint }: { onPrint: (document: ClinicalDocument)
               </div>
             </div>
           ))}
+          </div>
           {!documents.length ? <p className="rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-600">No vaccination records found.</p> : null}
-          <PaginationControls page={page} totalCount={totalCount} onPageChange={setPage} />
         </div>
+        <PaginationControls page={page} totalCount={totalCount} onPageChange={setPage} />
       </Panel>
     </div>
   )
@@ -352,6 +370,7 @@ function SearchCombo<T extends { id: number }>({
   const [nextOffset, setNextOffset] = useState<number | null>(0)
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const rootRef = useRef<HTMLDivElement | null>(null)
 
   const loadOptions = useCallback(async (offset: number, replace = false, search = query) => {
     setLoading(true)
@@ -377,6 +396,23 @@ function SearchCombo<T extends { id: number }>({
     return () => window.clearTimeout(timer)
   }, [loadOptions, open, query])
 
+  useEffect(() => {
+    if (!open) return
+
+    function handlePointerDown(event: MouseEvent | TouchEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('touchstart', handlePointerDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('touchstart', handlePointerDown)
+    }
+  }, [open])
+
   function handleScroll(event: UIEvent<HTMLDivElement>) {
     const element = event.currentTarget
     if (nextOffset === null || loading) return
@@ -386,7 +422,7 @@ function SearchCombo<T extends { id: number }>({
   }
 
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       <Field label={label}>
         <input className={inputClassName} value={query} onChange={(event) => setQuery(event.target.value)} onFocus={() => setOpen(true)} placeholder={placeholder} />
       </Field>

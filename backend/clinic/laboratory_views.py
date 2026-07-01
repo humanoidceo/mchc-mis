@@ -1,7 +1,9 @@
+from datetime import timedelta
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q, Sum
+from django.db.models.functions import TruncDate, TruncMonth
 from django.utils import timezone
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -48,6 +50,72 @@ def next_patient_registration_number() -> str:
     return str(max(numeric_registration_numbers, default=0) + 1)
 
 
+def dashboard_period_start(period: str):
+    now = timezone.localtime(timezone.now())
+    if period == 'annual':
+        return now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0), 'Annual'
+    if period == 'monthly':
+        return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0), 'Monthly'
+    if period == 'weekly':
+        start = now - timedelta(days=now.weekday())
+        return start.replace(hour=0, minute=0, second=0, microsecond=0), 'Weekly'
+    return now.replace(hour=0, minute=0, second=0, microsecond=0), 'Daily'
+
+
+def build_patient_trend(period: str, bills_queryset):
+    now = timezone.localtime(timezone.now())
+
+    if period == 'annual':
+        month_rows = (
+            bills_queryset
+            .annotate(bucket=TruncMonth('created_at'))
+            .values('bucket')
+            .annotate(value=Count('patient', distinct=True))
+            .order_by('bucket')
+        )
+        counts = {
+            row['bucket'].month: row['value']
+            for row in month_rows
+            if row['bucket'] is not None
+        }
+        return [
+            {'label': month_label, 'value': counts.get(index, 0)}
+            for index, month_label in enumerate(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], start=1)
+        ]
+
+    if period == 'weekly':
+        start = now - timedelta(days=now.weekday())
+        bucket_count = 7
+        labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    elif period == 'monthly':
+        start = now.replace(day=1)
+        bucket_count = now.day
+        labels = None
+    else:
+        return []
+
+    start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_rows = (
+        bills_queryset
+        .annotate(bucket=TruncDate('created_at'))
+        .values('bucket')
+        .annotate(value=Count('patient', distinct=True))
+        .order_by('bucket')
+    )
+    counts = {
+        row['bucket']: row['value']
+        for row in day_rows
+        if row['bucket'] is not None
+    }
+    return [
+        {
+            'label': labels[index] if labels else str((start + timedelta(days=index)).day),
+            'value': counts.get((start + timedelta(days=index)).date(), 0),
+        }
+        for index in range(bucket_count)
+    ]
+
+
 def lab_test_snapshot(test_id: int, test_name: str, instructions: str, cost: Decimal):
     test = resolve_lab_test_reference(test_id, test_name)
     return {
@@ -75,32 +143,65 @@ class LaboratoryDashboardViewSet(mixins.ListModelMixin, LaboratoryBaseViewSet):
     serializer_class = LaboratoryDashboardSerializer
 
     def list(self, request, *args, **kwargs):
-        month_start = timezone.localtime().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        recent_bills = list(
-            ClinicalDocument.objects.filter(
-                document_type=ClinicalDocument.DocumentType.LAB_BILL,
-                created_by=request.user,
-            )
-            .select_related('patient', 'payment')
-            .order_by('-created_at')[:6]
-        )
+        period = request.query_params.get('period', 'monthly')
+        if period not in {'daily', 'weekly', 'monthly', 'annual'}:
+            period = 'monthly'
+        try:
+            recent_page = max(1, int(request.query_params.get('recent_page', '1')))
+        except ValueError:
+            recent_page = 1
+        start_at, period_label = dashboard_period_start(period)
         bills_queryset = ClinicalDocument.objects.filter(
             document_type=ClinicalDocument.DocumentType.LAB_BILL,
             created_by=request.user,
         ).select_related('payment')
-        pending_reception = bills_queryset.filter(payment__status=Payment.Status.PENDING).count()
-        approved_reception = bills_queryset.filter(payment__status=Payment.Status.APPROVED).count()
-        month_total = sum((document.total_amount for document in bills_queryset.filter(created_at__gte=month_start)), Decimal('0.00'))
+        recent_bills_count = bills_queryset.count()
+        page_size = 10
+        recent_bills = list(
+            bills_queryset
+            .select_related('patient', 'payment')
+            .order_by('-created_at')[(recent_page - 1) * page_size:recent_page * page_size]
+        )
+        period_bills = bills_queryset.filter(created_at__gte=start_at)
+        pending_reception = period_bills.filter(payment__status=Payment.Status.PENDING).count()
+        approved_reception = period_bills.filter(payment__status=Payment.Status.APPROVED).count()
+        total_amount = period_bills.aggregate(total=Sum('total_amount'))['total'] or Decimal('0.00')
+        internal_patients = period_bills.filter(payload__customer_type='internal').aggregate(total=Count('patient', distinct=True))['total'] or 0
+        external_patients = period_bills.filter(Q(payload__customer_type='external') | Q(payload__customer_type__isnull=True)).aggregate(total=Count('patient', distinct=True))['total'] or 0
+        patient_trend = build_patient_trend(period, period_bills)
+        internal_amount = period_bills.filter(payload__customer_type='internal').aggregate(total=Sum('total_amount'))['total'] or Decimal('0.00')
+        external_amount = period_bills.filter(Q(payload__customer_type='external') | Q(payload__customer_type__isnull=True)).aggregate(total=Sum('total_amount'))['total'] or Decimal('0.00')
+        full_paid_amount = period_bills.filter(payment__payment_type=Payment.PaymentType.FULL).aggregate(total=Sum('payment__amount'))['total'] or Decimal('0.00')
+        discounted_amount = period_bills.filter(payment__payment_type=Payment.PaymentType.DISCOUNT).aggregate(total=Sum('payment__amount'))['total'] or Decimal('0.00')
+        free_amount = period_bills.filter(payment__payment_type=Payment.PaymentType.FREE).aggregate(total=Sum('payment__amount'))['total'] or Decimal('0.00')
+        pending_reception_amount = period_bills.filter(payment__status=Payment.Status.PENDING).aggregate(total=Sum('payment__amount'))['total'] or Decimal('0.00')
+        approved_reception_amount = period_bills.filter(payment__status=Payment.Status.APPROVED).aggregate(total=Sum('payment__amount'))['total'] or Decimal('0.00')
 
         serializer = self.get_serializer(
             {
+                'period': period,
+                'period_label': period_label,
                 'pending_lab_orders': ClinicalDocument.objects.filter(
                     document_type=ClinicalDocument.DocumentType.LAB_ORDER
                 ).count(),
-                'bills_created': bills_queryset.count(),
+                'bills_created': period_bills.count(),
+                'internal_patients': internal_patients,
+                'internal_amount': internal_amount,
+                'external_patients': external_patients,
+                'external_amount': external_amount,
+                'full_paid': period_bills.filter(payment__payment_type=Payment.PaymentType.FULL).count(),
+                'full_paid_amount': full_paid_amount,
+                'discounted': period_bills.filter(payment__payment_type=Payment.PaymentType.DISCOUNT).count(),
+                'discounted_amount': discounted_amount,
+                'free': period_bills.filter(payment__payment_type=Payment.PaymentType.FREE).count(),
+                'free_amount': free_amount,
                 'pending_reception_payments': pending_reception,
+                'pending_reception_amount': pending_reception_amount,
                 'approved_reception_payments': approved_reception,
-                'monthly_amount': month_total,
+                'approved_reception_amount': approved_reception_amount,
+                'monthly_amount': total_amount,
+                'patient_trend': patient_trend,
+                'recent_bills_count': recent_bills_count,
                 'recent_bills': recent_bills,
             }
         )

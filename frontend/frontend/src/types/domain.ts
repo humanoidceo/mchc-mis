@@ -162,12 +162,48 @@ export type LaboratoryBill = {
 }
 
 export type LaboratoryDashboardStats = {
+  period: 'daily' | 'weekly' | 'monthly' | 'annual'
+  period_label: string
   pending_lab_orders: number
   bills_created: number
+  internal_patients: number
+  internal_amount: string
+  external_patients: number
+  external_amount: string
+  full_paid: number
+  full_paid_amount: string
+  discounted: number
+  discounted_amount: string
+  free: number
+  free_amount: string
   pending_reception_payments: number
+  pending_reception_amount: string
   approved_reception_payments: number
+  approved_reception_amount: string
   monthly_amount: string
+  patient_trend: Array<{
+    label: string
+    value: number
+  }>
+  recent_bills_count: number
   recent_bills: LaboratoryBill[]
+}
+
+export type MidwifeDashboardStats = {
+  period: 'daily' | 'weekly' | 'monthly' | 'annual'
+  period_label: string
+  patients: number
+  anc_visits: number
+  pnc_visits: number
+  high_risk: number
+  due_followups: number
+  total_records: number
+  patient_trend: Array<{
+    label: string
+    value: number
+  }>
+  recent_records_count: number
+  recent_records: ClinicalDocument[]
 }
 
 export type SearchResponse<T> = {
@@ -303,13 +339,33 @@ export type PharmacySale = {
 }
 
 export type PharmacyDashboardStats = {
+  period: 'daily' | 'weekly' | 'monthly' | 'annual'
+  period_label: string
   medicines_count: number
   low_stock_count: number
   sales_count: number
+  internal_patients: number
+  internal_amount: string
+  external_patients: number
+  external_amount: string
+  full_paid: number
+  full_paid_amount: string
+  discounted: number
+  discounted_amount: string
+  free: number
+  free_amount: string
+  pending_reception_payments: number
+  pending_reception_amount: string
+  approved_reception_payments: number
+  approved_reception_amount: string
   stock_units: number
   inventory_value: string
-  today_revenue: string
-  monthly_revenue: string
+  total_billed: string
+  patient_trend: Array<{
+    label: string
+    value: number
+  }>
+  recent_sales_count: number
   recent_sales: PharmacySale[]
   low_stock_items: PharmacyMedicine[]
 }
