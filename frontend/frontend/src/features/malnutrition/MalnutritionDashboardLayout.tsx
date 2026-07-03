@@ -4,12 +4,12 @@ import { Navigate, NavLink, Route, Routes } from 'react-router-dom'
 import { SectionHeader } from '../../components/ui'
 import { AccountSettingsPage } from '../account/AccountSettingsPage'
 import { useAuth } from '../auth/useAuth'
-import { VaccinationWorkspace } from './VaccinationWorkspace'
+import { MalnutritionWorkspace } from './MalnutritionWorkspace'
 
 const links = [
-  { to: '/vaccination/dashboard', label: 'Dashboard' },
-  { to: '/vaccination/records', label: 'Vaccinations' },
-  { to: '/vaccination/account', label: 'My account' },
+  { to: '/malnutrition/dashboard', label: 'Dashboard' },
+  { to: '/malnutrition/assessments', label: 'Assessments' },
+  { to: '/malnutrition/account', label: 'My account' },
 ]
 
 const common = {
@@ -20,7 +20,7 @@ const common = {
   notFoundTitle: 'Not found',
 }
 
-export function VaccinationDashboardLayout() {
+export function MalnutritionDashboardLayout() {
   const { user, logout } = useAuth()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
@@ -35,7 +35,7 @@ export function VaccinationDashboardLayout() {
               <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-12 w-12 rounded-2xl object-cover" />
               <div>
                 <p className="text-sm font-semibold text-sky-600">MCHC</p>
-                <p className="text-xs text-zinc-500">Vaccination Department</p>
+                <p className="text-xs text-zinc-500">Management Information System</p>
               </div>
             </div>
             <button className="rounded border border-pink-200 px-2 py-1 text-xs font-medium lg:hidden" onClick={() => setMobileMenuOpen(false)}>{common.close}</button>
@@ -73,12 +73,12 @@ export function VaccinationDashboardLayout() {
 
         <main className="mx-auto max-w-7xl px-4 py-6">
           <Routes>
-            <Route path="/vaccination" element={<Navigate to="/vaccination/dashboard" replace />} />
-            <Route path="/vaccination/dashboard" element={<VaccinationWorkspace view="dashboard" />} />
-            <Route path="/vaccination/records" element={<VaccinationWorkspace view="records" />} />
-            <Route path="/vaccination/account" element={<AccountSettingsPage />} />
-            <Route path="/" element={<Navigate to="/vaccination/dashboard" replace />} />
-            <Route path="*" element={<SectionHeader title={common.notFoundTitle} subtitle="The requested vaccination page does not exist." />} />
+            <Route path="/malnutrition" element={<Navigate to="/malnutrition/dashboard" replace />} />
+            <Route path="/malnutrition/dashboard" element={<MalnutritionWorkspace view="dashboard" />} />
+            <Route path="/malnutrition/assessments" element={<MalnutritionWorkspace view="assessments" />} />
+            <Route path="/malnutrition/account" element={<AccountSettingsPage />} />
+            <Route path="/" element={<Navigate to="/malnutrition/dashboard" replace />} />
+            <Route path="*" element={<SectionHeader title={common.notFoundTitle} subtitle="The requested malnutrition page does not exist." />} />
           </Routes>
         </main>
       </div>

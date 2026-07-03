@@ -5,6 +5,7 @@ from django.db import transaction
 from django.db.models import Count, Prefetch, Q, Sum
 from django.db.models.functions import TruncDate, TruncMonth
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -14,16 +15,25 @@ from accounts.access import user_has_permission
 from accounts.permissions import Role
 from clinic.models import ClinicalDocument, Patient, Payment
 
-from .models import Medicine, PharmacySetting, Sale, SaleItem
+from .models import Medicine, PharmacySetting, Sale, SaleItem, money, sync_medicine_profit_percentages
 from .serializers import (
     PharmacyDashboardSerializer,
+    PharmacyFamilyPlanningOrderSerializer,
     PharmacyMedicineSerializer,
     PharmacyPatientSearchSerializer,
     PharmacyPrescriptionSerializer,
+    PharmacyRutfOrderSerializer,
     PharmacySaleCreateSerializer,
     PharmacySaleSerializer,
     PharmacySettingSerializer,
 )
+
+
+def month_start_after(source_date, months: int):
+    month_index = (source_date.month - 1) + months
+    year = source_date.year + (month_index // 12)
+    month = (month_index % 12) + 1
+    return source_date.replace(year=year, month=month, day=1)
 
 
 def is_pharmacy_user(user) -> bool:
@@ -66,6 +76,27 @@ def match_pharmacy_medicine(pharmacist, medicine_name: str):
     if medicine:
         return medicine
     return Medicine.objects.filter(pharmacist=pharmacist, generic_name__iexact=medicine_name).first()
+
+
+def match_rutf_medicine(pharmacist):
+    return (
+        Medicine.objects.filter(pharmacist=pharmacist)
+        .filter(Q(name__icontains="rutf") | Q(generic_name__icontains="rutf"))
+        .order_by("expiry_date", "name")
+        .first()
+    )
+
+
+def match_family_planning_medicine(pharmacist, medicine_id: int):
+    return (
+        Medicine.objects.filter(
+            pharmacist=pharmacist,
+            pk=medicine_id,
+            generic_name__iexact="Family Planning",
+        )
+        .order_by("expiry_date", "name")
+        .first()
+    )
 
 
 def latest_prescription_for_patient(patient_id: int):
@@ -160,6 +191,16 @@ def serialize_prescription_items(pharmacist, prescription: ClinicalDocument):
     return rows
 
 
+def sale_item_cost_price(item, default_profit_percentage: Decimal):
+    if getattr(item, "medicine", None) is not None:
+        return item.medicine.buy_price
+
+    divisor = Decimal("1.00") + (default_profit_percentage / Decimal("100"))
+    if divisor <= 0:
+        return item.unit_price
+    return money(item.unit_price / divisor)
+
+
 class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
     serializer_class = PharmacyDashboardSerializer
 
@@ -174,10 +215,11 @@ class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
         start_at, period_label = dashboard_period_start(period)
 
         medicines = Medicine.objects.filter(pharmacist=request.user)
+        setting, _ = PharmacySetting.objects.get_or_create(pharmacist=request.user)
         sales = (
             Sale.objects.filter(pharmacist=request.user)
             .select_related("patient", "payment", "prescription_document")
-            .prefetch_related("items")
+            .prefetch_related(Prefetch("items", queryset=SaleItem.objects.select_related("medicine").order_by("id")))
         )
         page_size = 10
         recent_sales_count = sales.count()
@@ -195,6 +237,7 @@ class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
         internal_amount = Decimal("0.00")
         external_amount = Decimal("0.00")
         total_billed = Decimal("0.00")
+        sold_medicines_price = Decimal("0.00")
         for sale in period_sales:
             sale_total = sale.total_amount
             total_billed += sale_total
@@ -202,6 +245,33 @@ class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
                 internal_amount += sale_total
             else:
                 external_amount += sale_total
+            for item in sale.items.all():
+                sold_medicines_price += money(sale_item_cost_price(item, setting.default_profit_percentage) * item.quantity)
+        sold_medicines_price = money(sold_medicines_price)
+        sold_medicines_profit = money(total_billed - sold_medicines_price)
+        family_planning_items_dispensed = 0
+        family_planning_orders = ClinicalDocument.objects.filter(
+            document_type=ClinicalDocument.DocumentType.FAMILY_PLANNING,
+            payload__family_planning_record=True,
+            payload__pharmacy_dispensed_by_id=request.user.id,
+        )
+        for order in family_planning_orders.iterator():
+            payload = order.payload or {}
+            dispensed_at_raw = payload.get("pharmacy_dispensed_at")
+            dispensed_at = parse_datetime(dispensed_at_raw) if isinstance(dispensed_at_raw, str) else None
+            if dispensed_at is None:
+                continue
+            if timezone.is_naive(dispensed_at):
+                dispensed_at = timezone.make_aware(dispensed_at, timezone.get_current_timezone())
+            dispensed_at = timezone.localtime(dispensed_at)
+            if dispensed_at < start_at:
+                continue
+            items = payload.get("items")
+            for item in items if isinstance(items, list) else []:
+                try:
+                    family_planning_items_dispensed += max(0, int(item.get("quantity") or 0))
+                except (TypeError, ValueError, AttributeError):
+                    continue
         patient_trend = build_patient_trend(period, period_sales)
         full_paid = period_sales.filter(payment__payment_type=Payment.PaymentType.FULL).count()
         discounted = period_sales.filter(payment__payment_type=Payment.PaymentType.DISCOUNT).count()
@@ -238,6 +308,10 @@ class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
                 "stock_units": medicines.aggregate(total=Sum("quantity"))["total"] or 0,
                 "inventory_value": inventory_value,
                 "total_billed": total_billed,
+                "sold_medicines_total": total_billed,
+                "sold_medicines_profit": sold_medicines_profit,
+                "sold_medicines_price": sold_medicines_price,
+                "family_planning_items_dispensed": family_planning_items_dispensed,
                 "patient_trend": patient_trend,
                 "recent_sales_count": recent_sales_count,
                 "recent_sales": recent_sales,
@@ -259,6 +333,7 @@ class PharmacySettingViewSet(PharmacyBaseViewSet):
         serializer = self.get_serializer(setting, data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        sync_medicine_profit_percentages(request.user)
         return Response(serializer.data)
 
     def partial_update(self, request, *args, **kwargs):
@@ -266,6 +341,7 @@ class PharmacySettingViewSet(PharmacyBaseViewSet):
         serializer = self.get_serializer(setting, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        sync_medicine_profit_percentages(request.user)
         return Response(serializer.data)
 
 
@@ -277,12 +353,35 @@ class PharmacyMedicineViewSet(PharmacyBaseViewSet, viewsets.ModelViewSet):
         search = self.request.query_params.get("q", "").strip()
         available_only = self.request.query_params.get("available")
         low_stock_only = self.request.query_params.get("low_stock")
+        rutf_only = self.request.query_params.get("rutf_only")
+        family_planning_only = self.request.query_params.get("family_planning_only")
+        expired_only = self.request.query_params.get("expired_only")
+        upcoming_expired_only = self.request.query_params.get("upcoming_expired_only")
         if search:
-            queryset = queryset.filter(Q(name__icontains=search) | Q(generic_name__icontains=search))
+            queryset = queryset.filter(
+                Q(name__icontains=search)
+                | Q(generic_name__icontains=search)
+                | Q(country_of_product__icontains=search)
+            )
         if available_only in {"1", "true", "yes"}:
             queryset = queryset.filter(quantity__gt=0)
         if low_stock_only in {"1", "true", "yes"}:
             queryset = queryset.filter(quantity__lt=10)
+        if rutf_only in {"1", "true", "yes"}:
+            queryset = queryset.filter(Q(name__icontains="rutf") | Q(generic_name__icontains="rutf")).order_by("expiry_date", "name")
+        if family_planning_only in {"1", "true", "yes"}:
+            queryset = queryset.filter(generic_name__iexact="Family Planning").order_by("expiry_date", "name")
+        if expired_only in {"1", "true", "yes"}:
+            current_month_start = timezone.localdate().replace(day=1)
+            queryset = queryset.filter(expiry_date__isnull=False, expiry_date__lt=current_month_start).order_by("expiry_date", "name")
+        if upcoming_expired_only in {"1", "true", "yes"}:
+            current_month_start = timezone.localdate().replace(day=1)
+            six_month_window_end = month_start_after(current_month_start, 6)
+            queryset = queryset.filter(
+                expiry_date__isnull=False,
+                expiry_date__gte=current_month_start,
+                expiry_date__lt=six_month_window_end,
+            ).order_by("expiry_date", "name")
         return queryset
 
     def perform_create(self, serializer):
@@ -508,3 +607,208 @@ class PharmacySaleViewSet(
             if payment is not None:
                 payment.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PharmacyRutfOrderViewSet(PharmacyBaseViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin):
+    serializer_class = PharmacyRutfOrderSerializer
+
+    def get_queryset(self):
+        queryset = (
+            ClinicalDocument.objects.filter(
+                document_type=ClinicalDocument.DocumentType.RUTF,
+                payload__malnutrition_record=True,
+            )
+            .select_related("patient", "created_by")
+            .order_by("-created_at")
+        )
+        search = self.request.query_params.get("q", "").strip()
+        if search:
+            queryset = queryset.filter(
+                Q(title__icontains=search)
+                | Q(patient__first_name__icontains=search)
+                | Q(patient__last_name__icontains=search)
+                | Q(patient__registration_number__icontains=search)
+            )
+        status_filter = self.request.query_params.get("status", "").strip().lower()
+        if status_filter == "pending":
+            queryset = queryset.exclude(payload__pharmacy_status="approved")
+        elif status_filter == "approved":
+            queryset = queryset.filter(payload__pharmacy_status="approved")
+        return queryset
+
+    def serialize_order(self, document):
+        payload = document.payload or {}
+        return {
+            "id": document.id,
+            "patient": document.patient_id,
+            "patient_name": f"{document.patient.first_name} {document.patient.last_name}".strip(),
+            "created_by_name": document.created_by.get_full_name() or document.created_by.username,
+            "title": document.title,
+            "created_at": document.created_at,
+            "payload": payload,
+            "rutf_quantity": int(payload.get("rutf_quantity") or 0),
+            "pharmacy_status": str(payload.get("pharmacy_status") or "pending"),
+            "approved_by_name": str(payload.get("pharmacy_approved_by_name") or ""),
+        }
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.paginate_queryset(self.get_queryset())
+        serialized = [self.serialize_order(document) for document in queryset]
+        page = self.get_paginated_response(self.get_serializer(serialized, many=True).data)
+        return page
+
+    def retrieve(self, request, *args, **kwargs):
+        document = self.get_object()
+        serializer = self.get_serializer(self.serialize_order(document))
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        document = self.get_object()
+        with transaction.atomic():
+            locked_document = ClinicalDocument.objects.select_for_update().select_related("patient").get(pk=document.pk)
+            payload = dict(locked_document.payload or {})
+            if payload.get("pharmacy_status") == "approved":
+                serializer = self.get_serializer(self.serialize_order(locked_document))
+                return Response(serializer.data)
+
+            quantity = int(payload.get("rutf_quantity") or 0)
+            if quantity <= 0:
+                raise serializers.ValidationError({"payload": "Requested malnutrition quantity must be greater than zero."})
+
+            medicine = match_rutf_medicine(request.user)
+            if medicine is None:
+                raise serializers.ValidationError({"medicine": "No malnutrition stock was found. Add it from the malnutrition stock page first."})
+            if quantity > medicine.quantity:
+                raise serializers.ValidationError({"medicine": f"Only {medicine.quantity} available in malnutrition stock."})
+
+            medicine.quantity -= quantity
+            medicine.save(update_fields=["quantity", "sell_price", "updated_at"])
+
+            payload["pharmacy_status"] = "approved"
+            payload["pharmacy_approved_at"] = timezone.now().isoformat()
+            payload["pharmacy_approved_by_name"] = request.user.get_full_name() or request.user.username
+            payload["pharmacy_medicine_id"] = medicine.id
+            payload["pharmacy_medicine_name"] = medicine.name
+            locked_document.payload = payload
+            locked_document.save(update_fields=["payload", "updated_at"])
+
+        serializer = self.get_serializer(self.serialize_order(locked_document))
+        return Response(serializer.data)
+
+
+class PharmacyFamilyPlanningOrderViewSet(PharmacyBaseViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin):
+    serializer_class = PharmacyFamilyPlanningOrderSerializer
+
+    def get_queryset(self):
+        queryset = (
+            ClinicalDocument.objects.filter(
+                document_type=ClinicalDocument.DocumentType.FAMILY_PLANNING,
+                payload__family_planning_record=True,
+            )
+            .select_related("patient", "created_by")
+            .order_by("-created_at")
+        )
+        search = self.request.query_params.get("q", "").strip()
+        if search:
+            queryset = queryset.filter(
+                Q(title__icontains=search)
+                | Q(patient__first_name__icontains=search)
+                | Q(patient__last_name__icontains=search)
+                | Q(patient__registration_number__icontains=search)
+            )
+        status_filter = self.request.query_params.get("status", "").strip().lower()
+        if status_filter == "pending":
+            queryset = queryset.exclude(payload__pharmacy_status="dispensed")
+        elif status_filter == "dispensed":
+            queryset = queryset.filter(payload__pharmacy_status="dispensed")
+        return queryset
+
+    def serialize_order(self, document):
+        payload = document.payload or {}
+        items = payload.get("items") if isinstance(payload, dict) else []
+        serialized_items = []
+        for item in items if isinstance(items, list) else []:
+            try:
+                quantity = int(item.get("quantity") or 0)
+            except (TypeError, ValueError):
+                quantity = 0
+            serialized_items.append(
+                {
+                    "medicine": int(item.get("medicine") or 0),
+                    "medicine_name": str(item.get("medicine_name") or ""),
+                    "quantity": quantity,
+                }
+            )
+        return {
+            "id": document.id,
+            "patient": document.patient_id,
+            "patient_name": f"{document.patient.first_name} {document.patient.last_name}".strip(),
+            "created_by_name": document.created_by.get_full_name() or document.created_by.username,
+            "title": document.title,
+            "created_at": document.created_at,
+            "payload": payload,
+            "items": serialized_items,
+            "item_count": len(serialized_items),
+            "pharmacy_status": str(payload.get("pharmacy_status") or "pending"),
+            "dispensed_by_name": str(payload.get("pharmacy_dispensed_by_name") or ""),
+        }
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.paginate_queryset(self.get_queryset())
+        serialized = [self.serialize_order(document) for document in queryset]
+        page = self.get_paginated_response(self.get_serializer(serialized, many=True).data)
+        return page
+
+    def retrieve(self, request, *args, **kwargs):
+        document = self.get_object()
+        serializer = self.get_serializer(self.serialize_order(document))
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"])
+    def dispense(self, request, pk=None):
+        document = self.get_object()
+        with transaction.atomic():
+            locked_document = ClinicalDocument.objects.select_for_update().select_related("patient").get(pk=document.pk)
+            payload = dict(locked_document.payload or {})
+            if payload.get("pharmacy_status") == "dispensed":
+                serializer = self.get_serializer(self.serialize_order(locked_document))
+                return Response(serializer.data)
+
+            items = payload.get("items")
+            if not isinstance(items, list) or not items:
+                raise serializers.ValidationError({"payload": "No family planning items were found in this order."})
+
+            medicines_to_update = []
+            for item in items:
+                if not isinstance(item, dict):
+                    raise serializers.ValidationError({"payload": "Invalid family planning order item."})
+                medicine_id = item.get("medicine")
+                try:
+                    quantity = int(item.get("quantity") or 0)
+                except (TypeError, ValueError):
+                    quantity = 0
+                if not isinstance(medicine_id, int) or quantity <= 0:
+                    raise serializers.ValidationError({"payload": "Each family planning item must include a valid medicine and quantity."})
+
+                medicine = match_family_planning_medicine(request.user, medicine_id)
+                if medicine is None:
+                    raise serializers.ValidationError({"medicine": f"Family planning stock item #{medicine_id} was not found."})
+                medicine = Medicine.objects.select_for_update().get(pk=medicine.pk)
+                if quantity > medicine.quantity:
+                    raise serializers.ValidationError({"medicine": f"Only {medicine.quantity} available for {medicine.name}."})
+                medicines_to_update.append((medicine, quantity))
+
+            for medicine, quantity in medicines_to_update:
+                medicine.quantity -= quantity
+                medicine.save(update_fields=["quantity", "sell_price", "updated_at"])
+
+            payload["pharmacy_status"] = "dispensed"
+            payload["pharmacy_dispensed_at"] = timezone.now().isoformat()
+            payload["pharmacy_dispensed_by_name"] = request.user.get_full_name() or request.user.username
+            payload["pharmacy_dispensed_by_id"] = request.user.id
+            locked_document.payload = payload
+            locked_document.save(update_fields=["payload", "updated_at"])
+
+        serializer = self.get_serializer(self.serialize_order(locked_document))
+        return Response(serializer.data)

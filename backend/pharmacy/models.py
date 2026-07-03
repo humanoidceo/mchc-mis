@@ -1,4 +1,4 @@
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_CEILING, ROUND_HALF_UP
 
 from django.conf import settings
 from django.db import models
@@ -9,6 +9,21 @@ from clinic.models import ClinicalDocument, Patient, Payment
 
 def money(value):
     return Decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def whole_money_up(value):
+    return Decimal(value).quantize(Decimal("1"), rounding=ROUND_CEILING)
+
+
+def pharmacy_default_profit_percentage(pharmacist):
+    if pharmacist is None:
+        return None
+    return (
+        PharmacySetting.objects
+        .filter(pharmacist=pharmacist)
+        .values_list("default_profit_percentage", flat=True)
+        .first()
+    )
 
 
 class PharmacySetting(models.Model):
@@ -43,6 +58,9 @@ class Medicine(models.Model):
     )
     name = models.CharField(max_length=180)
     generic_name = models.CharField(max_length=180, blank=True)
+    country_of_product = models.CharField(max_length=120, blank=True)
+    production_date = models.DateField(null=True, blank=True)
+    expiry_date = models.DateField(null=True, blank=True)
     quantity = models.PositiveIntegerField(default=0)
     buy_price = models.DecimalField(max_digits=12, decimal_places=2)
     profit_percentage = models.DecimalField(
@@ -70,8 +88,11 @@ class Medicine(models.Model):
         ]
 
     def calculate_sell_price(self):
+        default_profit_percentage = pharmacy_default_profit_percentage(self.pharmacist)
+        if default_profit_percentage is not None:
+            self.profit_percentage = default_profit_percentage
         price = self.buy_price + (self.buy_price * self.profit_percentage / Decimal("100"))
-        return money(price)
+        return whole_money_up(price)
 
     def save(self, *args, **kwargs):
         self.sell_price = self.calculate_sell_price()
@@ -79,6 +100,16 @@ class Medicine(models.Model):
 
     def __str__(self):
         return self.name
+
+
+def sync_medicine_profit_percentages(pharmacist):
+    default_profit_percentage = pharmacy_default_profit_percentage(pharmacist)
+    if default_profit_percentage is None:
+        return
+
+    for medicine in Medicine.objects.filter(pharmacist=pharmacist).iterator():
+        medicine.profit_percentage = default_profit_percentage
+        medicine.save(update_fields=["profit_percentage", "sell_price", "updated_at"])
 
 
 class Sale(models.Model):
@@ -140,7 +171,7 @@ class Sale(models.Model):
 
 class SaleItem(models.Model):
     sale = models.ForeignKey(Sale, on_delete=models.CASCADE, related_name="items")
-    medicine = models.ForeignKey(Medicine, on_delete=models.PROTECT)
+    medicine = models.ForeignKey(Medicine, null=True, blank=True, on_delete=models.SET_NULL)
 
     # Snapshot fields keep old bills correct even if medicine data changes later.
     medicine_name = models.CharField(max_length=180)

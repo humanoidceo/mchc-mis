@@ -4,25 +4,23 @@ import type { FormEvent, UIEvent } from 'react'
 import { ApiError, apiFetch } from '../../api/client'
 import { buttonClassName, Field, ghostButtonClassName, inputClassName, PaginationControls, Panel, SectionHeader } from '../../components/ui'
 import type {
+  ClinicalDocument,
+  PharmacyFamilyPlanningOrder,
   PaginatedResponse,
   PharmacyDashboardStats,
   PharmacyMedicine,
   PharmacyPatientSearchOption,
   PharmacyPrescription,
+  PharmacyRutfOrder,
   PharmacySale,
   PharmacySetting,
   SearchResponse,
 } from '../../types/domain'
 import { useAuth } from '../auth/useAuth'
+import { PrintDocument } from '../clinic/PrintDocument'
+import { PharmacyMedicineStockSection } from './PharmacyMedicineStockSection'
 
-type View = 'dashboard' | 'medicines' | 'low-stock' | 'sales' | 'settings'
-type MedicineFormState = {
-  name: string
-  generic_name: string
-  quantity: string
-  buy_price: string
-  profit_percentage: string
-}
+type View = 'dashboard' | 'medicines' | 'family-planning-stock' | 'family-planning-orders' | 'expired-medicines' | 'upcoming-expired-medicines' | 'rutf-stock' | 'low-stock' | 'sales' | 'rutf-orders' | 'settings'
 type SaleDraftRow = {
   medicine: string
   quantity: string
@@ -56,6 +54,10 @@ const emptyDashboard: PharmacyDashboardStats = {
   stock_units: 0,
   inventory_value: '0.00',
   total_billed: '0.00',
+  sold_medicines_total: '0.00',
+  sold_medicines_profit: '0.00',
+  sold_medicines_price: '0.00',
+  family_planning_items_dispensed: 0,
   patient_trend: [],
   recent_sales_count: 0,
   recent_sales: [],
@@ -68,14 +70,6 @@ const dashboardPeriodOptions: Array<{ value: PharmacyDashboardStats['period']; l
   { value: 'monthly', label: 'Monthly' },
   { value: 'annual', label: 'Annual' },
 ]
-
-const emptyMedicineForm: MedicineFormState = {
-  name: '',
-  generic_name: '',
-  quantity: '',
-  buy_price: '',
-  profit_percentage: '20',
-}
 
 const emptySetting: PharmacySetting = {
   id: 0,
@@ -125,6 +119,8 @@ export function PharmacyWorkspace({ view }: { view: View }) {
   const [dashboard, setDashboard] = useState<PharmacyDashboardStats>(emptyDashboard)
   const [setting, setSetting] = useState<PharmacySetting>(emptySetting)
   const [selectedSale, setSelectedSale] = useState<PharmacySale | null>(null)
+  const [selectedFamilyPlanningOrder, setSelectedFamilyPlanningOrder] = useState<PharmacyFamilyPlanningOrder | null>(null)
+  const [selectedRutfOrder, setSelectedRutfOrder] = useState<PharmacyRutfOrder | null>(null)
   const [error, setError] = useState('')
 
   async function loadData(currentView = view, period: PharmacyDashboardStats['period'] = 'monthly', recentPage = 1) {
@@ -140,7 +136,7 @@ export function PharmacyWorkspace({ view }: { view: View }) {
         return
       }
 
-      if (currentView === 'medicines' || currentView === 'low-stock' || currentView === 'sales') {
+      if (currentView === 'medicines' || currentView === 'family-planning-stock' || currentView === 'family-planning-orders' || currentView === 'expired-medicines' || currentView === 'upcoming-expired-medicines' || currentView === 'rutf-stock' || currentView === 'low-stock' || currentView === 'sales' || currentView === 'rutf-orders') {
         setSetting(await apiFetch<PharmacySetting>('/pharmacy/settings/'))
         return
       }
@@ -159,7 +155,12 @@ export function PharmacyWorkspace({ view }: { view: View }) {
     <div className="space-y-6">
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
       {view === 'dashboard' ? <PharmacyDashboard dashboard={dashboard} onRefresh={(period, recentPage) => void loadData('dashboard', period, recentPage)} /> : null}
-      {view === 'medicines' ? <MedicineManager setting={setting} /> : null}
+      {view === 'medicines' ? <PharmacyMedicineStockSection key="medicines" /> : null}
+      {view === 'family-planning-stock' ? <PharmacyMedicineStockSection key="family-planning-stock" familyPlanningOnly /> : null}
+      {view === 'family-planning-orders' ? <FamilyPlanningOrdersWorkspace onSelectOrder={setSelectedFamilyPlanningOrder} /> : null}
+      {view === 'expired-medicines' ? <PharmacyMedicineStockSection key="expired-medicines" expiredOnly /> : null}
+      {view === 'upcoming-expired-medicines' ? <PharmacyMedicineStockSection key="upcoming-expired-medicines" upcomingExpiredOnly /> : null}
+      {view === 'rutf-stock' ? <PharmacyMedicineStockSection key="rutf-stock" rutfOnly /> : null}
       {view === 'low-stock' ? <LowStockReport /> : null}
       {view === 'sales' ? (
         <SalesWorkspace
@@ -168,6 +169,7 @@ export function PharmacyWorkspace({ view }: { view: View }) {
           onSelectSale={setSelectedSale}
         />
       ) : null}
+      {view === 'rutf-orders' ? <RutfOrdersWorkspace onSelectOrder={setSelectedRutfOrder} /> : null}
       {view === 'settings' ? <PharmacySettingsPage setting={setting} onSaved={() => void loadData('settings')} /> : null}
       {selectedSale ? (
         <div className="space-y-3">
@@ -176,6 +178,50 @@ export function PharmacyWorkspace({ view }: { view: View }) {
             <button className={ghostButtonClassName} onClick={() => setSelectedSale(null)}>Close preview</button>
           </div>
           <PrintPharmacyBill sale={selectedSale} setting={setting} printedBy={user?.first_name || user?.username || 'MCHC staff'} />
+        </div>
+      ) : null}
+      {selectedFamilyPlanningOrder ? (
+        <div className="space-y-3">
+          <div className="no-print flex gap-2">
+            <button className={buttonClassName} onClick={() => window.print()}>Print family planning note</button>
+            <button className={ghostButtonClassName} onClick={() => setSelectedFamilyPlanningOrder(null)}>Close preview</button>
+          </div>
+          <PrintDocument
+            document={{
+              id: selectedFamilyPlanningOrder.id,
+              patient: selectedFamilyPlanningOrder.patient,
+              patient_name: selectedFamilyPlanningOrder.patient_name,
+              document_type: 'family_planning',
+              document_type_label: 'Family planning',
+              title: selectedFamilyPlanningOrder.title,
+              payload: selectedFamilyPlanningOrder.payload,
+              total_amount: '0',
+              created_at: selectedFamilyPlanningOrder.created_at,
+              created_by_name: selectedFamilyPlanningOrder.created_by_name,
+            } as ClinicalDocument}
+          />
+        </div>
+      ) : null}
+      {selectedRutfOrder ? (
+        <div className="space-y-3">
+          <div className="no-print flex gap-2">
+            <button className={buttonClassName} onClick={() => window.print()}>Print malnutrition order</button>
+            <button className={ghostButtonClassName} onClick={() => setSelectedRutfOrder(null)}>Close preview</button>
+          </div>
+          <PrintDocument
+            document={{
+              id: selectedRutfOrder.id,
+              patient: selectedRutfOrder.patient,
+              patient_name: selectedRutfOrder.patient_name,
+              document_type: 'rutf',
+              document_type_label: 'Malnutrition order',
+              title: selectedRutfOrder.title,
+              payload: selectedRutfOrder.payload,
+              total_amount: '0',
+              created_at: selectedRutfOrder.created_at,
+              created_by_name: selectedRutfOrder.created_by_name,
+            } as ClinicalDocument}
+          />
         </div>
       ) : null}
     </div>
@@ -223,6 +269,7 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
     { label: 'Free', value: report.free, amount: report.free_amount, tone: 'border-rose-100 bg-rose-50 text-rose-700' },
     { label: 'Reception pending', value: report.pending_reception_payments, amount: report.pending_reception_amount, tone: 'border-amber-100 bg-amber-50 text-amber-700' },
     { label: 'Reception approved', value: report.approved_reception_payments, amount: report.approved_reception_amount, tone: 'border-teal-100 bg-teal-50 text-teal-700' },
+    { label: 'Medicine stock value', value: report.period_label, amount: report.inventory_value, tone: 'border-fuchsia-100 bg-fuchsia-50 text-fuchsia-700' },
   ]
 
   return (
@@ -240,14 +287,28 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
         </div>
       </div>
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
         {statCards.map((card) => (
           <div key={card.label} className={`rounded-md border p-4 shadow-sm ${card.tone}`}>
             <p className="text-xs font-semibold uppercase tracking-wide opacity-80">{card.label}</p>
             <p className="mt-3 text-3xl font-semibold text-slate-950">{card.value}</p>
-            <p className="mt-2 text-sm font-medium text-slate-700">Money: {formatMoneyAfn(card.amount)}</p>
+            <p className="mt-2 text-sm font-medium text-slate-700">{formatMoneyAfn(card.amount)}</p>
           </div>
         ))}
+        <div className="rounded-md border border-pink-100 bg-pink-50 p-4 shadow-sm text-pink-700">
+          <p className="text-xs font-semibold uppercase tracking-wide opacity-80">Family planning items donated</p>
+          <p className="mt-3 text-3xl font-semibold text-slate-950">{report.family_planning_items_dispensed}</p>
+          <p className="mt-2 text-sm font-medium text-slate-700">{report.period_label}</p>
+        </div>
+        <div className="rounded-md border border-indigo-100 bg-indigo-50 p-4 shadow-sm text-indigo-700">
+          <p className="text-xs font-semibold uppercase tracking-wide opacity-80">Medicines sold</p>
+          <p className="mt-3 text-3xl font-semibold text-slate-950">{report.period_label}</p>
+          <div className="mt-3 space-y-1 text-sm font-medium text-slate-700">
+            <p>Total: {formatMoneyAfn(report.sold_medicines_total)}</p>
+            <p>Profit: {formatMoneyAfn(report.sold_medicines_profit)}</p>
+            <p>Medicines price: {formatMoneyAfn(report.sold_medicines_price)}</p>
+          </div>
+        </div>
       </section>
 
       {error ? <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
@@ -377,208 +438,6 @@ function PharmacyTrendChart({ data }: { data: Array<{ label: string; value: numb
           )
         })}
       </div>
-    </div>
-  )
-}
-
-function MedicineManager({ setting }: { setting: PharmacySetting }) {
-  const [medicines, setMedicines] = useState<PharmacyMedicine[]>([])
-  const [form, setForm] = useState<MedicineFormState>(emptyMedicineForm)
-  const [editingId, setEditingId] = useState<number | null>(null)
-  const [query, setQuery] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [page, setPage] = useState(1)
-  const [totalCount, setTotalCount] = useState(0)
-
-  useEffect(() => {
-    if (editingId === null) {
-      setForm((current) => ({
-        ...current,
-        profit_percentage: current.profit_percentage || setting.default_profit_percentage,
-      }))
-    }
-  }, [editingId, setting.default_profit_percentage])
-
-  useEffect(() => {
-    setPage(1)
-  }, [query])
-
-  useEffect(() => {
-    let ignore = false
-
-    async function loadMedicines() {
-      setLoading(true)
-      try {
-        const response = await apiFetch<PaginatedResponse<PharmacyMedicine>>(`/pharmacy/medicines/?page=${page}&q=${encodeURIComponent(query)}`)
-        if (!ignore) {
-          setMedicines(response.results)
-          setTotalCount(response.count)
-        }
-      } catch {
-        if (!ignore) {
-          setError('Unable to load medicines.')
-        }
-      } finally {
-        if (!ignore) {
-          setLoading(false)
-        }
-      }
-    }
-
-    void loadMedicines()
-    return () => {
-      ignore = true
-    }
-  }, [page, query])
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setSubmitting(true)
-    setError('')
-    try {
-      await apiFetch<PharmacyMedicine>(editingId ? `/pharmacy/medicines/${editingId}/` : '/pharmacy/medicines/', {
-        method: editingId ? 'PUT' : 'POST',
-        body: JSON.stringify({
-          ...form,
-          quantity: Number(form.quantity),
-        }),
-      })
-      setEditingId(null)
-      setForm({
-        ...emptyMedicineForm,
-        profit_percentage: setting.default_profit_percentage,
-      })
-      const response = await apiFetch<PaginatedResponse<PharmacyMedicine>>(`/pharmacy/medicines/?page=${page}&q=${encodeURIComponent(query)}`)
-      setMedicines(response.results)
-      setTotalCount(response.count)
-    } catch (caught) {
-      setError(describeApiError(caught, 'Unable to save medicine.'))
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  async function deleteMedicine(medicineId: number) {
-    setError('')
-    try {
-      await apiFetch(`/pharmacy/medicines/${medicineId}/`, { method: 'DELETE' })
-      const response = await apiFetch<PaginatedResponse<PharmacyMedicine>>(`/pharmacy/medicines/?page=${page}&q=${encodeURIComponent(query)}`)
-      setMedicines(response.results)
-      setTotalCount(response.count)
-    } catch (caught) {
-      setError(describeApiError(caught, 'Unable to delete medicine.'))
-    }
-  }
-
-  return (
-    <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-      <Panel>
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <SectionHeader title="Medicine stock" subtitle="Maintain accurate pricing, profit margin, and current quantity for each item." />
-          <label className="w-full max-w-sm">
-            <span className="sr-only">Search medicines</span>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} className={inputClassName} placeholder="Search by medicine or generic name" />
-          </label>
-        </div>
-
-        <div className="mt-5 overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="text-slate-500">
-              <tr>
-                <th className="pb-3 pr-4 font-medium">Medicine</th>
-                <th className="pb-3 pr-4 font-medium">Quantity</th>
-                <th className="pb-3 pr-4 font-medium">Buy</th>
-                <th className="pb-3 pr-4 font-medium">Sell</th>
-                <th className="pb-3 pr-4 font-medium">Margin</th>
-                <th className="pb-3 font-medium text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-sky-100">
-              {medicines.map((medicine) => (
-                <tr key={medicine.id}>
-                  <td className="py-3 pr-4">
-                    <p className="font-medium text-slate-900">{medicine.name}</p>
-                    <p className="text-xs text-slate-500">{medicine.generic_name || 'No generic name'}</p>
-                  </td>
-                  <td className="py-3 pr-4 text-slate-700">{medicine.quantity}</td>
-                  <td className="py-3 pr-4 text-slate-700">{formatMoney(medicine.buy_price)}</td>
-                  <td className="py-3 pr-4 text-slate-700">{formatMoney(medicine.sell_price)}</td>
-                  <td className="py-3 pr-4 text-slate-700">{medicine.profit_percentage}%</td>
-                  <td className="py-3 text-right">
-                    <div className="flex justify-end gap-2">
-                      <button
-                        className={ghostButtonClassName}
-                        onClick={() => {
-                          setEditingId(medicine.id)
-                          setForm({
-                            name: medicine.name,
-                            generic_name: medicine.generic_name,
-                            quantity: String(medicine.quantity),
-                            buy_price: medicine.buy_price,
-                            profit_percentage: medicine.profit_percentage,
-                          })
-                        }}
-                      >
-                        Edit
-                      </button>
-                      <button className={ghostButtonClassName} onClick={() => void deleteMedicine(medicine.id)}>Delete</button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {!medicines.length && !loading ? (
-                <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-500">No medicines match this search.</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-        <PaginationControls page={page} totalCount={totalCount} onPageChange={setPage} />
-      </Panel>
-
-      <Panel>
-        <SectionHeader title={editingId ? 'Edit medicine' : 'Add medicine'} subtitle="Use the pharmacy default profit rate or override it for a specific item." />
-        {error ? <div className="mt-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-        <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-          <Field label="Medicine name">
-            <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className={inputClassName} required />
-          </Field>
-          <Field label="Generic name">
-            <input value={form.generic_name} onChange={(event) => setForm({ ...form, generic_name: event.target.value })} className={inputClassName} />
-          </Field>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Quantity">
-              <input value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} className={inputClassName} min="0" type="number" required />
-            </Field>
-            <Field label="Buy price">
-              <input value={form.buy_price} onChange={(event) => setForm({ ...form, buy_price: event.target.value })} className={inputClassName} min="0" step="0.01" type="number" required />
-            </Field>
-          </div>
-          <Field label="Profit percentage">
-            <input value={form.profit_percentage} onChange={(event) => setForm({ ...form, profit_percentage: event.target.value })} className={inputClassName} min="0" step="0.01" type="number" required />
-          </Field>
-          <div className="flex flex-wrap gap-2">
-            <button className={buttonClassName} disabled={submitting} type="submit">{submitting ? 'Saving...' : editingId ? 'Update medicine' : 'Add medicine'}</button>
-            <button
-              className={ghostButtonClassName}
-              type="button"
-              onClick={() => {
-                setEditingId(null)
-                setError('')
-                setForm({
-                  ...emptyMedicineForm,
-                  profit_percentage: setting.default_profit_percentage,
-                })
-              }}
-            >
-              Reset
-            </button>
-          </div>
-        </form>
-      </Panel>
     </div>
   )
 }
@@ -969,6 +828,205 @@ function SalesWorkspace({
           ))}
           {!sales.length ? <p className="rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-600">No bills found.</p> : null}
           <PaginationControls page={currentPage} totalCount={totalCount} onPageChange={setCurrentPage} />
+        </div>
+      </Panel>
+    </div>
+  )
+}
+
+function RutfOrdersWorkspace({ onSelectOrder }: { onSelectOrder: (order: PharmacyRutfOrder) => void }) {
+  const [orders, setOrders] = useState<PharmacyRutfOrder[]>([])
+  const [totalCount, setTotalCount] = useState(0)
+  const [page, setPage] = useState(1)
+  const [filterText, setFilterText] = useState('')
+  const [deferredFilterText, setDeferredFilterText] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved'>('pending')
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const loadOrders = useCallback(async (currentPage = page, search = deferredFilterText, status = statusFilter) => {
+    setLoading(true)
+    try {
+      const response = await apiFetch<PaginatedResponse<PharmacyRutfOrder>>(`/pharmacy/rutf-orders/?page=${currentPage}&q=${encodeURIComponent(search)}${status === 'all' ? '' : `&status=${status}`}`)
+      setOrders(response.results)
+      setTotalCount(response.count)
+      setError('')
+    } catch (caught) {
+      setError(describeApiError(caught, 'Unable to load malnutrition orders.'))
+    } finally {
+      setLoading(false)
+    }
+  }, [deferredFilterText, page, statusFilter])
+
+  useEffect(() => {
+    startTransition(() => setDeferredFilterText(filterText))
+  }, [filterText])
+
+  useEffect(() => {
+    setPage(1)
+  }, [deferredFilterText, statusFilter])
+
+  useEffect(() => {
+    void loadOrders(page, deferredFilterText, statusFilter)
+  }, [deferredFilterText, loadOrders, page, statusFilter])
+
+  async function approveOrder(orderId: number) {
+    setError('')
+    setNotice('')
+    try {
+      const approved = await apiFetch<PharmacyRutfOrder>(`/pharmacy/rutf-orders/${orderId}/approve/`, { method: 'POST' })
+      setNotice(`Malnutrition order approved for ${approved.patient_name}.`)
+      await loadOrders(page, deferredFilterText, statusFilter)
+    } catch (caught) {
+      setError(describeApiError(caught, 'Unable to approve malnutrition order.'))
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <SectionHeader title="Malnutrition orders" subtitle="Dispense free malnutrition orders created by the malnutrition account. Approval automatically deducts from malnutrition stock." />
+        <div className="flex flex-wrap gap-2">
+          <input value={filterText} onChange={(event) => setFilterText(event.target.value)} className={inputClassName} placeholder="Search by patient or order" />
+          <select className={inputClassName} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as 'all' | 'pending' | 'approved')}>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="all">All</option>
+          </select>
+        </div>
+      </div>
+
+      {error ? <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+      {notice ? <div className="rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div> : null}
+
+      <Panel>
+        <div className="space-y-3">
+          {orders.map((order) => (
+            <div key={order.id} className="rounded border border-sky-100 bg-white p-4 shadow-sm shadow-sky-100/60">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-lg font-semibold text-slate-950">{order.patient_name}</p>
+                  <p className="text-sm text-slate-500">{String(order.payload.nutrition_status || '').replace('_', ' ') || 'Malnutrition order'}</p>
+                  <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-400">{formatDate(order.created_at)}</p>
+                </div>
+                <span className={`rounded-full px-3 py-1 text-xs font-medium ${order.pharmacy_status === 'approved' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                  {order.pharmacy_status === 'approved' ? 'Approved' : 'Pending'}
+                </span>
+              </div>
+              <div className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+                <p><strong>Quantity:</strong> {order.rutf_quantity}</p>
+                <p><strong>MUAC:</strong> {String(order.payload.muac_mm || 'Not set')}</p>
+                <p><strong>Edema:</strong> {String(order.payload.bilateral_edema || 'Not set')}</p>
+                <p><strong>Appetite:</strong> {String(order.payload.appetite_test || 'Not set')}</p>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button className={buttonClassName} onClick={() => onSelectOrder(order)}>Print</button>
+                {order.pharmacy_status !== 'approved' ? <button className={ghostButtonClassName} onClick={() => void approveOrder(order.id)}>Approve</button> : null}
+              </div>
+            </div>
+          ))}
+          {!orders.length && !loading ? <p className="rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-600">No malnutrition orders found.</p> : null}
+          <PaginationControls page={page} totalCount={totalCount} onPageChange={setPage} />
+        </div>
+      </Panel>
+    </div>
+  )
+}
+
+function FamilyPlanningOrdersWorkspace({ onSelectOrder }: { onSelectOrder: (order: PharmacyFamilyPlanningOrder) => void }) {
+  const [orders, setOrders] = useState<PharmacyFamilyPlanningOrder[]>([])
+  const [totalCount, setTotalCount] = useState(0)
+  const [page, setPage] = useState(1)
+  const [filterText, setFilterText] = useState('')
+  const [deferredFilterText, setDeferredFilterText] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'dispensed'>('pending')
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const loadOrders = useCallback(async (currentPage = page, search = deferredFilterText, status = statusFilter) => {
+    setLoading(true)
+    try {
+      const response = await apiFetch<PaginatedResponse<PharmacyFamilyPlanningOrder>>(`/pharmacy/family-planning-orders/?page=${currentPage}&q=${encodeURIComponent(search)}${status === 'all' ? '' : `&status=${status}`}`)
+      setOrders(response.results)
+      setTotalCount(response.count)
+      setError('')
+    } catch (caught) {
+      setError(describeApiError(caught, 'Unable to load family planning orders.'))
+    } finally {
+      setLoading(false)
+    }
+  }, [deferredFilterText, page, statusFilter])
+
+  useEffect(() => {
+    startTransition(() => setDeferredFilterText(filterText))
+  }, [filterText])
+
+  useEffect(() => {
+    setPage(1)
+  }, [deferredFilterText, statusFilter])
+
+  useEffect(() => {
+    void loadOrders(page, deferredFilterText, statusFilter)
+  }, [deferredFilterText, loadOrders, page, statusFilter])
+
+  async function dispenseOrder(orderId: number) {
+    setError('')
+    setNotice('')
+    try {
+      const dispensed = await apiFetch<PharmacyFamilyPlanningOrder>(`/pharmacy/family-planning-orders/${orderId}/dispense/`, { method: 'POST' })
+      setNotice(`Family planning order dispensed for ${dispensed.patient_name}.`)
+      await loadOrders(page, deferredFilterText, statusFilter)
+    } catch (caught) {
+      setError(describeApiError(caught, 'Unable to dispense family planning order.'))
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <SectionHeader title="Family planning orders" subtitle="Search the patient, print the issued items, and dispense them from Family Planning Stock." />
+        <div className="flex flex-wrap gap-2">
+          <input value={filterText} onChange={(event) => setFilterText(event.target.value)} className={inputClassName} placeholder="Search by patient or order" />
+          <select className={inputClassName} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as 'all' | 'pending' | 'dispensed')}>
+            <option value="pending">Pending</option>
+            <option value="dispensed">Dispensed</option>
+            <option value="all">All</option>
+          </select>
+        </div>
+      </div>
+
+      {error ? <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+      {notice ? <div className="rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div> : null}
+
+      <Panel>
+        <div className="space-y-3">
+          {orders.map((order) => (
+            <div key={order.id} className="rounded border border-sky-100 bg-white p-4 shadow-sm shadow-sky-100/60">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-lg font-semibold text-slate-950">{order.patient_name}</p>
+                  <p className="text-sm text-slate-500">Requested by {order.created_by_name}</p>
+                  <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-400">{formatDate(order.created_at)}</p>
+                </div>
+                <span className={`rounded-full px-3 py-1 text-xs font-medium ${order.pharmacy_status === 'dispensed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                  {order.pharmacy_status === 'dispensed' ? 'Dispensed' : 'Pending'}
+                </span>
+              </div>
+              <div className="mt-3 grid gap-2 text-sm text-slate-700">
+                {order.items.map((item) => (
+                  <p key={`${item.medicine}-${item.medicine_name}`}><strong>{item.medicine_name}</strong> x {item.quantity}</p>
+                ))}
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button className={buttonClassName} onClick={() => onSelectOrder(order)}>Print</button>
+                {order.pharmacy_status !== 'dispensed' ? <button className={ghostButtonClassName} onClick={() => void dispenseOrder(order.id)}>Dispense</button> : null}
+              </div>
+            </div>
+          ))}
+          {!orders.length && !loading ? <p className="rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-600">No family planning orders found.</p> : null}
+          <PaginationControls page={page} totalCount={totalCount} onPageChange={setPage} />
         </div>
       </Panel>
     </div>

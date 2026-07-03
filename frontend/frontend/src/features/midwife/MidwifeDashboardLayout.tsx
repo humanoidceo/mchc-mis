@@ -9,8 +9,19 @@ import { MidwifeWorkspace } from './MidwifeWorkspace'
 const links = [
   { to: '/midwife/dashboard', label: 'Dashboard' },
   { to: '/midwife/records', label: 'Maternal records' },
+  { to: '/midwife/deliveries', label: 'Deliveries' },
+  { to: '/midwife/documents', label: 'Clinical documents' },
+  { to: '/midwife/family-planning', label: 'Family planning' },
   { to: '/midwife/account', label: 'My account' },
 ]
+
+const common = {
+  menu: 'Menu',
+  close: 'Close',
+  logout: 'Logout',
+  welcome: 'Welcome',
+  notFoundTitle: 'Not found',
+}
 
 export function MidwifeDashboardLayout() {
   const { user, logout } = useAuth()
@@ -18,7 +29,7 @@ export function MidwifeDashboardLayout() {
 
   return (
     <div className="min-h-screen bg-sky-50 text-slate-900">
-      {mobileMenuOpen ? <button className="fixed inset-0 z-30 bg-slate-950/35 lg:hidden" onClick={() => setMobileMenuOpen(false)} aria-label="Close menu" /> : null}
+      {mobileMenuOpen ? <button className="fixed inset-0 z-30 bg-slate-950/35 lg:hidden" onClick={() => setMobileMenuOpen(false)} aria-label={common.close} /> : null}
 
       <aside className={`fixed inset-y-0 left-0 z-40 w-72 max-w-[85vw] border-r border-sky-100 bg-white p-4 shadow-sm shadow-sky-100 transition-transform lg:w-64 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
         <div className="mb-6">
@@ -30,7 +41,7 @@ export function MidwifeDashboardLayout() {
                 <p className="text-xs text-zinc-500">Management Information System</p>
               </div>
             </div>
-            <button className="rounded border border-pink-200 px-2 py-1 text-xs font-medium lg:hidden" onClick={() => setMobileMenuOpen(false)}>Close</button>
+            <button className="rounded border border-pink-200 px-2 py-1 text-xs font-medium lg:hidden" onClick={() => setMobileMenuOpen(false)}>{common.close}</button>
           </div>
         </div>
         <nav className="space-y-1">
@@ -53,13 +64,13 @@ export function MidwifeDashboardLayout() {
         <header className="no-print sticky top-0 z-10 border-b border-sky-100 bg-white/95 px-4 py-3 backdrop-blur">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <button onClick={() => setMobileMenuOpen(true)} className="rounded border border-sky-200 bg-white px-3 py-2 text-sm font-medium lg:hidden">Menu</button>
+              <button onClick={() => setMobileMenuOpen(true)} className="rounded border border-sky-200 bg-white px-3 py-2 text-sm font-medium lg:hidden">{common.menu}</button>
               <div>
-                <p className="text-sm font-medium">Welcome, {user?.first_name || user?.username}</p>
+                <p className="text-sm font-medium">{common.welcome}, {user?.first_name || user?.username}</p>
                 <p className="text-xs text-zinc-500">{user?.profile?.role_label ?? 'Staff'}</p>
               </div>
             </div>
-            <button onClick={logout} className="rounded border border-pink-200 bg-white px-3 py-2 text-sm font-medium hover:bg-pink-50">Logout</button>
+            <button onClick={logout} className="rounded border border-pink-200 bg-white px-3 py-2 text-sm font-medium hover:bg-pink-50">{common.logout}</button>
           </div>
         </header>
 
@@ -68,9 +79,12 @@ export function MidwifeDashboardLayout() {
             <Route path="/midwife" element={<Navigate to="/midwife/dashboard" replace />} />
             <Route path="/midwife/dashboard" element={<MidwifeWorkspace view="dashboard" />} />
             <Route path="/midwife/records" element={<MidwifeWorkspace view="records" />} />
+            <Route path="/midwife/deliveries" element={<MidwifeWorkspace view="deliveries" />} />
+            <Route path="/midwife/documents" element={<MidwifeWorkspace view="documents" />} />
+            <Route path="/midwife/family-planning" element={<MidwifeWorkspace view="family-planning" />} />
             <Route path="/midwife/account" element={<AccountSettingsPage />} />
             <Route path="/" element={<Navigate to="/midwife/dashboard" replace />} />
-            <Route path="*" element={<SectionHeader title="Not found" subtitle="The requested midwife page does not exist." />} />
+            <Route path="*" element={<SectionHeader title={common.notFoundTitle} subtitle="The requested midwife page does not exist." />} />
           </Routes>
         </main>
       </div>

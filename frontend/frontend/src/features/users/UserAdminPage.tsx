@@ -5,6 +5,36 @@ import { apiFetch } from '../../api/client'
 import { buttonClassName, Field, inputClassName, PaginationControls, Panel, SectionHeader } from '../../components/ui'
 import type { PaginatedResponse, PermissionDefinition, RoleCode, RoleDefinition, User } from '../../types/domain'
 
+const common = {
+  cancel: 'Cancel',
+  edit: 'Edit',
+  delete: 'Delete',
+  active: 'Active',
+  inactive: 'Inactive',
+}
+
+const t = {
+  title: 'Users and permissions',
+  subtitle: 'Super admins can grant or revoke permissions using checkboxes.',
+  username: 'Username',
+  password: 'Password',
+  firstName: 'First name',
+  lastName: 'Last name',
+  email: 'Email',
+  phone: 'Phone',
+  role: 'Role',
+  active: 'Active',
+  user: 'User',
+  status: 'Status',
+  permissions: 'Permissions',
+  noRole: 'No role',
+  unableToLoad: 'Unable to load users.',
+  unableToDelete: 'Unable to delete user.',
+  unableToSave: 'Unable to save user. Check required fields and permissions.',
+  createUser: 'Create user',
+  updateUser: 'Update user',
+}
+
 type Catalog = {
   permissions: PermissionDefinition[]
   roles: RoleDefinition[]
@@ -42,8 +72,8 @@ export function UserAdminPage() {
   }
 
   useEffect(() => {
-    loadData(page).catch(() => setError('Unable to load users.'))
-  }, [page])
+    loadData(page).catch(() => setError(t.unableToLoad))
+  }, [page, t.unableToLoad])
 
   useEffect(() => {
     if (!editingId && catalog.permissions.length && form.allowed_permissions.length === 0) {
@@ -115,7 +145,7 @@ export function UserAdminPage() {
       await apiFetch(`/auth/users/${userId}/`, { method: 'DELETE' })
       await loadData(page)
     } catch {
-      setError('Unable to delete user.')
+      setError(t.unableToDelete)
     }
   }
 
@@ -137,32 +167,32 @@ export function UserAdminPage() {
       setEditingId(null)
       await loadData(page)
     } catch {
-      setError('Unable to save user. Check required fields and permissions.')
+      setError(t.unableToSave)
     }
   }
 
   return (
     <div className="space-y-5">
-      <SectionHeader title="Users and permissions" subtitle="Super admins can grant or revoke permissions using checkboxes." />
+      <SectionHeader title={t.title} subtitle={t.subtitle} />
       {error ? <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
 
       <Panel>
         <form onSubmit={submit} className="grid gap-4">
           <div className="grid gap-3 md:grid-cols-4">
-            <Field label="Username"><input className={inputClassName} value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required /></Field>
-            <Field label="Password"><input className={inputClassName} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} type="password" required={!editingId} /></Field>
-            <Field label="First name"><input className={inputClassName} value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} /></Field>
-            <Field label="Last name"><input className={inputClassName} value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} /></Field>
-            <Field label="Email"><input className={inputClassName} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} type="email" /></Field>
-            <Field label="Phone"><input className={inputClassName} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
-            <Field label="Role">
+            <Field label={t.username}><input className={inputClassName} value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required /></Field>
+            <Field label={t.password}><input className={inputClassName} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} type="password" required={!editingId} /></Field>
+            <Field label={t.firstName}><input className={inputClassName} value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} /></Field>
+            <Field label={t.lastName}><input className={inputClassName} value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} /></Field>
+            <Field label={t.email}><input className={inputClassName} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} type="email" /></Field>
+            <Field label={t.phone}><input className={inputClassName} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
+            <Field label={t.role}>
               <select className={inputClassName} value={form.role} onChange={(e) => changeRole(e.target.value as RoleCode)}>
                 {catalog.roles.map((role) => <option key={role.code} value={role.code}>{role.label}</option>)}
               </select>
             </Field>
             <label className="flex items-end gap-2 text-sm font-medium text-zinc-700">
               <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
-              Active
+              {t.active}
             </label>
           </div>
 
@@ -183,8 +213,8 @@ export function UserAdminPage() {
           </div>
 
           <div className="flex gap-2">
-            <button className={buttonClassName}>{editingId ? 'Update user' : 'Create user'}</button>
-            {editingId ? <button type="button" className="rounded border border-zinc-300 px-4 py-2 text-sm font-medium" onClick={() => { setEditingId(null); resetForm() }}>Cancel</button> : null}
+            <button className={buttonClassName}>{editingId ? t.updateUser : t.createUser}</button>
+            {editingId ? <button type="button" className="rounded border border-zinc-300 px-4 py-2 text-sm font-medium" onClick={() => { setEditingId(null); resetForm() }}>{common.cancel}</button> : null}
           </div>
         </form>
       </Panel>
@@ -192,18 +222,18 @@ export function UserAdminPage() {
       <Panel>
         <div className="overflow-auto">
           <table className="w-full text-left text-sm">
-            <thead><tr className="border-b border-zinc-200"><th className="py-2">User</th><th>Role</th><th>Status</th><th>Permissions</th><th></th></tr></thead>
+            <thead><tr className="border-b border-zinc-200"><th className="py-2">{t.user}</th><th>{t.role}</th><th>{t.status}</th><th>{t.permissions}</th><th></th></tr></thead>
             <tbody>
               {users.map((user) => (
                 <tr key={user.id} className="border-b border-zinc-100">
                   <td className="py-2">{user.username}</td>
-                  <td>{user.profile?.role_label ?? 'No role'}</td>
-                  <td>{user.is_active ? 'Active' : 'Inactive'}</td>
+                  <td>{user.profile?.role_label ?? t.noRole}</td>
+                  <td>{user.is_active ? common.active : common.inactive}</td>
                   <td>{user.permissions.length}</td>
                   <td className="py-2">
                     <div className="flex gap-2">
-                      <button className="rounded border border-zinc-300 px-3 py-1 text-sm" onClick={() => editUser(user)}>Edit</button>
-                      <button className="rounded border border-zinc-300 px-3 py-1 text-sm" onClick={() => void deleteUser(user.id)}>Delete</button>
+                      <button className="rounded border border-zinc-300 px-3 py-1 text-sm" onClick={() => editUser(user)}>{common.edit}</button>
+                      <button className="rounded border border-zinc-300 px-3 py-1 text-sm" onClick={() => void deleteUser(user.id)}>{common.delete}</button>
                     </div>
                   </td>
                 </tr>

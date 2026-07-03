@@ -35,6 +35,31 @@ const defaultContent = {
   contact: contactPageTranslation,
 } as const
 
+const common = {
+  saving: 'Saving...',
+}
+
+const t = {
+  title: 'Website content',
+  loadingSubtitle: 'Loading editable website content.',
+  subtitle: 'Edit public website pages, logo, and pictures.',
+  uploadWebsiteLogo: 'Upload website logo',
+  page: 'Page',
+  language: 'Language',
+  currentLogoPath: 'Current logo path or external URL',
+  currentLogo: 'Current logo',
+  uploadPagePicture: 'Upload page picture',
+  currentPagePicturePath: 'Current page picture path or external URL',
+  resetText: 'Reset text to default',
+  currentPagePicture: 'Current page picture',
+  saveWebsiteContent: 'Save website content',
+  saved: 'Website content saved.',
+  unableToLoad: 'Unable to load website content.',
+  unableToSave: 'Unable to save website content.',
+  selectedFile: 'Selected',
+  lastSettingsUpdate: 'Last settings update',
+}
+
 type EditableContent = Record<string, unknown>
 
 function cloneDefault(page: WebsitePageKey, language: LanguageCode): EditableContent {
@@ -87,7 +112,7 @@ function errorMessage(caught: unknown) {
     }
     return caught.message
   }
-  return 'Unable to save website content.'
+  return ''
 }
 
 export function WebsiteContentEditorPage() {
@@ -121,7 +146,7 @@ export function WebsiteContentEditorPage() {
         setSettings(websiteSettings)
         setLogoUrl(websiteSettings.logo_url ?? '')
       } catch {
-        setError('Unable to load website content.')
+        setError(t.unableToLoad)
       } finally {
         setLoading(false)
       }
@@ -196,9 +221,9 @@ export function WebsiteContentEditorPage() {
         const others = current.filter((item) => item.id !== savedItem.id)
         return [...others, savedItem]
       })
-      setMessage('Website content saved.')
+      setMessage(t.saved)
     } catch (caught) {
-      setError(errorMessage(caught))
+      setError(errorMessage(caught) || t.unableToSave)
     } finally {
       setSaving(false)
     }
@@ -253,70 +278,70 @@ export function WebsiteContentEditorPage() {
   }
 
   if (loading) {
-    return <SectionHeader title="Website content" subtitle="Loading editable website content." />
+    return <SectionHeader title={t.title} subtitle={t.loadingSubtitle} />
   }
 
   return (
     <div className="space-y-5">
-      <SectionHeader title="Website content" subtitle="Edit public website pages, logo, and pictures." />
+      <SectionHeader title={t.title} subtitle={t.subtitle} />
       {error ? <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       {message ? <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{message}</div> : null}
 
       <Panel>
         <div className="grid gap-4 md:grid-cols-3">
-          <Field label="Upload website logo">
+          <Field label={t.uploadWebsiteLogo}>
             <input
               className={inputClassName}
               type="file"
               accept="image/*"
               onChange={(event) => setLogoFile(event.target.files?.[0] ?? null)}
             />
-            {logoFile ? <p className="mt-1 text-xs text-zinc-500">Selected: {logoFile.name}</p> : null}
+            {logoFile ? <p className="mt-1 text-xs text-zinc-500">{t.selectedFile}: {logoFile.name}</p> : null}
           </Field>
-          <Field label="Page">
+          <Field label={t.page}>
             <select className={inputClassName} value={selectedPage} onChange={(event) => setSelectedPage(event.target.value as WebsitePageKey)}>
               {pageOptions.map((page) => <option key={page.key} value={page.key}>{page.label}</option>)}
             </select>
           </Field>
-          <Field label="Language">
+          <Field label={t.language}>
             <select className={inputClassName} value={selectedLanguage} onChange={(event) => setSelectedLanguage(event.target.value as LanguageCode)}>
               {languageOptions.map((language) => <option key={language.key} value={language.key}>{language.label}</option>)}
             </select>
           </Field>
         </div>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <Field label="Current logo path or external URL">
+          <Field label={t.currentLogoPath}>
             <input className={inputClassName} value={logoUrl} onChange={(event) => setLogoUrl(event.target.value)} placeholder="/media/website/logo/logo.png" />
           </Field>
           {logoUrl ? (
             <div>
-              <p className="mb-1 text-sm font-medium text-zinc-700">Current logo</p>
+              <p className="mb-1 text-sm font-medium text-zinc-700">{t.currentLogo}</p>
               <img src={logoUrl} alt="Current website logo" className="h-20 w-20 rounded border border-sky-100 object-contain" />
             </div>
           ) : null}
         </div>
         <div className="mt-4 grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
           <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Upload page picture">
+            <Field label={t.uploadPagePicture}>
               <input
                 className={inputClassName}
                 type="file"
                 accept="image/*"
                 onChange={(event) => setImageFile(event.target.files?.[0] ?? null)}
               />
-              {imageFile ? <p className="mt-1 text-xs text-zinc-500">Selected: {imageFile.name}</p> : null}
+              {imageFile ? <p className="mt-1 text-xs text-zinc-500">{t.selectedFile}: {imageFile.name}</p> : null}
             </Field>
-            <Field label="Current page picture path or external URL">
+            <Field label={t.currentPagePicturePath}>
               <input className={inputClassName} value={imageUrl} onChange={(event) => setImageUrl(event.target.value)} placeholder="/media/website/pages/home/en/photo.jpg" />
             </Field>
           </div>
           <button type="button" className={ghostButtonClassName} onClick={() => setContent(cloneDefault(selectedPage, selectedLanguage))}>
-            Reset text to default
+            {t.resetText}
           </button>
         </div>
         {imageUrl ? (
           <div className="mt-4">
-            <p className="mb-1 text-sm font-medium text-zinc-700">Current page picture</p>
+            <p className="mb-1 text-sm font-medium text-zinc-700">{t.currentPagePicture}</p>
             <img src={imageUrl} alt="Current page" className="h-36 w-full rounded border border-sky-100 object-cover md:w-80" />
           </div>
         ) : null}
@@ -326,10 +351,10 @@ export function WebsiteContentEditorPage() {
         <div className="space-y-4">{renderValue(content, [], selectedPage)}</div>
         <div className="mt-5 flex justify-end">
           <button type="button" className={buttonClassName} disabled={saving} onClick={saveContent}>
-            {saving ? 'Saving...' : 'Save website content'}
+            {saving ? common.saving : t.saveWebsiteContent}
           </button>
         </div>
-        {settings?.updated_at ? <p className="mt-3 text-xs text-zinc-500">Last settings update: {new Date(settings.updated_at).toLocaleString()}</p> : null}
+        {settings?.updated_at ? <p className="mt-3 text-xs text-zinc-500">{t.lastSettingsUpdate}: {new Date(settings.updated_at).toLocaleString()}</p> : null}
       </Panel>
     </div>
   )

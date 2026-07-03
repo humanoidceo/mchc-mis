@@ -1,7 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.db import models
 from rest_framework import status, viewsets
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -86,6 +86,42 @@ class EmployeeViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+    @action(detail=False, methods=['get'])
+    def search(self, request):
+        queryset = self.get_queryset()
+        search = request.query_params.get('q', '').strip()
+        try:
+            offset = max(0, int(request.query_params.get('offset', '0')))
+        except ValueError:
+            offset = 0
+
+        if search:
+            queryset = queryset.filter(
+                models.Q(first_name__icontains=search)
+                | models.Q(last_name__icontains=search)
+                | models.Q(position__icontains=search)
+                | models.Q(national_id_card_number__icontains=search)
+            )
+
+        total = queryset.count()
+        results = queryset[offset:offset + 5]
+        next_offset = offset + 5 if offset + 5 < total else None
+        return Response(
+            {
+                'results': [
+                    {
+                        'id': employee.id,
+                        'first_name': employee.first_name,
+                        'last_name': employee.last_name,
+                        'position': employee.position,
+                        'salary': str(employee.salary),
+                    }
+                    for employee in results
+                ],
+                'next_offset': next_offset,
+            }
+        )
 
 
 @api_view(['GET'])

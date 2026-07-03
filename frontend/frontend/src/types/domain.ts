@@ -3,6 +3,7 @@ export type RoleCode =
   | 'website_content_editor'
   | 'receptionist'
   | 'doctor'
+  | 'gynecologist'
   | 'laboratory'
   | 'pharmacist'
   | 'midwife'
@@ -58,6 +59,14 @@ export type Employee = {
   updated_at: string
 }
 
+export type EmployeeSearchOption = {
+  id: number
+  first_name: string
+  last_name: string
+  position: string
+  salary: string
+}
+
 export type Patient = {
   id: number
   registration_number: string
@@ -97,6 +106,7 @@ export type DocumentType =
   | 'lab_bill'
   | 'medicine_bill'
   | 'ultrasound'
+  | 'family_planning'
   | 'vaccination'
   | 'rutf'
 
@@ -195,8 +205,28 @@ export type MidwifeDashboardStats = {
   patients: number
   anc_visits: number
   pnc_visits: number
+  deliveries: number
   high_risk: number
   due_followups: number
+  total_records: number
+  patient_trend: Array<{
+    label: string
+    value: number
+  }>
+  recent_records_count: number
+  recent_records: ClinicalDocument[]
+}
+
+export type MalnutritionDashboardStats = {
+  period: 'daily' | 'weekly' | 'monthly' | 'annual'
+  period_label: string
+  patients: number
+  severe_cases: number
+  moderate_cases: number
+  edema_cases: number
+  appetite_failures: number
+  pending_pharmacy: number
+  approved_pharmacy: number
   total_records: number
   patient_trend: Array<{
     label: string
@@ -232,10 +262,16 @@ export type Medicine = {
 export type LabTest = {
   id: number
   name: string
+  display_name: string
+  category: string
+  is_panel: boolean
+  parent_panel: number | null
+  sort_order: number
   normal_range_from: string
   normal_range_to: string
   unit: string
   is_active: boolean
+  component_count: number
 }
 
 export type StockMovement = {
@@ -246,6 +282,25 @@ export type StockMovement = {
   quantity: number
   note: string
   created_at: string
+}
+
+export type Expense = {
+  id: number
+  name: string
+  category: string
+  amount: string
+  description: string
+  salary_payment: number | null
+  salary_advance: number | null
+  created_by: number
+  created_by_name: string
+  created_at: string
+  updated_at: string
+}
+
+export type ExpenseCategoryOption = {
+  id: number
+  name: string
 }
 
 export type DashboardStats = {
@@ -273,6 +328,85 @@ export type DashboardStats = {
   }>
   documents: number
   low_stock_medicines: number
+  expenses_count: number
+  expenses_amount: string
+}
+
+export type SalaryPayment = {
+  id: number
+  employee: number
+  employee_name: string
+  employee_position: string
+  afghan_year: number
+  months: string[]
+  month_count: number
+  absence_days: number
+  advance_payment: string
+  advance_balance_carried: string
+  monthly_salary: string
+  gross_salary: string
+  absence_deduction: string
+  taxable_salary: string
+  tax_amount: string
+  net_salary: string
+  payable_amount: string
+  notes: string
+  created_by: number
+  created_by_name: string
+  linked_expense_id: number | null
+  created_at: string
+  updated_at: string
+}
+
+export type SalaryAdvance = {
+  id: number
+  employee: number
+  employee_name: string
+  employee_position: string
+  afghan_year: number
+  afghan_month: string
+  amount: string
+  settled_amount: string
+  outstanding_amount: string
+  notes: string
+  created_by: number
+  created_by_name: string
+  linked_expense_id: number | null
+  created_at: string
+  updated_at: string
+}
+
+export type PharmacyRutfOrder = {
+  id: number
+  patient: number
+  patient_name: string
+  created_by_name: string
+  title: string
+  created_at: string
+  payload: Record<string, unknown>
+  rutf_quantity: number
+  pharmacy_status: string
+  approved_by_name: string
+}
+
+export type FamilyPlanningOrderItem = {
+  medicine: number
+  medicine_name: string
+  quantity: number
+}
+
+export type PharmacyFamilyPlanningOrder = {
+  id: number
+  patient: number
+  patient_name: string
+  created_by_name: string
+  title: string
+  created_at: string
+  payload: Record<string, unknown>
+  items: FamilyPlanningOrderItem[]
+  item_count: number
+  pharmacy_status: string
+  dispensed_by_name: string
 }
 
 export type WebsitePageKey = 'home' | 'about' | 'mission' | 'vision' | 'services' | 'contact'
@@ -302,6 +436,9 @@ export type PharmacyMedicine = {
   id: number
   name: string
   generic_name: string
+  country_of_product: string
+  production_date: string | null
+  expiry_date: string | null
   quantity: number
   buy_price: string
   profit_percentage: string
@@ -313,7 +450,7 @@ export type PharmacyMedicine = {
 
 export type PharmacySaleItem = {
   id: number
-  medicine: number
+  medicine: number | null
   medicine_name: string
   generic_name: string
   quantity: number
@@ -361,6 +498,10 @@ export type PharmacyDashboardStats = {
   stock_units: number
   inventory_value: string
   total_billed: string
+  sold_medicines_total: string
+  sold_medicines_profit: string
+  sold_medicines_price: string
+  family_planning_items_dispensed: number
   patient_trend: Array<{
     label: string
     value: number

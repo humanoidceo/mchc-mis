@@ -9,6 +9,22 @@ function isMidwifeRecord(document: ClinicalDocument): boolean {
   return document.document_type === 'ultrasound' && Boolean((document.payload as Record<string, unknown>).midwife_record)
 }
 
+function isDeliveryRecord(document: ClinicalDocument): boolean {
+  return document.document_type === 'ultrasound' && Boolean((document.payload as Record<string, unknown>).delivery_record)
+}
+
+function isGynecologyUltrasound(document: ClinicalDocument): boolean {
+  return document.document_type === 'ultrasound' && Boolean((document.payload as Record<string, unknown>).gynecology_ultrasound)
+}
+
+function isMalnutritionRecord(document: ClinicalDocument): boolean {
+  return document.document_type === 'rutf' && Boolean((document.payload as Record<string, unknown>).malnutrition_record)
+}
+
+function isFamilyPlanningRecord(document: ClinicalDocument): boolean {
+  return document.document_type === 'family_planning' && Boolean((document.payload as Record<string, unknown>).family_planning_record)
+}
+
 function payloadValue(document: ClinicalDocument, key: string): string {
   const value = (document.payload as Record<string, unknown>)[key]
   return typeof value === 'string' ? value : ''
@@ -25,6 +41,267 @@ function documentRowDetails(row: Record<string, unknown>): string {
 }
 
 export function PrintDocument({ document }: { document: ClinicalDocument }) {
+  if (isFamilyPlanningRecord(document)) {
+    return (
+      <section className="print-area a4-report rounded-md border border-zinc-200 bg-white p-6 text-zinc-950">
+        <header className="flex items-center gap-4 border-b border-zinc-200 pb-4">
+          <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-16 w-16 rounded object-cover" />
+          <div>
+            <p className="text-sm font-medium text-sky-600">AFZENDA</p>
+            <h2 className="text-xl font-semibold">Mother and Child Health Care Center</h2>
+            <p className="text-sm text-zinc-600">Family planning issue note</p>
+          </div>
+        </header>
+
+        <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+          <p><strong>Patient:</strong> {document.patient_name}</p>
+          <p><strong>Date:</strong> {new Date(document.created_at).toLocaleString()}</p>
+          <p><strong>Prepared by:</strong> {document.created_by_name || 'MCHC staff'}</p>
+          <p><strong>Pharmacy status:</strong> {payloadValue(document, 'pharmacy_status') === 'dispensed' ? 'Dispensed' : 'Pending'}</p>
+        </div>
+
+        <section className="mt-6 rounded border border-sky-100 p-4">
+          <h3 className="text-base font-semibold">Requested items</h3>
+          <div className="mt-3 space-y-2 text-sm">
+            {asLineItems(document.payload).map((row, index) => (
+              <div key={`${String(row.medicine_name || row.medicine || index)}-${index}`} className="flex items-center justify-between rounded border border-sky-100 bg-sky-50/50 px-3 py-2">
+                <span className="font-medium text-slate-950">{String(row.medicine_name || row.medicine || 'Family planning item')}</span>
+                <span>Qty: {String(row.quantity || '0')}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <div className="mt-10 border-t border-zinc-200 pt-4 text-sm">
+          <span>Pharmacy signature: __________________</span>
+        </div>
+      </section>
+    )
+  }
+
+  if (isMalnutritionRecord(document)) {
+    return (
+      <section className="print-area a4-report rounded-md border border-zinc-200 bg-white p-6 text-zinc-950">
+        <header className="flex items-center gap-4 border-b border-zinc-200 pb-4">
+          <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-16 w-16 rounded object-cover" />
+          <div>
+            <p className="text-sm font-medium text-sky-600">AFZENDA</p>
+            <h2 className="text-xl font-semibold">Mother and Child Health Care Center</h2>
+            <p className="text-sm text-zinc-600">Malnutrition assessment and RUTF order</p>
+          </div>
+        </header>
+
+        <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+          <p><strong>Patient:</strong> {document.patient_name}</p>
+          <p><strong>Date:</strong> {new Date(document.created_at).toLocaleString()}</p>
+          <p><strong>Prepared by:</strong> {document.created_by_name || 'MCHC staff'}</p>
+        </div>
+
+        <div className="mt-6 grid gap-6 md:grid-cols-2">
+          <section className="rounded border border-sky-100 p-4">
+            <h3 className="text-base font-semibold">Assessment</h3>
+            <div className="mt-3 grid gap-2 text-sm">
+              <p><strong>MUAC:</strong> {payloadValue(document, 'muac_mm') || 'Not recorded'} mm</p>
+              <p><strong>Weight:</strong> {payloadValue(document, 'weight_kg') || 'Not recorded'} kg</p>
+              <p><strong>Height or length:</strong> {payloadValue(document, 'height_cm') || 'Not recorded'} cm</p>
+              <p><strong>Bilateral edema:</strong> {payloadValue(document, 'bilateral_edema') === 'yes' ? 'Yes' : 'No'}</p>
+              <p><strong>Appetite test:</strong> {payloadValue(document, 'appetite_test') === 'fail' ? 'Fail' : 'Pass'}</p>
+              <p><strong>Nutrition status:</strong> {payloadValue(document, 'nutrition_status') === 'severe' ? 'Severe acute malnutrition' : payloadValue(document, 'nutrition_status') === 'moderate' ? 'Moderate acute malnutrition' : 'At risk'}</p>
+            </div>
+          </section>
+
+          <section className="rounded border border-sky-100 p-4">
+            <h3 className="text-base font-semibold">RUTF order</h3>
+            <div className="mt-3 grid gap-2 text-sm">
+              <p><strong>RUTF quantity:</strong> {String((document.payload as Record<string, unknown>).rutf_quantity ?? 0)}</p>
+            </div>
+          </section>
+        </div>
+
+        <section className="mt-6 rounded border border-sky-100 p-4">
+          <h3 className="text-base font-semibold">Notes</h3>
+          <p className="mt-3 min-h-24 whitespace-pre-wrap text-sm text-zinc-700">{payloadValue(document, 'notes') || 'No additional notes.'}</p>
+        </section>
+
+        <div className="mt-10 border-t border-zinc-200 pt-4 text-sm">
+          <span>Malnutrition doctor signature: __________________</span>
+        </div>
+      </section>
+    )
+  }
+
+  if (isDeliveryRecord(document)) {
+    return (
+      <section className="print-area a4-report rounded-md border border-zinc-200 bg-white p-6 text-zinc-950">
+        <header className="flex items-center gap-4 border-b border-zinc-200 pb-4">
+          <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-16 w-16 rounded object-cover" />
+          <div>
+            <p className="text-sm font-medium text-sky-600">AFZENDA</p>
+            <h2 className="text-xl font-semibold">Mother and Child Health Care Center</h2>
+            <p className="text-sm text-zinc-600">Delivery record</p>
+          </div>
+        </header>
+
+        <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+          <p><strong>Delivery date:</strong> {payloadValue(document, 'delivery_datetime') ? new Date(payloadValue(document, 'delivery_datetime')).toLocaleString() : new Date(document.created_at).toLocaleString()}</p>
+          <p><strong>Prepared by:</strong> {document.created_by_name || 'MCHC staff'}</p>
+          <p><strong>Patient:</strong> {document.patient_name}</p>
+          <p><strong>Delivery mode:</strong> {payloadValue(document, 'delivery_mode') === 'assisted_vaginal' ? 'Assisted vaginal' : payloadValue(document, 'delivery_mode') === 'c_section' ? 'C-section' : payloadValue(document, 'delivery_mode') === 'referred' ? 'Referred' : 'Normal vaginal'}</p>
+        </div>
+
+        <div className="mt-6 grid gap-6 md:grid-cols-2">
+          <section className="rounded border border-sky-100 p-4">
+            <h3 className="text-base font-semibold">Mother and labour</h3>
+            <div className="mt-3 grid gap-2 text-sm">
+              <p><strong>Gestational age:</strong> {payloadValue(document, 'gestational_age_weeks') || 'Not recorded'}</p>
+              <p><strong>Gravida:</strong> {payloadValue(document, 'gravida') || 'Not recorded'}</p>
+              <p><strong>Parity:</strong> {payloadValue(document, 'parity') || 'Not recorded'}</p>
+              <p><strong>Labour onset:</strong> {payloadValue(document, 'labor_onset') || 'Not recorded'}</p>
+              <p><strong>Cervical dilation:</strong> {payloadValue(document, 'cervical_dilation_cm') || 'Not recorded'}</p>
+              <p><strong>Fetal heart rate:</strong> {payloadValue(document, 'fetal_heart_rate') || 'Not recorded'}</p>
+              <p><strong>Contraction pattern:</strong> {payloadValue(document, 'contraction_pattern') || 'Not recorded'}</p>
+              <p><strong>Membranes:</strong> {payloadValue(document, 'membrane_status') || 'Not recorded'}</p>
+              <p><strong>Liquor:</strong> {payloadValue(document, 'liquor_status') || 'Not recorded'}</p>
+              <p><strong>Maternal BP:</strong> {payloadValue(document, 'maternal_blood_pressure') || 'Not recorded'}</p>
+              <p><strong>Maternal pulse:</strong> {payloadValue(document, 'maternal_pulse') || 'Not recorded'}</p>
+              <p><strong>Maternal temperature:</strong> {payloadValue(document, 'maternal_temperature') || 'Not recorded'}</p>
+            </div>
+          </section>
+
+          <section className="rounded border border-sky-100 p-4">
+            <h3 className="text-base font-semibold">Newborn and outcome</h3>
+            <div className="mt-3 grid gap-2 text-sm">
+              <p><strong>Baby outcome:</strong> {payloadValue(document, 'baby_status') === 'stillbirth' ? 'Stillbirth' : payloadValue(document, 'baby_status') === 'early_neonatal_death' ? 'Early neonatal death' : 'Live birth'}</p>
+              <p><strong>Baby sex:</strong> {payloadValue(document, 'baby_sex') || 'Not recorded'}</p>
+              <p><strong>Birth weight:</strong> {payloadValue(document, 'birth_weight_kg') || 'Not recorded'}</p>
+              <p><strong>APGAR 1 minute:</strong> {payloadValue(document, 'apgar_1') || 'Not recorded'}</p>
+              <p><strong>APGAR 5 minutes:</strong> {payloadValue(document, 'apgar_5') || 'Not recorded'}</p>
+              <p><strong>Mother status:</strong> {payloadValue(document, 'mother_status') === 'referred' ? 'Referred' : payloadValue(document, 'mother_status') === 'critical' ? 'Critical' : 'Stable'}</p>
+            </div>
+          </section>
+        </div>
+
+        <section className="mt-6 rounded border border-sky-100 p-4">
+          <h3 className="text-base font-semibold">Complications and interventions</h3>
+          <div className="mt-3 space-y-3 text-sm">
+            <div>
+              <p className="font-medium">Complications</p>
+              <p className="mt-1 whitespace-pre-wrap text-zinc-700">{payloadValue(document, 'complications') || 'None recorded'}</p>
+            </div>
+            <div>
+              <p className="font-medium">Interventions and referral</p>
+              <p className="mt-1 whitespace-pre-wrap text-zinc-700">{payloadValue(document, 'interventions') || 'None recorded'}</p>
+            </div>
+            <div>
+              <p className="font-medium">Notes</p>
+              <p className="mt-1 whitespace-pre-wrap text-zinc-700">{payloadValue(document, 'notes') || 'No additional notes.'}</p>
+            </div>
+          </div>
+        </section>
+
+        <div className="mt-10 border-t border-zinc-200 pt-4 text-sm">
+          <span>Midwife signature: __________________</span>
+        </div>
+      </section>
+    )
+  }
+
+  if (isGynecologyUltrasound(document)) {
+    const reportType = payloadValue(document, 'report_type') === 'pelvic' ? 'Pelvic gynecologic ultrasound' : 'Obstetric ultrasound'
+    const patientStatus = payloadValue(document, 'patient_status') === 'follow_up' ? 'Follow-up' : 'New'
+
+    return (
+      <section className="print-area a4-report rounded-md border border-zinc-200 bg-white p-6 text-zinc-950">
+        <header className="flex items-center gap-4 border-b border-zinc-200 pb-4">
+          <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-16 w-16 rounded object-cover" />
+          <div>
+            <p className="text-sm font-medium text-sky-600">AFZENDA</p>
+            <h2 className="text-xl font-semibold">Mother and Child Health Care Center</h2>
+            <p className="text-sm text-zinc-600">Gynecology ultrasound report</p>
+          </div>
+        </header>
+
+        <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+          <p><strong>Report type:</strong> {reportType}</p>
+          <p><strong>Date:</strong> {new Date(document.created_at).toLocaleString()}</p>
+          <p><strong>Patient:</strong> {document.patient_name}</p>
+          <p><strong>Prepared by:</strong> {document.created_by_name || 'MCHC staff'}</p>
+          <p><strong>Patient status:</strong> {patientStatus}</p>
+          <p><strong>Indication:</strong> {payloadValue(document, 'indication') || 'Not recorded'}</p>
+          <p><strong>LMP:</strong> {payloadValue(document, 'lmp') || 'Not recorded'}</p>
+          {payloadValue(document, 'estimated_due_date') ? <p><strong>Estimated due date:</strong> {payloadValue(document, 'estimated_due_date')}</p> : null}
+        </div>
+
+        {payloadValue(document, 'report_type') === 'pelvic' ? (
+          <div className="mt-6 grid gap-6 md:grid-cols-2">
+            <section className="rounded border border-sky-100 p-4">
+              <h3 className="text-base font-semibold">Pelvic findings</h3>
+              <div className="mt-3 space-y-3 text-sm">
+                <div><p className="font-medium">Uterus</p><p className="mt-1 whitespace-pre-wrap text-zinc-700">{payloadValue(document, 'uterus') || 'Not recorded'}</p></div>
+                <div><p className="font-medium">Endometrium</p><p className="mt-1 whitespace-pre-wrap text-zinc-700">{payloadValue(document, 'endometrium') || 'Not recorded'}</p></div>
+                <div><p className="font-medium">Adnexa</p><p className="mt-1 whitespace-pre-wrap text-zinc-700">{payloadValue(document, 'adnexa') || 'Not recorded'}</p></div>
+              </div>
+            </section>
+            <section className="rounded border border-sky-100 p-4">
+              <h3 className="text-base font-semibold">Ovaries and pelvis</h3>
+              <div className="mt-3 space-y-3 text-sm">
+                <div><p className="font-medium">Right ovary</p><p className="mt-1 whitespace-pre-wrap text-zinc-700">{payloadValue(document, 'right_ovary') || 'Not recorded'}</p></div>
+                <div><p className="font-medium">Left ovary</p><p className="mt-1 whitespace-pre-wrap text-zinc-700">{payloadValue(document, 'left_ovary') || 'Not recorded'}</p></div>
+                <div><p className="font-medium">Pouch of Douglas</p><p className="mt-1 whitespace-pre-wrap text-zinc-700">{payloadValue(document, 'cul_de_sac') || 'Not recorded'}</p></div>
+              </div>
+            </section>
+          </div>
+        ) : (
+          <div className="mt-6 grid gap-6 md:grid-cols-2">
+            <section className="rounded border border-sky-100 p-4">
+              <h3 className="text-base font-semibold">Pregnancy summary</h3>
+              <div className="mt-3 grid gap-2 text-sm">
+                <p><strong>Gestational age:</strong> {payloadValue(document, 'gestational_age_weeks') || 'Not recorded'}</p>
+                <p><strong>Fetal count:</strong> {payloadValue(document, 'fetal_count') || 'Not recorded'}</p>
+                <p><strong>Fetal heartbeat:</strong> {payloadValue(document, 'fetal_heartbeat') === 'no' ? 'Absent' : 'Present'}</p>
+                <p><strong>Fetal heart rate:</strong> {payloadValue(document, 'fetal_heart_rate') || 'Not recorded'}</p>
+                <p><strong>Fetal movement:</strong> {payloadValue(document, 'fetal_movement') || 'Not recorded'}</p>
+                <p><strong>Presentation:</strong> {payloadValue(document, 'fetal_presentation') || 'Not recorded'}</p>
+              </div>
+            </section>
+            <section className="rounded border border-sky-100 p-4">
+              <h3 className="text-base font-semibold">Placenta and fluid</h3>
+              <div className="mt-3 grid gap-2 text-sm">
+                <p><strong>Placenta position:</strong> {payloadValue(document, 'placenta_position') || 'Not recorded'}</p>
+                <p><strong>Amniotic fluid:</strong> {payloadValue(document, 'amniotic_fluid') || 'Not recorded'}</p>
+                <p><strong>Cervix:</strong> {payloadValue(document, 'cervix_status') || 'Not recorded'}</p>
+                <div>
+                  <p className="font-medium">Biometry or growth summary</p>
+                  <p className="mt-1 whitespace-pre-wrap text-zinc-700">{payloadValue(document, 'biometry_summary') || 'Not recorded'}</p>
+                </div>
+              </div>
+            </section>
+          </div>
+        )}
+
+        <div className="mt-6 grid gap-6 md:grid-cols-2">
+          <section className="rounded border border-sky-100 p-4">
+            <h3 className="text-base font-semibold">Impression</h3>
+            <p className="mt-3 min-h-24 whitespace-pre-wrap text-sm text-zinc-700">{payloadValue(document, 'impression') || 'Not recorded'}</p>
+          </section>
+          <section className="rounded border border-sky-100 p-4">
+            <h3 className="text-base font-semibold">Recommendation</h3>
+            <p className="mt-3 min-h-24 whitespace-pre-wrap text-sm text-zinc-700">{payloadValue(document, 'recommendation') || 'Not recorded'}</p>
+          </section>
+        </div>
+
+        <section className="mt-6 rounded border border-sky-100 p-4">
+          <h3 className="text-base font-semibold">Notes</h3>
+          <p className="mt-3 min-h-20 whitespace-pre-wrap text-sm text-zinc-700">{payloadValue(document, 'notes') || 'No additional notes.'}</p>
+        </section>
+
+        <div className="mt-10 border-t border-zinc-200 pt-4 text-sm">
+          <span>Gynecologist signature: __________________</span>
+        </div>
+      </section>
+    )
+  }
+
   if (isMidwifeRecord(document)) {
     const highRisk = Boolean((document.payload as Record<string, unknown>).high_risk)
 

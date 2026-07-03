@@ -64,6 +64,94 @@ class Payment(TimestampedModel):
         ordering = ('-created_at',)
 
 
+class SalaryPayment(TimestampedModel):
+    employee = models.ForeignKey('accounts.Employee', on_delete=models.PROTECT, related_name='salary_payments')
+    afghan_year = models.PositiveIntegerField()
+    months = models.JSONField(default=list, blank=True)
+    absence_days = models.PositiveIntegerField(default=0)
+    advance_payment = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    advance_balance_carried = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    monthly_salary = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    gross_salary = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    absence_deduction = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    taxable_salary = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    net_salary = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    payable_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='created_salary_payments',
+    )
+
+    class Meta:
+        ordering = ('-created_at',)
+
+    def __str__(self) -> str:
+        return f'Salary payment - {self.employee} - {self.afghan_year}'
+
+
+class SalaryAdvance(TimestampedModel):
+    employee = models.ForeignKey('accounts.Employee', on_delete=models.PROTECT, related_name='salary_advances')
+    afghan_year = models.PositiveIntegerField()
+    afghan_month = models.CharField(max_length=24)
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='created_salary_advances',
+    )
+
+    class Meta:
+        ordering = ('-created_at',)
+
+    def __str__(self) -> str:
+        return f'Salary advance - {self.employee} - {self.amount}'
+
+
+class SalaryAdvanceSettlement(TimestampedModel):
+    salary_advance = models.ForeignKey(SalaryAdvance, on_delete=models.CASCADE, related_name='settlements')
+    salary_payment = models.ForeignKey(SalaryPayment, on_delete=models.CASCADE, related_name='advance_settlements')
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        ordering = ('created_at', 'id')
+
+
+class Expense(TimestampedModel):
+    name = models.CharField(max_length=180)
+    category = models.CharField(max_length=120)
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    description = models.TextField(blank=True)
+    salary_payment = models.OneToOneField(
+        'SalaryPayment',
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name='linked_expense',
+    )
+    salary_advance = models.OneToOneField(
+        'SalaryAdvance',
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name='linked_expense',
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='created_expenses',
+    )
+
+    class Meta:
+        ordering = ('-created_at',)
+
+    def __str__(self) -> str:
+        return f'{self.name} ({self.category})'
+
+
 class ClinicalDocument(TimestampedModel):
     class DocumentType(models.TextChoices):
         PRESCRIPTION = 'prescription', 'Prescription'
@@ -71,6 +159,7 @@ class ClinicalDocument(TimestampedModel):
         LAB_BILL = 'lab_bill', 'Laboratory bill'
         MEDICINE_BILL = 'medicine_bill', 'Medicine bill'
         ULTRASOUND = 'ultrasound', 'Ultrasound'
+        FAMILY_PLANNING = 'family_planning', 'Family planning'
         VACCINATION = 'vaccination', 'Vaccination'
         RUTF = 'rutf', 'RUTF'
 
@@ -115,16 +204,21 @@ class Medicine(TimestampedModel):
 
 class LabTest(TimestampedModel):
     name = models.CharField(max_length=160, unique=True)
+    display_name = models.CharField(max_length=160, blank=True)
+    category = models.CharField(max_length=80, blank=True)
+    is_panel = models.BooleanField(default=False)
+    parent_panel = models.ForeignKey('self', on_delete=models.CASCADE, related_name='components', null=True, blank=True)
+    sort_order = models.PositiveIntegerField(default=0)
     normal_range_from = models.CharField(max_length=80, blank=True)
     normal_range_to = models.CharField(max_length=80, blank=True)
     unit = models.CharField(max_length=40, blank=True)
     is_active = models.BooleanField(default=True)
 
     class Meta:
-        ordering = ('name',)
+        ordering = ('category', 'sort_order', 'name')
 
     def __str__(self) -> str:
-        return self.name
+        return self.display_name or self.name
 
 
 class MedicineStockMovement(TimestampedModel):

@@ -6,6 +6,30 @@ import { buttonClassName, Field, inputClassName, Panel, SectionHeader } from '..
 import type { User } from '../../types/domain'
 import { useAuth } from '../auth/useAuth'
 
+const common = {
+  saving: 'Saving...',
+}
+
+const t = {
+  title: 'My account',
+  subtitle: 'Update your login email address and password for this account.',
+  username: 'Username',
+  role: 'Role',
+  emailAddress: 'Email address',
+  currentPassword: 'Current password',
+  newPassword: 'New password',
+  confirmNewPassword: 'Confirm new password',
+  checkingUsername: 'Checking username...',
+  usernameRequired: 'Username is required.',
+  roleFallback: 'Staff',
+  currentPasswordPlaceholder: 'Required only when changing password',
+  newPasswordPlaceholder: 'Leave blank to keep current password',
+  confirmPasswordPlaceholder: 'Repeat the new password',
+  updateAccount: 'Update account',
+  updated: 'Account settings updated.',
+  unableToUpdate: 'Unable to update account settings.',
+}
+
 function flattenValidationDetails(value: unknown, prefix = ''): string[] {
   if (Array.isArray(value)) {
     return [`${prefix}: ${value.join(', ')}`]
@@ -24,7 +48,7 @@ function describeApiError(caught: unknown): string {
     const details = flattenValidationDetails(caught.details).join(' ')
     return details || caught.message
   }
-  return 'Unable to update account settings.'
+  return ''
 }
 
 export function AccountSettingsPage() {
@@ -49,7 +73,7 @@ export function AccountSettingsPage() {
 
     if (!username) {
       setUsernameStatus('taken')
-      setUsernameMessage('Username is required.')
+      setUsernameMessage(t.usernameRequired)
       return
     }
 
@@ -70,7 +94,7 @@ export function AccountSettingsPage() {
         .catch((caught) => {
           if (cancelled) return
           setUsernameStatus('taken')
-          setUsernameMessage(describeApiError(caught))
+          setUsernameMessage(describeApiError(caught) || t.unableToUpdate)
         })
     }, 300)
 
@@ -117,9 +141,9 @@ export function AccountSettingsPage() {
       })
       setUsernameStatus('idle')
       setUsernameMessage('')
-      setSuccess('Account settings updated.')
+      setSuccess(t.updated)
     } catch (caught) {
-      setError(describeApiError(caught))
+      setError(describeApiError(caught) || t.unableToUpdate)
     } finally {
       setSaving(false)
     }
@@ -127,36 +151,36 @@ export function AccountSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <SectionHeader title="My account" subtitle="Update your login email address and password for this account." />
+      <SectionHeader title={t.title} subtitle={t.subtitle} />
       <Panel>
         <form onSubmit={submit} className="grid gap-4 md:grid-cols-2">
           {error ? <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 md:col-span-2">{error}</div> : null}
           {success ? <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 md:col-span-2">{success}</div> : null}
-          <Field label="Username">
+          <Field label={t.username}>
             <>
               <input className={inputClassName} value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} required />
-              {usernameStatus === 'checking' ? <p className="mt-1 text-xs text-zinc-500">Checking username...</p> : null}
+              {usernameStatus === 'checking' ? <p className="mt-1 text-xs text-zinc-500">{t.checkingUsername}</p> : null}
               {usernameMessage ? <p className={`mt-1 text-xs ${usernameStatus === 'taken' ? 'text-red-600' : 'text-emerald-700'}`}>{usernameMessage}</p> : null}
             </>
           </Field>
-          <Field label="Role">
-            <input className={`${inputClassName} bg-slate-50`} value={user?.profile?.role_label ?? 'Staff'} disabled />
+          <Field label={t.role}>
+            <input className={`${inputClassName} bg-slate-50`} value={user?.profile?.role_label ?? t.roleFallback} disabled />
           </Field>
-          <Field label="Email address">
+          <Field label={t.emailAddress}>
             <input className={inputClassName} type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required />
           </Field>
           <div className="hidden md:block" />
-          <Field label="Current password">
-            <input className={inputClassName} type="password" value={form.current_password} onChange={(event) => setForm({ ...form, current_password: event.target.value })} placeholder="Required only when changing password" />
+          <Field label={t.currentPassword}>
+            <input className={inputClassName} type="password" value={form.current_password} onChange={(event) => setForm({ ...form, current_password: event.target.value })} placeholder={t.currentPasswordPlaceholder} />
           </Field>
-          <Field label="New password">
-            <input className={inputClassName} type="password" value={form.new_password} onChange={(event) => setForm({ ...form, new_password: event.target.value })} placeholder="Leave blank to keep current password" />
+          <Field label={t.newPassword}>
+            <input className={inputClassName} type="password" value={form.new_password} onChange={(event) => setForm({ ...form, new_password: event.target.value })} placeholder={t.newPasswordPlaceholder} />
           </Field>
-          <Field label="Confirm new password">
-            <input className={inputClassName} type="password" value={form.confirm_new_password} onChange={(event) => setForm({ ...form, confirm_new_password: event.target.value })} placeholder="Repeat the new password" />
+          <Field label={t.confirmNewPassword}>
+            <input className={inputClassName} type="password" value={form.confirm_new_password} onChange={(event) => setForm({ ...form, confirm_new_password: event.target.value })} placeholder={t.confirmPasswordPlaceholder} />
           </Field>
           <div className="md:col-span-2">
-            <button className={buttonClassName} disabled={saving || usernameStatus === 'checking' || usernameStatus === 'taken'}>{saving ? 'Saving...' : 'Update account'}</button>
+            <button className={buttonClassName} disabled={saving || usernameStatus === 'checking' || usernameStatus === 'taken'}>{saving ? common.saving : t.updateAccount}</button>
           </div>
         </form>
       </Panel>

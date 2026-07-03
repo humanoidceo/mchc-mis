@@ -24,6 +24,9 @@ class PharmacyMedicineSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "generic_name",
+            "country_of_product",
+            "production_date",
+            "expiry_date",
             "quantity",
             "buy_price",
             "profit_percentage",
@@ -32,7 +35,7 @@ class PharmacyMedicineSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("sell_price", "created_at", "updated_at", "stock_status")
+        read_only_fields = ("profit_percentage", "sell_price", "created_at", "updated_at", "stock_status")
 
     def get_stock_status(self, obj):
         if obj.quantity <= 10:
@@ -163,6 +166,10 @@ class PharmacyDashboardSerializer(serializers.Serializer):
     stock_units = serializers.IntegerField()
     inventory_value = serializers.DecimalField(max_digits=14, decimal_places=2)
     total_billed = serializers.DecimalField(max_digits=14, decimal_places=2)
+    sold_medicines_total = serializers.DecimalField(max_digits=14, decimal_places=2)
+    sold_medicines_profit = serializers.DecimalField(max_digits=14, decimal_places=2)
+    sold_medicines_price = serializers.DecimalField(max_digits=14, decimal_places=2)
+    family_planning_items_dispensed = serializers.IntegerField()
     patient_trend = serializers.ListField(child=serializers.DictField())
     recent_sales_count = serializers.IntegerField()
     recent_sales = PharmacySaleSerializer(many=True)
@@ -197,3 +204,36 @@ class PharmacyPrescriptionSerializer(serializers.Serializer):
     patient = serializers.IntegerField()
     patient_name = serializers.CharField()
     items = PharmacyPrescriptionItemSerializer(many=True)
+
+
+class PharmacyRutfOrderSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    patient = serializers.IntegerField()
+    patient_name = serializers.CharField()
+    created_by_name = serializers.CharField()
+    title = serializers.CharField()
+    created_at = serializers.DateTimeField()
+    payload = serializers.DictField()
+    rutf_quantity = serializers.IntegerField()
+    pharmacy_status = serializers.CharField()
+    approved_by_name = serializers.CharField(allow_blank=True)
+
+
+class PharmacyFamilyPlanningItemSerializer(serializers.Serializer):
+    medicine = serializers.IntegerField()
+    medicine_name = serializers.CharField()
+    quantity = serializers.IntegerField()
+
+
+class PharmacyFamilyPlanningOrderSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    patient = serializers.IntegerField()
+    patient_name = serializers.CharField()
+    created_by_name = serializers.CharField()
+    title = serializers.CharField()
+    created_at = serializers.DateTimeField()
+    payload = serializers.DictField()
+    items = PharmacyFamilyPlanningItemSerializer(many=True)
+    item_count = serializers.IntegerField()
+    pharmacy_status = serializers.CharField()
+    dispensed_by_name = serializers.CharField(allow_blank=True)

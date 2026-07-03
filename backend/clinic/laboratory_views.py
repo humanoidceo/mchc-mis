@@ -20,8 +20,8 @@ from .laboratory_serializers import (
     LaboratoryPatientSearchSerializer,
     LaboratoryOrderSerializer,
     LaboratoryResultUpdateSerializer,
+    expand_lab_test_selection,
     latest_lab_order_for_patient,
-    resolve_lab_test_reference,
     serialize_lab_order_items,
 )
 from .models import ClinicalDocument, Patient, Payment
@@ -114,20 +114,6 @@ def build_patient_trend(period: str, bills_queryset):
         }
         for index in range(bucket_count)
     ]
-
-
-def lab_test_snapshot(test_id: int, test_name: str, instructions: str, cost: Decimal):
-    test = resolve_lab_test_reference(test_id, test_name)
-    return {
-        'test': test_id,
-        'test_name': test.name if test else test_name,
-        'instructions': instructions,
-        'cost': str(cost),
-        'normal_range_from': test.normal_range_from if test else '',
-        'normal_range_to': test.normal_range_to if test else '',
-        'unit': test.unit if test else '',
-        'result': '',
-    }
 
 
 class LaboratoryBaseViewSet(viewsets.GenericViewSet):
@@ -336,18 +322,19 @@ class LaboratoryBillViewSet(
                 order = None
 
             items = []
+            result_items = []
             total_amount = Decimal('0.00')
             for item in serializer.validated_data['items']:
                 cost = item['cost']
                 total_amount += cost
-                items.append(
-                    lab_test_snapshot(
-                        test_id=item['test'],
-                        test_name=item['test_name'],
-                        instructions=item.get('instructions', ''),
-                        cost=cost,
-                    )
+                ordered_item, expanded_result_items = expand_lab_test_selection(
+                    test_id=item['test'],
+                    test_name=item['test_name'],
+                    instructions=item.get('instructions', ''),
+                    cost=cost,
                 )
+                items.append(ordered_item)
+                result_items.extend(expanded_result_items)
 
             payment = Payment.objects.create(
                 patient=patient,
@@ -373,7 +360,8 @@ class LaboratoryBillViewSet(
                     'customer_type': customer_type,
                     'customer_name': customer_name,
                     'lab_order_document': order.id if order else None,
-                    'items': items,
+                    'ordered_items': items,
+                    'result_items': result_items,
                 },
                 total_amount=total_amount,
                 payment=payment,
@@ -393,7 +381,11 @@ class LaboratoryBillViewSet(
         serializer.is_valid(raise_exception=True)
 
         payload = document.payload if isinstance(document.payload, dict) else {}
-        current_items = payload.get('items')
+        current_items = payload.get('result_items')
+        legacy_mode = False
+        if not isinstance(current_items, list):
+            current_items = payload.get('items')
+            legacy_mode = isinstance(current_items, list)
         if not isinstance(current_items, list):
             raise serializers.ValidationError({'items': 'This laboratory bill has no result rows to update.'})
 
@@ -408,7 +400,10 @@ class LaboratoryBillViewSet(
                 next_item['result'] = results_by_test[test_id]
             updated_items.append(next_item)
 
-        payload['items'] = updated_items
+        if legacy_mode:
+            payload['items'] = updated_items
+        else:
+            payload['result_items'] = updated_items
         document.payload = payload
         document.save(update_fields=['payload', 'updated_at'])
 

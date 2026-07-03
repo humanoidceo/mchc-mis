@@ -9,11 +9,25 @@ import { PharmacyWorkspace } from './PharmacyWorkspace'
 const links = [
   { to: '/pharmacy/dashboard', label: 'Dashboard' },
   { to: '/pharmacy/medicines', label: 'Medicines' },
+  { to: '/pharmacy/family-planning-stock', label: 'Family Planning Stock' },
+  { to: '/pharmacy/family-planning-orders', label: 'Family Planning Orders' },
+  { to: '/pharmacy/expired-medicines', label: 'Expired medicines' },
+  { to: '/pharmacy/upcoming-expired-medicines', label: 'Upcoming expired medicines' },
+  { to: '/pharmacy/malnutrition-stock', label: 'Malnutrition stock' },
   { to: '/pharmacy/low-stock', label: 'Low stock' },
   { to: '/pharmacy/sales', label: 'Billing' },
+  { to: '/pharmacy/malnutrition-orders', label: 'Malnutrition orders' },
   { to: '/pharmacy/settings', label: 'Settings' },
   { to: '/pharmacy/account', label: 'My account' },
 ]
+
+const common = {
+  menu: 'Menu',
+  close: 'Close',
+  logout: 'Logout',
+  welcome: 'Welcome',
+  notFoundTitle: 'Not found',
+}
 
 export function PharmacyDashboardLayout() {
   const { user, logout } = useAuth()
@@ -21,7 +35,7 @@ export function PharmacyDashboardLayout() {
 
   return (
     <div className="min-h-screen bg-sky-50 text-slate-900">
-      {mobileMenuOpen ? <button className="fixed inset-0 z-30 bg-slate-950/35 lg:hidden" onClick={() => setMobileMenuOpen(false)} aria-label="Close menu" /> : null}
+      {mobileMenuOpen ? <button className="fixed inset-0 z-30 bg-slate-950/35 lg:hidden" onClick={() => setMobileMenuOpen(false)} aria-label={common.close} /> : null}
 
       <aside className={`fixed inset-y-0 left-0 z-40 w-72 max-w-[85vw] border-r border-sky-100 bg-white p-4 shadow-sm shadow-sky-100 transition-transform lg:w-64 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
         <div className="mb-6">
@@ -33,7 +47,7 @@ export function PharmacyDashboardLayout() {
                 <p className="text-xs text-zinc-500">Management Information System</p>
               </div>
             </div>
-            <button className="rounded border border-pink-200 px-2 py-1 text-xs font-medium lg:hidden" onClick={() => setMobileMenuOpen(false)}>Close</button>
+            <button className="rounded border border-pink-200 px-2 py-1 text-xs font-medium lg:hidden" onClick={() => setMobileMenuOpen(false)}>{common.close}</button>
           </div>
         </div>
         <nav className="space-y-1">
@@ -56,13 +70,13 @@ export function PharmacyDashboardLayout() {
         <header className="no-print sticky top-0 z-10 border-b border-sky-100 bg-white/95 px-4 py-3 backdrop-blur">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <button onClick={() => setMobileMenuOpen(true)} className="rounded border border-sky-200 bg-white px-3 py-2 text-sm font-medium lg:hidden">Menu</button>
+              <button onClick={() => setMobileMenuOpen(true)} className="rounded border border-sky-200 bg-white px-3 py-2 text-sm font-medium lg:hidden">{common.menu}</button>
               <div>
-                <p className="text-sm font-medium">Welcome, {user?.first_name || user?.username}</p>
+                <p className="text-sm font-medium">{common.welcome}, {user?.first_name || user?.username}</p>
                 <p className="text-xs text-zinc-500">{user?.profile?.role_label ?? 'Staff'}</p>
               </div>
             </div>
-            <button onClick={logout} className="rounded border border-pink-200 bg-white px-3 py-2 text-sm font-medium hover:bg-pink-50">Logout</button>
+            <button onClick={logout} className="rounded border border-pink-200 bg-white px-3 py-2 text-sm font-medium hover:bg-pink-50">{common.logout}</button>
           </div>
         </header>
 
@@ -71,12 +85,18 @@ export function PharmacyDashboardLayout() {
             <Route path="/pharmacy" element={<Navigate to="/pharmacy/dashboard" replace />} />
             <Route path="/pharmacy/dashboard" element={<PharmacyWorkspace view="dashboard" />} />
             <Route path="/pharmacy/medicines" element={<PharmacyWorkspace view="medicines" />} />
+            <Route path="/pharmacy/family-planning-stock" element={<PharmacyWorkspace view="family-planning-stock" />} />
+            <Route path="/pharmacy/family-planning-orders" element={<PharmacyWorkspace view="family-planning-orders" />} />
+            <Route path="/pharmacy/expired-medicines" element={<PharmacyWorkspace view="expired-medicines" />} />
+            <Route path="/pharmacy/upcoming-expired-medicines" element={<PharmacyWorkspace view="upcoming-expired-medicines" />} />
+            <Route path="/pharmacy/malnutrition-stock" element={<PharmacyWorkspace view="rutf-stock" />} />
             <Route path="/pharmacy/low-stock" element={<PharmacyWorkspace view="low-stock" />} />
             <Route path="/pharmacy/sales" element={<PharmacyWorkspace view="sales" />} />
+            <Route path="/pharmacy/malnutrition-orders" element={<PharmacyWorkspace view="rutf-orders" />} />
             <Route path="/pharmacy/settings" element={<PharmacyWorkspace view="settings" />} />
             <Route path="/pharmacy/account" element={<AccountSettingsPage />} />
             <Route path="/" element={<Navigate to="/pharmacy/dashboard" replace />} />
-            <Route path="*" element={<SectionHeader title="Not found" subtitle="The requested pharmacy page does not exist." />} />
+            <Route path="*" element={<SectionHeader title={common.notFoundTitle} subtitle="The requested pharmacy page does not exist." />} />
           </Routes>
         </main>
       </div>

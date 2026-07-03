@@ -25,10 +25,33 @@ type BillRow = {
 type ResultRow = {
   test: number
   test_name: string
+  panel_name: string
   normal_range_from: string
   normal_range_to: string
   unit: string
   result: string
+}
+
+const common = {
+  print: 'Print',
+  close: 'Close',
+  refresh: 'Refresh',
+  search: 'Search',
+  saving: 'Saving...',
+  save: 'Save',
+  delete: 'Delete',
+}
+
+const laboratoryDashboardText = {
+  title: 'Laboratory dashboard',
+  subtitle: 'Manage doctor lab orders, external customers, and bills waiting for reception approval.',
+  recentBills: 'Recent laboratory bills',
+}
+
+const laboratoryBillingText = {
+  title: 'Create laboratory bill',
+  subtitle: 'Internal patients load tests from the doctor lab order. External customers are billed manually and sent to reception for approval.',
+  enterResults: 'Enter test results',
 }
 
 const emptyDashboard: LaboratoryDashboardStats = {
@@ -75,6 +98,26 @@ function formatDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }
 
+function labTestOptionLabel(test: Pick<LabTest, 'name' | 'display_name' | 'category' | 'is_panel' | 'component_count'>): string {
+  const label = test.display_name || test.name
+  if (test.is_panel) {
+    return `${label} (${test.component_count} analytes)`
+  }
+  return test.category ? `${label} - ${test.category}` : label
+}
+
+function getBillOrderedItems(bill: LaboratoryBill): Array<Record<string, unknown>> {
+  const payload = bill.payload as Record<string, unknown>
+  if (Array.isArray(payload.ordered_items)) return payload.ordered_items as Array<Record<string, unknown>>
+  return Array.isArray(payload.items) ? payload.items as Array<Record<string, unknown>> : []
+}
+
+function getBillResultItems(bill: LaboratoryBill): Array<Record<string, unknown>> {
+  const payload = bill.payload as Record<string, unknown>
+  if (Array.isArray(payload.result_items)) return payload.result_items as Array<Record<string, unknown>>
+  return Array.isArray(payload.items) ? payload.items as Array<Record<string, unknown>> : []
+}
+
 function describeApiError(caught: unknown, fallback: string): string {
   if (caught instanceof ApiError) {
     if (typeof caught.details === 'object' && caught.details) {
@@ -95,6 +138,7 @@ function billCustomerLabel(bill: LaboratoryBill): string {
 }
 
 function asBillDocument(bill: LaboratoryBill, printedBy: string): ClinicalDocument {
+  const payload = bill.payload as Record<string, unknown>
   return {
     id: bill.id,
     patient: bill.patient,
@@ -102,7 +146,7 @@ function asBillDocument(bill: LaboratoryBill, printedBy: string): ClinicalDocume
     document_type: 'lab_bill',
     document_type_label: 'Laboratory bill',
     title: bill.title,
-    payload: bill.payload,
+    payload: { ...payload, ordered_items: getBillOrderedItems(bill), result_items: getBillResultItems(bill) },
     total_amount: bill.total_amount,
     created_at: bill.created_at,
     created_by_name: printedBy,
@@ -157,8 +201,8 @@ export function LaboratoryWorkspace({ view }: { view: View }) {
       {selectedBill ? (
         <div className="space-y-3">
           <div className="no-print flex gap-2">
-            <button className={buttonClassName} onClick={() => window.print()}>{selectedPrintMode === 'result' ? 'Print result' : 'Print bill'}</button>
-            <button className={ghostButtonClassName} onClick={() => setSelectedBill(null)}>Close preview</button>
+            <button className={buttonClassName} onClick={() => window.print()}>{common.print}</button>
+            <button className={ghostButtonClassName} onClick={() => setSelectedBill(null)}>{common.close}</button>
           </div>
           {selectedPrintMode === 'result'
             ? <PrintLaboratoryResult bill={selectedBill} printedBy={printedBy} />
@@ -170,6 +214,7 @@ export function LaboratoryWorkspace({ view }: { view: View }) {
 }
 
 function LaboratoryDashboard({ dashboard, onRefresh }: { dashboard: LaboratoryDashboardStats; onRefresh: (period: LaboratoryDashboardStats['period'], recentPage: number) => void }) {
+  const t = laboratoryDashboardText
   const [period, setPeriod] = useState<LaboratoryDashboardStats['period']>(dashboard.period || 'monthly')
   const [report, setReport] = useState(dashboard)
   const [recentBillsPage, setRecentBillsPage] = useState(1)
@@ -215,7 +260,7 @@ function LaboratoryDashboard({ dashboard, onRefresh }: { dashboard: LaboratoryDa
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <SectionHeader title="Laboratory dashboard" subtitle="Manage doctor lab orders, external customers, and bills waiting for reception approval." />
+        <SectionHeader title={t.title} subtitle={t.subtitle} />
         <div className="flex min-w-[18rem] flex-col gap-3 rounded-2xl border border-sky-100 bg-white px-4 py-3 shadow-sm shadow-sky-100/70 sm:min-w-[22rem] sm:flex-row sm:items-end sm:justify-end">
           <label className="flex-1 text-sm font-medium text-zinc-700">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">Report period</span>
@@ -223,7 +268,7 @@ function LaboratoryDashboard({ dashboard, onRefresh }: { dashboard: LaboratoryDa
               {dashboardPeriodOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
-          <button className={ghostButtonClassName} onClick={() => onRefresh(period, recentBillsPage)}>Refresh data</button>
+          <button className={ghostButtonClassName} onClick={() => onRefresh(period, recentBillsPage)}>{common.refresh}</button>
         </div>
       </div>
 
@@ -247,7 +292,7 @@ function LaboratoryDashboard({ dashboard, onRefresh }: { dashboard: LaboratoryDa
         </Panel>
 
         <Panel>
-          <p className="text-sm font-semibold text-slate-950">Recent bills</p>
+          <p className="text-sm font-semibold text-slate-950">{t.recentBills}</p>
           <div className="mt-4 overflow-auto">
             <table className="w-full text-left text-sm">
               <thead>
@@ -336,6 +381,7 @@ function LaboratoryBilling({
   onSelectBill: (bill: LaboratoryBill, mode: 'bill' | 'result') => void
   onBillUpdated: (bill: LaboratoryBill) => void
 }) {
+  const t = laboratoryBillingText
   const [bills, setBills] = useState<LaboratoryBill[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [customerType, setCustomerType] = useState<'internal' | 'external'>('internal')
@@ -438,12 +484,12 @@ function LaboratoryBilling({
   }
 
   function openResultsEditor(bill: LaboratoryBill) {
-    const payload = bill.payload as Record<string, unknown>
-    const items = Array.isArray(payload.items) ? payload.items as Array<Record<string, unknown>> : []
+    const items = getBillResultItems(bill)
     setEditingResultsBillId(bill.id)
     setResultRows(items.map((item) => ({
       test: Number(item.test),
       test_name: String(item.test_name ?? item.test ?? 'Test'),
+      panel_name: String(item.panel_name ?? ''),
       normal_range_from: String(item.normal_range_from ?? ''),
       normal_range_to: String(item.normal_range_to ?? ''),
       unit: String(item.unit ?? ''),
@@ -492,7 +538,7 @@ function LaboratoryBilling({
   return (
     <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
       <Panel>
-        <SectionHeader title="Create laboratory bill" subtitle="Internal patients load tests from the doctor lab order. External customers are billed manually and then sent to reception for approval." />
+        <SectionHeader title={t.title} subtitle={t.subtitle} />
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <button
             type="button"
@@ -558,10 +604,10 @@ function LaboratoryBilling({
                   placeholder="Search lab tests"
                   searchPath="/lab-tests/search/"
                   valueText={row.test_label}
-                  renderOption={(test) => test.name}
+                  renderOption={labTestOptionLabel}
                   onSelect={(test) => {
                     const nextRows = [...rows]
-                    nextRows[index] = { ...row, test: String(test.id), test_label: test.name }
+                    nextRows[index] = { ...row, test: String(test.id), test_label: test.display_name || test.name }
                     setRows(nextRows)
                   }}
                 />
@@ -608,10 +654,10 @@ function LaboratoryBilling({
 
       <Panel>
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <SectionHeader title="Recent laboratory bills" subtitle="Review and print bills created in this account." />
+          <SectionHeader title={laboratoryDashboardText.recentBills} subtitle="Review and print bills created in this account." />
           <div className="flex gap-2">
-            <input value={filterText} onChange={(event) => setFilterText(event.target.value)} className={inputClassName} placeholder="Search by patient or bill" />
-            <button className={ghostButtonClassName} onClick={() => void loadBills(page, deferredFilterText)}>Refresh</button>
+            <input value={filterText} onChange={(event) => setFilterText(event.target.value)} className={inputClassName} placeholder={common.search} />
+            <button className={ghostButtonClassName} onClick={() => void loadBills(page, deferredFilterText)}>{common.refresh}</button>
           </div>
         </div>
 
@@ -619,13 +665,14 @@ function LaboratoryBilling({
           {editingResultsBillId !== null ? (
             <form onSubmit={saveResults} className="rounded border border-sky-100 bg-sky-50 p-4">
               <div className="flex flex-wrap items-end justify-between gap-3">
-                <SectionHeader title="Enter test results" subtitle="Results can only be entered after reception approves the laboratory bill." />
-                <button className={ghostButtonClassName} type="button" onClick={() => setEditingResultsBillId(null)}>Close</button>
+                <SectionHeader title={t.enterResults} subtitle="Results can only be entered after reception approves the laboratory bill." />
+                <button className={ghostButtonClassName} type="button" onClick={() => setEditingResultsBillId(null)}>{common.close}</button>
               </div>
               <div className="mt-4 space-y-3">
                 {resultRows.map((row, index) => (
                   <div key={`${row.test}-${index}`} className="grid gap-3 rounded border border-sky-100 bg-white p-4 md:grid-cols-[1fr_1fr_1fr]">
                     <div>
+                      {row.panel_name ? <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-600">{row.panel_name}</p> : null}
                       <p className="text-sm font-semibold text-slate-950">{row.test_name}</p>
                       <p className="mt-1 text-sm text-zinc-600">
                         Normal range: {row.normal_range_from || '-'} to {row.normal_range_to || '-'} {row.unit || ''}
@@ -648,7 +695,7 @@ function LaboratoryBilling({
                 ))}
               </div>
               <div className="mt-4 flex gap-2">
-                <button className={buttonClassName} disabled={savingResults}>{savingResults ? 'Saving...' : 'Save results'}</button>
+                <button className={buttonClassName} disabled={savingResults}>{savingResults ? common.saving : common.save}</button>
               </div>
             </form>
           ) : null}
@@ -673,10 +720,10 @@ function LaboratoryBilling({
                 <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-medium text-sky-800">{bill.item_count} test(s)</span>
               </div>
               <div className="mt-4 flex gap-2">
-                <button className={buttonClassName} onClick={() => onSelectBill(bill, 'bill')}>Print bill</button>
-                {bill.payment_status === 'approved' ? <button className={ghostButtonClassName} onClick={() => openResultsEditor(bill)}>Enter results</button> : null}
-                {bill.has_results ? <button className={ghostButtonClassName} onClick={() => onSelectBill(bill, 'result')}>Print result</button> : null}
-                <button className={ghostButtonClassName} onClick={() => void deleteBill(bill.id)}>Delete</button>
+                <button className={buttonClassName} onClick={() => onSelectBill(bill, 'bill')}>{common.print}</button>
+                {bill.payment_status === 'approved' ? <button className={ghostButtonClassName} onClick={() => openResultsEditor(bill)}>{t.enterResults}</button> : null}
+                {bill.has_results ? <button className={ghostButtonClassName} onClick={() => onSelectBill(bill, 'result')}>{common.print}</button> : null}
+                <button className={ghostButtonClassName} onClick={() => void deleteBill(bill.id)}>{common.delete}</button>
               </div>
             </div>
           ))}
@@ -797,7 +844,7 @@ function SearchCombo<T extends { id: number }>({
 function PrintLaboratoryBill({ bill, printedBy }: { bill: LaboratoryBill; printedBy: string }) {
   const document = asBillDocument(bill, printedBy)
   const payload = document.payload as Record<string, unknown>
-  const items = Array.isArray(payload.items) ? payload.items as Array<Record<string, unknown>> : []
+  const items = Array.isArray(payload.ordered_items) ? payload.ordered_items as Array<Record<string, unknown>> : []
 
   return (
     <section className="print-area a4-report rounded-md border border-zinc-200 bg-white p-6 text-zinc-950">
@@ -845,8 +892,7 @@ function PrintLaboratoryBill({ bill, printedBy }: { bill: LaboratoryBill; printe
 }
 
 function PrintLaboratoryResult({ bill, printedBy }: { bill: LaboratoryBill; printedBy: string }) {
-  const payload = bill.payload as Record<string, unknown>
-  const items = Array.isArray(payload.items) ? payload.items as Array<Record<string, unknown>> : []
+  const items = getBillResultItems(bill)
 
   return (
     <section className="print-area a4-report rounded-md border border-zinc-200 bg-white p-6 text-zinc-950">
@@ -878,7 +924,10 @@ function PrintLaboratoryResult({ bill, printedBy }: { bill: LaboratoryBill; prin
         <tbody>
           {items.map((item, index) => (
             <tr key={index} className="border-b border-zinc-100">
-              <td className="py-2">{String(item.test_name ?? item.test ?? 'Test')}</td>
+              <td className="py-2">
+                <div className="font-medium text-slate-950">{String(item.test_name ?? item.test ?? 'Test')}</div>
+                {item.panel_name ? <div className="text-xs text-zinc-500">{String(item.panel_name)}</div> : null}
+              </td>
               <td className="py-2">{`${String(item.normal_range_from ?? '-')}${item.normal_range_to ? ` to ${String(item.normal_range_to)}` : ''}`}</td>
               <td className="py-2">{String(item.unit ?? '')}</td>
               <td className="py-2 font-medium">{String(item.result ?? '')}</td>

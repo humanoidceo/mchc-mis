@@ -4,11 +4,14 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     ClinicalDocumentViewSet,
     DashboardViewSet,
+    ExpenseViewSet,
     LabTestViewSet,
     MedicineStockMovementViewSet,
     MedicineViewSet,
     PatientViewSet,
     PaymentViewSet,
+    SalaryAdvanceViewSet,
+    SalaryPaymentViewSet,
     WebsitePageContentViewSet,
     WebsiteSettingsViewSet,
 )
@@ -18,11 +21,15 @@ from .laboratory_views import (
     LaboratoryPatientViewSet,
 )
 from .midwife_views import MidwifeDashboardViewSet, MidwifePatientViewSet
+from .malnutrition_views import MalnutritionDashboardViewSet, MalnutritionPatientViewSet
 
 router = DefaultRouter()
 router.register('dashboard', DashboardViewSet, basename='dashboard')
 router.register('patients', PatientViewSet, basename='patients')
 router.register('payments', PaymentViewSet, basename='payments')
+router.register('expenses', ExpenseViewSet, basename='expenses')
+router.register('salary-advances', SalaryAdvanceViewSet, basename='salary-advances')
+router.register('salaries', SalaryPaymentViewSet, basename='salaries')
 router.register('documents', ClinicalDocumentViewSet, basename='documents')
 router.register('lab-tests', LabTestViewSet, basename='lab-tests')
 router.register('medicines', MedicineViewSet, basename='medicines')
@@ -31,6 +38,16 @@ router.register('website-content', WebsitePageContentViewSet, basename='website-
 router.register('website-settings', WebsiteSettingsViewSet, basename='website-settings')
 
 urlpatterns = [
+    path(
+        'malnutrition/dashboard/',
+        MalnutritionDashboardViewSet.as_view({'get': 'list'}),
+        name='malnutrition-dashboard',
+    ),
+    path(
+        'malnutrition/patients/',
+        MalnutritionPatientViewSet.as_view({'get': 'list'}),
+        name='malnutrition-patients',
+    ),
     path(
         'midwife/dashboard/',
         MidwifeDashboardViewSet.as_view({'get': 'list'}),

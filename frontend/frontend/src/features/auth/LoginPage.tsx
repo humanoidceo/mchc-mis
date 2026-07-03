@@ -5,11 +5,25 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import { ApiError } from '../../api/client'
 import { useAuth } from './useAuth'
 
+const text = {
+  signIn: 'Sign in',
+  brandSubtitle: 'Mother and Child Health Care Center',
+  email: 'Email',
+  password: 'Password',
+  login: 'Login',
+  signingIn: 'Signing in...',
+  showPassword: 'Show password',
+  hidePassword: 'Hide password',
+  unableToLogin: 'Unable to login',
+}
+
 function landingPathForRole(role?: string | null) {
   if (role === 'pharmacist') return '/pharmacy/dashboard'
   if (role === 'laboratory') return '/laboratory/dashboard'
   if (role === 'midwife') return '/midwife/dashboard'
   if (role === 'vaccinator') return '/vaccination/dashboard'
+  if (role === 'malnutrition') return '/malnutrition/dashboard'
+  if (role === 'gynecologist') return '/dashboard'
   return '/dashboard'
 }
 
@@ -34,7 +48,7 @@ export function LoginPage() {
       const loggedInUser = await login(email, password)
       navigate(landingPathForRole(loggedInUser.profile?.role), { replace: true })
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : 'Unable to login')
+      setError(caught instanceof ApiError ? caught.message : text.unableToLogin)
     } finally {
       setSubmitting(false)
     }
@@ -46,14 +60,14 @@ export function LoginPage() {
         <form onSubmit={handleSubmit} className="w-full rounded-md border border-sky-100 bg-white/95 p-6 shadow-xl shadow-sky-100">
           <div className="mb-6">
             <p className="text-sm font-medium text-sky-600">MCHC MIS</p>
-            <h1 className="mt-2 text-2xl font-semibold">Sign in</h1>
-            <p className="mt-2 text-sm text-slate-600">Mother and Child Health Care Center</p>
+            <h1 className="mt-2 text-2xl font-semibold">{text.signIn}</h1>
+            <p className="mt-2 text-sm text-slate-600">{text.brandSubtitle}</p>
           </div>
 
           {error ? <div className="mb-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
 
           <label className="mb-4 block">
-            <span className="mb-1 block text-sm font-medium text-slate-700">Email</span>
+            <span className="mb-1 block text-sm font-medium text-slate-700">{text.email}</span>
             <input
               value={email}
               onChange={(event) => setEmail(event.target.value)}
@@ -65,7 +79,7 @@ export function LoginPage() {
           </label>
 
           <label className="mb-6 block">
-            <span className="mb-1 block text-sm font-medium text-slate-700">Password</span>
+            <span className="mb-1 block text-sm font-medium text-slate-700">{text.password}</span>
             <span className="relative block">
               <input
                 value={password}
@@ -77,7 +91,7 @@ export function LoginPage() {
               />
               <button
                 type="button"
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-label={showPassword ? text.hidePassword : text.showPassword}
                 aria-pressed={showPassword}
                 onClick={() => setShowPassword((visible) => !visible)}
                 className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r text-slate-500 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-pink-100"
@@ -104,7 +118,7 @@ export function LoginPage() {
             disabled={submitting}
             className="w-full rounded bg-sky-500 px-4 py-2 font-medium text-white shadow-sm shadow-sky-200 hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-zinc-400"
           >
-            {submitting ? 'Signing in...' : 'Login'}
+            {submitting ? text.signingIn : text.login}
           </button>
         </form>
       </section>

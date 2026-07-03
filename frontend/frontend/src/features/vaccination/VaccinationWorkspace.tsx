@@ -10,6 +10,43 @@ type View = 'dashboard' | 'records'
 type PatientSearchOption = Pick<Patient, 'id' | 'registration_number' | 'first_name' | 'last_name' | 'age'>
 type VaccinationRow = { vaccine: string; quantity: string }
 
+const common = {
+  print: 'Print',
+  close: 'Close',
+  refresh: 'Refresh',
+  saving: 'Saving...',
+  cancel: 'Cancel',
+  edit: 'Edit',
+  delete: 'Delete',
+}
+
+const vaccinationDashboardText = {
+  title: 'Vaccination dashboard',
+  subtitle: 'Vaccination is free of charge. Search reception-registered patients and record vaccines with doses.',
+  recentRecords: 'Recent vaccination records',
+  noRecords: 'No vaccination records yet.',
+}
+
+const vaccinationRecordsText = {
+  title: 'Vaccination record',
+  subtitle: 'Search the patient registered by reception, record the vaccine types and doses, and mark whether the patient is new or follow-up.',
+  recordsTitle: 'Vaccination records',
+  recordsSubtitle: 'Review, print, edit, or delete records created from this account.',
+  patient: 'Patient',
+  patientSearch: 'Search patient name or registration number',
+  patientType: 'Patient type',
+  newPatient: 'New patient',
+  followUp: 'Follow-up',
+  vaccine: 'Vaccine',
+  dose: 'Dose(s)',
+  remove: 'Remove',
+  addVaccine: 'Add vaccine',
+  saveRecord: 'Save vaccination record',
+  updateRecord: 'Update vaccination record',
+  searchRecords: 'Search by patient or record',
+  noRecords: 'No vaccination records found.',
+}
+
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }
@@ -71,8 +108,8 @@ export function VaccinationWorkspace({ view }: { view: View }) {
       {selectedDocument ? (
         <div className="space-y-3">
           <div className="no-print flex gap-2">
-            <button className={buttonClassName} onClick={() => window.print()}>Print vaccination record</button>
-            <button className={ghostButtonClassName} onClick={() => setSelectedDocument(null)}>Close preview</button>
+            <button className={buttonClassName} onClick={() => window.print()}>{common.print}</button>
+            <button className={ghostButtonClassName} onClick={() => setSelectedDocument(null)}>{common.close}</button>
           </div>
           <PrintDocument document={selectedDocument} />
         </div>
@@ -92,11 +129,12 @@ function VaccinationDashboard({
   onRefresh: () => void
   onPrint: (document: ClinicalDocument) => void
 }) {
+  const t = vaccinationDashboardText
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <SectionHeader title="Vaccination dashboard" subtitle="Vaccination is free of charge. Search reception-registered patients and record vaccines with doses." />
-        <button className={ghostButtonClassName} onClick={onRefresh}>Refresh data</button>
+        <SectionHeader title={t.title} subtitle={t.subtitle} />
+        <button className={ghostButtonClassName} onClick={onRefresh}>{common.refresh}</button>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
@@ -107,7 +145,7 @@ function VaccinationDashboard({
         </div>
 
         <Panel>
-          <p className="text-sm font-semibold text-slate-950">Recent vaccination records</p>
+          <p className="text-sm font-semibold text-slate-950">{t.recentRecords}</p>
           <div className="mt-4 space-y-3">
             {records.slice(0, 5).map((document) => (
               <button key={document.id} className="w-full rounded border border-sky-100 bg-white px-4 py-3 text-left text-sm hover:bg-sky-50" onClick={() => onPrint(document)}>
@@ -116,7 +154,7 @@ function VaccinationDashboard({
                 <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-400">{formatDate(document.created_at)}</p>
               </button>
             ))}
-            {!records.length ? <p className="rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-600">No vaccination records yet.</p> : null}
+            {!records.length ? <p className="rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-600">{t.noRecords}</p> : null}
           </div>
         </Panel>
       </div>
@@ -125,6 +163,7 @@ function VaccinationDashboard({
 }
 
 function VaccinationRecords({ onPrint }: { onPrint: (document: ClinicalDocument) => void }) {
+  const t = vaccinationRecordsText
   const [documents, setDocuments] = useState<ClinicalDocument[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
@@ -231,15 +270,15 @@ function VaccinationRecords({ onPrint }: { onPrint: (document: ClinicalDocument)
     <div className="grid gap-6 xl:grid-cols-[24rem_minmax(0,1fr)]">
       <div className="xl:sticky xl:top-24 xl:self-start">
         <Panel>
-        <SectionHeader title="Vaccination record" subtitle="Search the patient registered by reception, record the vaccine types and doses, and mark whether the patient is new or follow-up." />
+        <SectionHeader title={t.title} subtitle={t.subtitle} />
         {error ? <div className="mt-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
         {notice ? <div className="mt-4 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div> : null}
 
         <form onSubmit={submit} className="mt-5 space-y-4">
           <div className="grid gap-3 lg:grid-cols-[1.15fr_0.85fr] xl:grid-cols-1">
             <SearchCombo<PatientSearchOption>
-              label="Patient"
-              placeholder="Search patient name or registration number"
+              label={t.patient}
+              placeholder={t.patientSearch}
               searchPath="/patients/search/"
               valueText={selectedPatientLabel}
               renderOption={(patient) => `${patient.registration_number} - ${patient.first_name} ${patient.last_name}${patient.age ? ` (${patient.age})` : ''}`}
@@ -250,21 +289,21 @@ function VaccinationRecords({ onPrint }: { onPrint: (document: ClinicalDocument)
             />
 
             <div>
-              <span className="mb-2 block text-sm font-medium text-zinc-700">Patient type</span>
+              <span className="mb-2 block text-sm font-medium text-zinc-700">{t.patientType}</span>
               <div className="grid grid-cols-2 gap-2 rounded border border-sky-100 bg-white p-2 text-sm">
                 <button
                   type="button"
                   className={`rounded px-3 py-2 font-medium transition ${patientStatus === 'new' ? 'bg-sky-500 text-white' : 'bg-slate-50 text-slate-700 hover:bg-sky-50'}`}
                   onClick={() => setPatientStatus('new')}
                 >
-                  New patient
+                  {t.newPatient}
                 </button>
                 <button
                   type="button"
                   className={`rounded px-3 py-2 font-medium transition ${patientStatus === 'follow_up' ? 'bg-sky-500 text-white' : 'bg-slate-50 text-slate-700 hover:bg-sky-50'}`}
                   onClick={() => setPatientStatus('follow_up')}
                 >
-                  Follow-up
+                  {t.followUp}
                 </button>
               </div>
             </div>
@@ -273,14 +312,14 @@ function VaccinationRecords({ onPrint }: { onPrint: (document: ClinicalDocument)
           <div className="space-y-2">
             {rows.map((row, index) => (
               <div key={index} className="grid gap-3 rounded border border-sky-100 bg-slate-50 p-3 md:grid-cols-[1fr_7rem_auto] md:items-end">
-                <Field label={rows.length === 1 ? 'Vaccine' : `Vaccination ${index + 1}`}>
+                <Field label={rows.length === 1 ? t.vaccine : `${t.vaccine} ${index + 1}`}>
                   <input className={inputClassName} value={row.vaccine} onChange={(event) => {
                     const nextRows = [...rows]
                     nextRows[index] = { ...row, vaccine: event.target.value }
                     setRows(nextRows)
-                  }} placeholder="Type vaccine name" required />
+                  }} placeholder={t.vaccine} required />
                 </Field>
-                <Field label="Dose(s)">
+                <Field label={t.dose}>
                   <input className={inputClassName} min="1" type="number" value={row.quantity} onChange={(event) => {
                     const nextRows = [...rows]
                     nextRows[index] = { ...row, quantity: event.target.value }
@@ -288,16 +327,16 @@ function VaccinationRecords({ onPrint }: { onPrint: (document: ClinicalDocument)
                   }} required />
                 </Field>
                 <div className="flex items-end">
-                  <button className={ghostButtonClassName} type="button" disabled={rows.length === 1} onClick={() => setRows(rows.filter((_, rowIndex) => rowIndex !== index))}>Remove</button>
+                  <button className={ghostButtonClassName} type="button" disabled={rows.length === 1} onClick={() => setRows(rows.filter((_, rowIndex) => rowIndex !== index))}>{t.remove}</button>
                 </div>
               </div>
             ))}
           </div>
 
           <div className="flex flex-wrap gap-2 border-t border-sky-100 pt-2">
-            <button className={ghostButtonClassName} type="button" onClick={() => setRows([...rows, { vaccine: '', quantity: '1' }])}>Add vaccine</button>
-            <button className={buttonClassName} disabled={saving}>{saving ? 'Saving...' : editingId ? 'Update vaccination record' : 'Save vaccination record'}</button>
-            {editingId ? <button className={ghostButtonClassName} type="button" onClick={() => { setEditingId(null); setSelectedPatientId(null); setSelectedPatientLabel(''); setPatientStatus('new'); setRows([{ vaccine: '', quantity: '1' }]) }}>Cancel</button> : null}
+            <button className={ghostButtonClassName} type="button" onClick={() => setRows([...rows, { vaccine: '', quantity: '1' }])}>{t.addVaccine}</button>
+            <button className={buttonClassName} disabled={saving}>{saving ? common.saving : editingId ? t.updateRecord : t.saveRecord}</button>
+            {editingId ? <button className={ghostButtonClassName} type="button" onClick={() => { setEditingId(null); setSelectedPatientId(null); setSelectedPatientLabel(''); setPatientStatus('new'); setRows([{ vaccine: '', quantity: '1' }]) }}>{common.cancel}</button> : null}
           </div>
         </form>
         </Panel>
@@ -305,10 +344,10 @@ function VaccinationRecords({ onPrint }: { onPrint: (document: ClinicalDocument)
 
       <Panel>
         <div className="flex flex-wrap items-end justify-between gap-3 border-b border-sky-100 pb-4">
-          <SectionHeader title="Vaccination records" subtitle="Review, print, edit, or delete records created from this account." />
+          <SectionHeader title={t.recordsTitle} subtitle={t.recordsSubtitle} />
           <label className="w-full max-w-sm">
-            <span className="sr-only">Search vaccination records</span>
-            <input className={inputClassName} value={filterText} onChange={(event) => setFilterText(event.target.value)} placeholder="Search by patient or record" />
+            <span className="sr-only">{t.searchRecords}</span>
+            <input className={inputClassName} value={filterText} onChange={(event) => setFilterText(event.target.value)} placeholder={t.searchRecords} />
           </label>
         </div>
 
@@ -335,14 +374,14 @@ function VaccinationRecords({ onPrint }: { onPrint: (document: ClinicalDocument)
                 ))}
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
-                <button className={buttonClassName} onClick={() => onPrint(document)}>Print</button>
-                <button className={ghostButtonClassName} onClick={() => editDocument(document)}>Edit</button>
-                <button className={ghostButtonClassName} onClick={() => void deleteDocument(document.id)}>Delete</button>
+                <button className={buttonClassName} onClick={() => onPrint(document)}>{common.print}</button>
+                <button className={ghostButtonClassName} onClick={() => editDocument(document)}>{common.edit}</button>
+                <button className={ghostButtonClassName} onClick={() => void deleteDocument(document.id)}>{common.delete}</button>
               </div>
             </div>
           ))}
           </div>
-          {!documents.length ? <p className="rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-600">No vaccination records found.</p> : null}
+          {!documents.length ? <p className="rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-600">{t.noRecords}</p> : null}
         </div>
         <PaginationControls page={page} totalCount={totalCount} onPageChange={setPage} />
       </Panel>

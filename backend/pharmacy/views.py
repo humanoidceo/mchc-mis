@@ -5,7 +5,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 
 from .decorators import pharmacist_required
 from .forms import MedicineForm, PharmacySettingForm
-from .models import Medicine, PharmacySetting, Sale, SaleItem
+from .models import Medicine, PharmacySetting, Sale, SaleItem, sync_medicine_profit_percentages
 
 
 def get_pharmacy_setting(user):
@@ -38,6 +38,7 @@ def pharmacy_settings(request):
         form = PharmacySettingForm(request.POST, instance=setting)
         if form.is_valid():
             form.save()
+            sync_medicine_profit_percentages(request.user)
             messages.success(request, "Pharmacy settings updated successfully.")
             return redirect("pharmacy:settings")
     else:
