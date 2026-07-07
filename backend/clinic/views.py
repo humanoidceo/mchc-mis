@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from accounts.access import get_user_permissions, user_has_permission
 from accounts.models import Employee
 from accounts.permissions import Role
+from config.pagination import StandardResultsSetPagination
 from pharmacy.models import Medicine as PharmacyMedicine
 from .expense_categories import EXPENSE_CATEGORIES
 from .models import ClinicalDocument, Expense, LabTest, Medicine, MedicineStockMovement, Patient, Payment, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, WebsitePageContent, WebsiteSettings
@@ -193,6 +194,7 @@ class PatientViewSet(PermissionedModelViewSet):
 class PaymentViewSet(PermissionedModelViewSet):
     queryset = Payment.objects.select_related('patient', 'created_by', 'approved_by')
     serializer_class = PaymentSerializer
+    pagination_class = StandardResultsSetPagination
     permission_map = {
         '*': 'payments.view',
         'create': 'payments.approve',
@@ -203,8 +205,39 @@ class PaymentViewSet(PermissionedModelViewSet):
         'reception_bill': 'payments.approve',
     }
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        search = self.request.query_params.get('q', '').strip()
+        if search:
+            queryset = queryset.filter(
+                Q(patient__registration_number__icontains=search)
+                | Q(patient__first_name__icontains=search)
+                | Q(patient__last_name__icontains=search)
+                | Q(department__icontains=search)
+                | Q(service__icontains=search)
+                | Q(payment_type__icontains=search)
+                | Q(status__icontains=search)
+                | Q(notes__icontains=search)
+            )
+        return queryset
+
+    def _guard_external_department_edit(self, payment: Payment):
+        if (payment.department or '').strip().lower() in {'laboratory', 'pharmacy'}:
+            self.permission_denied(
+                self.request,
+                message='Laboratory and pharmacy payment records cannot be edited or deleted from reception.',
+            )
+
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+    def perform_update(self, serializer):
+        self._guard_external_department_edit(self.get_object())
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        self._guard_external_department_edit(instance)
+        instance.delete()
 
     @action(detail=False, methods=['post'], url_path='reception-bill')
     def reception_bill(self, request):

@@ -213,7 +213,7 @@ function MedicineManager({
             country_of_product: '',
             production_date: null,
             expiry_date: monthValueToDate(form.expiry_date),
-            quantity: Number(form.quantity),
+            quantity: String(form.quantity),
             buy_price: '0',
             profit_percentage: '0',
           }
@@ -224,7 +224,7 @@ function MedicineManager({
             country_of_product: form.country_of_product.trim(),
             production_date: form.production_date || null,
             expiry_date: monthValueToDate(form.expiry_date),
-            quantity: Number(form.quantity),
+            quantity: String(form.quantity),
             buy_price: '0',
             profit_percentage: '0',
           }
@@ -232,7 +232,7 @@ function MedicineManager({
             ...form,
             production_date: form.production_date || null,
             expiry_date: monthValueToDate(form.expiry_date),
-            quantity: Number(form.quantity),
+            quantity: String(form.quantity),
           }
       await apiFetch<PharmacyMedicine>(editingId ? `/pharmacy/medicines/${editingId}/` : '/pharmacy/medicines/', {
         method: editingId ? 'PUT' : 'POST',
@@ -352,7 +352,7 @@ function MedicineManager({
             <>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Quantity">
-                  <input value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} className={inputClassName} min="0" type="number" required />
+                  <input value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} className={inputClassName} min="0" step="0.1" type="number" required />
                 </Field>
                 <Field label="Expiry date">
                   <input
@@ -386,7 +386,7 @@ function MedicineManager({
                 </Field>
               </div>
               <Field label="Quantity">
-                <input value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} className={inputClassName} min="0" type="number" required />
+                <input value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} className={inputClassName} min="0" type="number" step="0.1"  required />
               </Field>
             </>
           ) : (
@@ -396,10 +396,10 @@ function MedicineManager({
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Quantity">
-                  <input value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} className={inputClassName} min="0" type="number" required />
+                  <input value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} className={inputClassName} min="0" step="0.1" type="number" required />
                 </Field>
                 <Field label="Buy price">
-                  <input value={form.buy_price} onChange={(event) => setForm({ ...form, buy_price: event.target.value })} className={inputClassName} min="0" step="0.01" type="number" required />
+                  <input value={form.buy_price} onChange={(event) => setForm({ ...form, buy_price: event.target.value })} className={inputClassName} min="0" type="number" required />
                 </Field>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">

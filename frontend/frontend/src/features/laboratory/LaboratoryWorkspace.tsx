@@ -11,6 +11,7 @@ import type {
   LaboratoryPatientSearchOption,
   LabTest,
   PaginatedResponse,
+  Patient,
   SearchResponse,
 } from '../../types/domain'
 import { useAuth } from '../auth/useAuth'
@@ -37,6 +38,7 @@ const common = {
   close: 'Close',
   refresh: 'Refresh',
   search: 'Search',
+  edit: 'Edit',
   saving: 'Saving...',
   save: 'Save',
   delete: 'Delete',
@@ -396,6 +398,8 @@ function LaboratoryBilling({
   const [filterText, setFilterText] = useState('')
   const [deferredFilterText, setDeferredFilterText] = useState('')
   const [page, setPage] = useState(1)
+  const [editingBillId, setEditingBillId] = useState<number | null>(null)
+  const [editingLabOrderDocumentId, setEditingLabOrderDocumentId] = useState<number | null>(null)
   const [editingResultsBillId, setEditingResultsBillId] = useState<number | null>(null)
   const [resultRows, setResultRows] = useState<ResultRow[]>([])
   const [savingResults, setSavingResults] = useState(false)
@@ -418,6 +422,16 @@ function LaboratoryBilling({
   useEffect(() => {
     void loadBills(page, deferredFilterText)
   }, [page, deferredFilterText])
+
+  function resetBillingForm() {
+    setEditingBillId(null)
+    setEditingLabOrderDocumentId(null)
+    setCustomerType('internal')
+    setCustomerName('')
+    setSelectedPatient(null)
+    setLatestOrder(null)
+    setRows([{ test: '', test_label: '', cost: '', instructions: '' }])
+  }
 
   async function loadLatestOrder(patient: LaboratoryPatientSearchOption) {
     setSelectedPatient(patient)
@@ -458,28 +472,71 @@ function LaboratoryBilling({
         }))
       if (!items.length) throw new Error('Add at least one lab test with cost.')
 
-      const bill = await apiFetch<LaboratoryBill>('/laboratory/bills/', {
-        method: 'POST',
+      const bill = await apiFetch<LaboratoryBill>(editingBillId === null ? '/laboratory/bills/' : `/laboratory/bills/${editingBillId}/`, {
+        method: editingBillId === null ? 'POST' : 'PATCH',
         body: JSON.stringify({
           customer_type: customerType,
           patient: customerType === 'internal' ? selectedPatient?.id : undefined,
-          lab_order_document: customerType === 'internal' ? latestOrder?.id : undefined,
+          lab_order_document: customerType === 'internal' ? latestOrder?.id ?? editingLabOrderDocumentId ?? undefined : undefined,
           customer_name: customerType === 'external' ? customerName : '',
           items,
         }),
       })
 
-      setSelectedPatient(null)
-      setLatestOrder(null)
-      setCustomerName('')
-      setRows([{ test: '', test_label: '', cost: '', instructions: '' }])
-      setNotice(`Laboratory bill created. Reception must approve payment ${bill.payment_status ?? 'pending'}.`)
-      onCreated(bill)
+      resetBillingForm()
+      setNotice(editingBillId === null ? `Laboratory bill created. Reception must approve payment ${bill.payment_status ?? 'pending'}.` : 'Laboratory bill updated.')
+      if (editingBillId === null) {
+        onCreated(bill)
+      } else {
+        onBillUpdated(bill)
+      }
       await loadBills(page, deferredFilterText)
     } catch (caught) {
-      setError(caught instanceof Error && !(caught instanceof ApiError) ? caught.message : describeApiError(caught, 'Unable to create laboratory bill.'))
+      setError(caught instanceof Error && !(caught instanceof ApiError) ? caught.message : describeApiError(caught, editingBillId === null ? 'Unable to create laboratory bill.' : 'Unable to update laboratory bill.'))
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function editBill(bill: LaboratoryBill) {
+    setError('')
+    setNotice('')
+    setEditingResultsBillId(null)
+    setEditingBillId(bill.id)
+    setEditingLabOrderDocumentId(bill.lab_order_document_id)
+    setCustomerType(bill.customer_type)
+    setRows(getBillOrderedItems(bill).map((item) => ({
+      test: item.test ? String(item.test) : '',
+      test_label: String(item.test_name ?? item.full_name ?? ''),
+      cost: String(item.cost ?? ''),
+      instructions: String(item.instructions ?? ''),
+    })))
+
+    if (bill.customer_type === 'external') {
+      const payload = bill.payload as Record<string, unknown>
+      const nextCustomerName = typeof payload.customer_name === 'string' && payload.customer_name.trim()
+        ? payload.customer_name.trim()
+        : billCustomerLabel(bill)
+      setCustomerName(nextCustomerName)
+      setSelectedPatient(null)
+      setLatestOrder(null)
+      return
+    }
+
+    try {
+      const patient = await apiFetch<Patient>(`/patients/${bill.patient}/`)
+      setSelectedPatient({
+        id: patient.id,
+        registration_number: patient.registration_number,
+        first_name: patient.first_name,
+        last_name: patient.last_name,
+        age: patient.age,
+        phone: patient.phone,
+      })
+      setCustomerName('')
+      setLatestOrder(null)
+    } catch (caught) {
+      setError(describeApiError(caught, 'Unable to load the internal patient for editing this laboratory bill.'))
     }
   }
 
@@ -542,8 +599,9 @@ function LaboratoryBilling({
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <button
             type="button"
-            className={`rounded border px-4 py-3 text-left text-sm ${customerType === 'internal' ? 'border-pink-200 bg-pink-50 text-pink-700' : 'border-sky-100 bg-white text-slate-700 hover:bg-sky-50'}`}
+            className={`rounded border px-4 py-3 text-left text-sm ${customerType === 'internal' ? 'border-pink-200 bg-pink-50 text-pink-700' : 'border-sky-100 bg-white text-slate-700 hover:bg-sky-50'} ${editingBillId !== null ? 'cursor-not-allowed opacity-70' : ''}`}
             onClick={() => {
+              if (editingBillId !== null) return
               setCustomerType('internal')
               setCustomerName('')
               setNotice('')
@@ -554,8 +612,9 @@ function LaboratoryBilling({
           </button>
           <button
             type="button"
-            className={`rounded border px-4 py-3 text-left text-sm ${customerType === 'external' ? 'border-pink-200 bg-pink-50 text-pink-700' : 'border-sky-100 bg-white text-slate-700 hover:bg-sky-50'}`}
+            className={`rounded border px-4 py-3 text-left text-sm ${customerType === 'external' ? 'border-pink-200 bg-pink-50 text-pink-700' : 'border-sky-100 bg-white text-slate-700 hover:bg-sky-50'} ${editingBillId !== null ? 'cursor-not-allowed opacity-70' : ''}`}
             onClick={() => {
+              if (editingBillId !== null) return
               setCustomerType('external')
               setSelectedPatient(null)
               setLatestOrder(null)
@@ -647,7 +706,8 @@ function LaboratoryBilling({
           <div className="flex flex-wrap gap-2">
             {customerType === 'external' ? <button className={ghostButtonClassName} onClick={() => setRows([...rows, { test: '', test_label: '', cost: '', instructions: '' }])} type="button">Add line</button> : null}
             <div className="rounded border border-zinc-200 bg-white px-4 py-2 text-sm text-slate-700">Total {formatMoney(totalAmount)}</div>
-            <button className={buttonClassName} disabled={submitting || (customerType === 'internal' && loadingOrder)} type="submit">{submitting ? 'Saving...' : 'Create bill and send to reception'}</button>
+            <button className={buttonClassName} disabled={submitting || (customerType === 'internal' && loadingOrder)} type="submit">{submitting ? 'Saving...' : editingBillId === null ? 'Create bill and send to reception' : 'Save bill changes'}</button>
+            {editingBillId !== null ? <button className={ghostButtonClassName} type="button" onClick={resetBillingForm}>Cancel edit</button> : null}
           </div>
         </form>
       </Panel>
@@ -721,6 +781,7 @@ function LaboratoryBilling({
               </div>
               <div className="mt-4 flex gap-2">
                 <button className={buttonClassName} onClick={() => onSelectBill(bill, 'bill')}>{common.print}</button>
+                {bill.payment_status === 'pending' && !bill.has_results ? <button className={ghostButtonClassName} onClick={() => void editBill(bill)}>{common.edit}</button> : null}
                 {bill.payment_status === 'approved' ? <button className={ghostButtonClassName} onClick={() => openResultsEditor(bill)}>{t.enterResults}</button> : null}
                 {bill.has_results ? <button className={ghostButtonClassName} onClick={() => onSelectBill(bill, 'result')}>{common.print}</button> : null}
                 <button className={ghostButtonClassName} onClick={() => void deleteBill(bill.id)}>{common.delete}</button>

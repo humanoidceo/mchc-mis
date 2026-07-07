@@ -75,7 +75,7 @@ const documentTemplates: Record<DocumentType, Record<string, unknown>> = {
   rutf: { items: [{ name: 'RUTF sachets', quantity: 14, notes: 'One week supply' }] },
 }
 
-const departmentOptions = ['Maternal care', 'Child care', 'General health', 'Gynecology', 'Laboratory', 'Ultrasound', 'Vaccination', 'Malnutrition']
+const departmentOptions = ['Maternal care', 'Child care', 'General health', 'Gynecology', 'Emergency', 'Laboratory', 'Ultrasound', 'Vaccination', 'Malnutrition']
 const freeDepartments = new Set(['vaccination', 'malnutrition'])
 const dashboardPeriodOptions: Array<{ value: DashboardStats['period']; label: string }> = [
   { value: 'daily', label: 'Daily' },
@@ -189,6 +189,7 @@ export function ClinicWorkspace({ view }: { view: View }) {
   const [patientsPage, setPatientsPage] = useState(1)
   const [paymentsPage, setPaymentsPage] = useState(1)
   const [documentsPage, setDocumentsPage] = useState(1)
+  const [paymentsSearch, setPaymentsSearch] = useState('')
   const [documentsSearch, setDocumentsSearch] = useState('')
   const [documentsTypeFilter, setDocumentsTypeFilter] = useState<'all' | 'prescription' | 'lab_order'>('all')
   const [medicinesPage, setMedicinesPage] = useState(1)
@@ -202,6 +203,10 @@ export function ClinicWorkspace({ view }: { view: View }) {
   useEffect(() => {
     setDocumentsPage(1)
   }, [deferredDocumentsSearch, documentsTypeFilter])
+
+  useEffect(() => {
+    setPaymentsPage(1)
+  }, [paymentsSearch])
 
   const loadData = useCallback(async function loadData() {
     setError('')
@@ -219,9 +224,13 @@ export function ClinicWorkspace({ view }: { view: View }) {
       }
 
       if (view === 'payments') {
-        const response = await apiFetch<PaginatedResponse<Payment>>(`/payments/?page=${paymentsPage}`)
-        setPayments(response.results)
-        setPaymentsCount(response.count)
+        const params = new URLSearchParams({ page: String(paymentsPage) })
+        if (paymentsSearch.trim()) {
+          params.set('q', paymentsSearch.trim())
+        }
+        const paymentResponse = await apiFetch<PaginatedResponse<Payment>>(`/payments/?${params.toString()}`)
+        setPayments(paymentResponse.results)
+        setPaymentsCount(paymentResponse.count)
         return
       }
 
@@ -264,7 +273,7 @@ export function ClinicWorkspace({ view }: { view: View }) {
     } catch {
       setError('Unable to load clinic data.')
     }
-  }, [deferredDocumentsSearch, documentsPage, documentsTypeFilter, medicinesPage, patientsPage, paymentsPage, usesDoctorDocumentView, view])
+  }, [deferredDocumentsSearch, documentsPage, documentsTypeFilter, medicinesPage, patientsPage, paymentsPage, paymentsSearch, usesDoctorDocumentView, view])
 
   useEffect(() => {
     void loadData()
@@ -276,6 +285,8 @@ export function ClinicWorkspace({ view }: { view: View }) {
     if (view === 'payments') {
       return (
         <Payments
+          paymentsSearch={paymentsSearch}
+          onPaymentsSearchChange={setPaymentsSearch}
           payments={payments}
           totalCount={paymentsCount}
           page={paymentsPage}
@@ -372,7 +383,7 @@ export function ClinicWorkspace({ view }: { view: View }) {
         }}
       />
     )
-  }, [documentTypes, documents, documentsCount, documentsPage, documentsSearch, documentsTypeFilter, loadData, medicines, medicinesCount, medicinesPage, patients, patientsCount, patientsPage, payments, paymentsCount, paymentsPage, stats, user?.profile?.role, usesDoctorDocumentView, view])
+  }, [documentTypes, documents, documentsCount, documentsPage, documentsSearch, documentsTypeFilter, loadData, medicines, medicinesCount, medicinesPage, patients, patientsCount, patientsPage, payments, paymentsCount, paymentsPage, paymentsSearch, stats, user?.profile?.role, usesDoctorDocumentView, view])
 
   return (
     <div className="space-y-5">
@@ -714,13 +725,15 @@ function Patients({
             </tbody>
           </table>
         </div>
-        <PaginationControls page={page} totalCount={totalCount} onPageChange={onPageChange} />
+        <PaginationControls page={page} totalCount={totalCount} pageSize={10} onPageChange={onPageChange} />
       </Panel>
     </>
   )
 }
 
 function Payments({
+  paymentsSearch,
+  onPaymentsSearchChange,
   payments,
   totalCount,
   page,
@@ -729,6 +742,8 @@ function Payments({
   onSaved,
   onPrint,
 }: {
+  paymentsSearch: string
+  onPaymentsSearchChange: (value: string) => void
   payments: Payment[]
   totalCount: number
   page: number
@@ -748,6 +763,19 @@ function Payments({
   })
   const [formError, setFormError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [editingPatientId, setEditingPatientId] = useState<number | null>(null)
+  const [editingPaymentId, setEditingPaymentId] = useState<number | null>(null)
+  const [patientSubmitting, setPatientSubmitting] = useState(false)
+  const [patientError, setPatientError] = useState('')
+  const [patientForm, setPatientForm] = useState({
+    patient_name: '',
+    age: '',
+    department: departmentOptions[0],
+    doctor_fee: '',
+    payment_type: 'full' as Payment['payment_type'],
+    discount_percentage: '',
+    notes: '',
+  })
 
   const departmentIsFree = isFreeDepartment(form.department)
   const effectivePaymentType: Payment['payment_type'] = departmentIsFree ? 'free' : form.payment_type
@@ -755,6 +783,40 @@ function Payments({
   const discountPercent = effectivePaymentType === 'discount' ? Math.min(100, Math.max(0, parseAmount(form.discount_percentage))) : effectivePaymentType === 'free' ? 100 : 0
   const discountAmount = doctorFee * (discountPercent / 100)
   const paymentAmount = Math.max(0, doctorFee - discountAmount)
+
+  const editDepartmentIsFree = isFreeDepartment(patientForm.department)
+  const effectiveEditPaymentType: Payment['payment_type'] = editDepartmentIsFree ? 'free' : patientForm.payment_type
+  const editDoctorFee = editDepartmentIsFree ? 0 : parseAmount(patientForm.doctor_fee)
+  const editDiscountPercent = effectiveEditPaymentType === 'discount' ? Math.min(100, Math.max(0, parseAmount(patientForm.discount_percentage))) : effectiveEditPaymentType === 'free' ? 100 : 0
+  const editDiscountAmount = editDoctorFee * (editDiscountPercent / 100)
+  const editPaymentAmount = Math.max(0, editDoctorFee - editDiscountAmount)
+  const filteredPayments = useMemo(() => {
+    const query = paymentsSearch.trim().toLowerCase()
+    if (!query) return payments
+    return payments.filter((payment) => {
+      const haystack = [
+        payment.patient_full_name,
+        payment.patient_name,
+        payment.department,
+        payment.service,
+        payment.payment_type,
+        payment.status,
+        payment.notes,
+        payment.patient_age?.toString() ?? '',
+        payment.doctor_fee,
+        payment.amount,
+        payment.discount_percentage,
+      ]
+        .join(' ')
+        .toLowerCase()
+      return haystack.includes(query)
+    })
+  }, [payments, paymentsSearch])
+
+  function isEditableReceptionPayment(payment: Payment): boolean {
+    const department = (payment.department || '').trim().toLowerCase()
+    return department !== 'laboratory' && department !== 'pharmacy'
+  }
 
   function choosePaymentType(paymentType: Payment['payment_type']) {
     if (departmentIsFree) {
@@ -767,6 +829,17 @@ function Payments({
     })
   }
 
+  function chooseEditPaymentType(paymentType: Payment['payment_type']) {
+    if (editDepartmentIsFree) {
+      return
+    }
+    setPatientForm((current) => ({
+      ...current,
+      payment_type: paymentType,
+      discount_percentage: paymentType === 'discount' ? current.discount_percentage : '',
+    }))
+  }
+
   useEffect(() => {
     if (!departmentIsFree) return
     if (form.payment_type === 'free' && (form.doctor_fee === '' || form.doctor_fee === '0' || form.doctor_fee === '0.00') && form.discount_percentage === '') return
@@ -777,6 +850,17 @@ function Payments({
       discount_percentage: '',
     }))
   }, [departmentIsFree, form.discount_percentage, form.doctor_fee, form.payment_type])
+
+  useEffect(() => {
+    if (!editDepartmentIsFree) return
+    if (patientForm.payment_type === 'free' && (patientForm.doctor_fee === '' || patientForm.doctor_fee === '0' || patientForm.doctor_fee === '0.00') && patientForm.discount_percentage === '') return
+    setPatientForm((current) => ({
+      ...current,
+      doctor_fee: '0',
+      payment_type: 'free',
+      discount_percentage: '',
+    }))
+  }, [editDepartmentIsFree, patientForm.discount_percentage, patientForm.doctor_fee, patientForm.payment_type])
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -820,6 +904,86 @@ function Payments({
   async function approve(paymentId: number) {
     await apiFetch<Payment>(`/payments/${paymentId}/approve/`, { method: 'POST' })
     await onSaved()
+  }
+
+  function resetPatientForm() {
+    setEditingPatientId(null)
+    setEditingPaymentId(null)
+    setPatientError('')
+    setPatientForm({
+      patient_name: '',
+      age: '',
+      department: departmentOptions[0],
+      doctor_fee: '',
+      payment_type: 'full',
+      discount_percentage: '',
+      notes: '',
+    })
+  }
+
+  function startPatientEdit(payment: Payment) {
+    setPatientError('')
+    setEditingPatientId(payment.patient)
+    setEditingPaymentId(payment.id)
+    setPatientForm({
+      patient_name: payment.patient_full_name || payment.patient_name,
+      age: payment.patient_age === null ? '' : String(payment.patient_age),
+      department: payment.department || departmentOptions[0],
+      doctor_fee: payment.doctor_fee,
+      payment_type: payment.payment_type,
+      discount_percentage: payment.payment_type === 'discount' ? payment.discount_percentage : '',
+      notes: payment.notes,
+    })
+  }
+
+  async function submitPatientUpdate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (editingPatientId === null || editingPaymentId === null) return
+    setPatientError('')
+    setPatientSubmitting(true)
+    try {
+      await apiFetch<Patient>(`/patients/${editingPatientId}/`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          first_name: patientForm.patient_name,
+          last_name: '',
+          age: patientForm.age === '' ? null : Number(patientForm.age),
+        }),
+      })
+      await apiFetch<Payment>(`/payments/${editingPaymentId}/`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          service: `${patientForm.department} consultation`,
+          department: patientForm.department,
+          patient_age: patientForm.age === '' ? null : Number(patientForm.age),
+          doctor_fee: formatMoney(editDoctorFee),
+          payment_type: effectiveEditPaymentType,
+          discount_percentage: effectiveEditPaymentType === 'discount' ? patientForm.discount_percentage || '0' : '0',
+          notes: patientForm.notes,
+        }),
+      })
+      resetPatientForm()
+      await onSaved()
+    } catch (caught) {
+      setPatientError(describeApiError(caught))
+    } finally {
+      setPatientSubmitting(false)
+    }
+  }
+
+  async function deletePatient(patientId: number, patientName: string) {
+    const confirmed = window.confirm(`Delete patient "${patientName}"? This also removes the linked payment records.`)
+    if (!confirmed) return
+    setPatientError('')
+    try {
+      await apiFetch(`/patients/${patientId}/`, { method: 'DELETE' })
+      if (editingPatientId === patientId) {
+        resetPatientForm()
+      }
+      await onSaved()
+    } catch (caught) {
+      setPatientError(describeApiError(caught))
+    }
   }
 
   return (
@@ -872,14 +1036,116 @@ function Payments({
         </form>
       </Panel>
       <Panel>
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold text-slate-950">Bills and payments</p>
+            <p className="text-sm text-zinc-500">Search by patient, registration number, department, payment type, status, or notes.</p>
+          </div>
+          <div className="w-full max-w-md">
+            <Field label="Search bills">
+              <input
+                className={inputClassName}
+                value={paymentsSearch}
+                onChange={(event) => onPaymentsSearchChange(event.target.value)}
+                placeholder="Search patient, department, payment type, status"
+              />
+            </Field>
+          </div>
+        </div>
         <div className="overflow-auto">
           <table className="w-full text-left text-sm">
             <thead><tr className="border-b border-zinc-200"><th className="py-2">Patient</th><th>Age</th><th>Department</th><th>Fee</th><th>Payment</th><th>Amount after discount</th><th>Status</th><th></th></tr></thead>
-            <tbody>{payments.map((payment) => <tr key={payment.id} className="border-b border-zinc-100"><td className="py-2">{payment.patient_full_name || payment.patient_name}</td><td>{payment.patient_age ?? ''}</td><td>{payment.department || payment.service}</td><td>{payment.doctor_fee}</td><td>{payment.payment_type === 'free' ? 'Free' : payment.payment_type === 'discount' ? `${payment.discount_percentage}% discount` : 'Full payment'}</td><td>{payment.payment_type === 'free' ? 'Free' : payment.amount}</td><td>{payment.status}</td><td className="flex gap-2 py-2"><button className={ghostButtonClassName} onClick={() => onPrint(payment)}>Print</button>{payment.status === 'pending' ? <button className={ghostButtonClassName} onClick={() => void approve(payment.id)}>Approve</button> : null}</td></tr>)}</tbody>
+            <tbody>
+              {filteredPayments.map((payment) => {
+                const canEdit = isEditableReceptionPayment(payment)
+                return (
+                  <tr key={payment.id} className="border-b border-zinc-100">
+                    <td className="py-2">{payment.patient_full_name || payment.patient_name}</td>
+                    <td>{payment.patient_age ?? ''}</td>
+                    <td>{payment.department || payment.service}</td>
+                    <td>{payment.doctor_fee}</td>
+                    <td>{payment.payment_type === 'free' ? 'Free' : payment.payment_type === 'discount' ? `${payment.discount_percentage}% discount` : 'Full payment'}</td>
+                    <td>{payment.payment_type === 'free' ? 'Free' : payment.amount}</td>
+                    <td>{payment.status}</td>
+                    <td className="flex gap-2 py-2">
+                      <button className={ghostButtonClassName} onClick={() => onPrint(payment)}>Print</button>
+                      {canEdit ? <button className={ghostButtonClassName} onClick={() => startPatientEdit(payment)}>Edit</button> : null}
+                      {canEdit ? <button className={ghostButtonClassName} onClick={() => void deletePatient(payment.patient, payment.patient_full_name || payment.patient_name)}>Delete</button> : null}
+                      {payment.status === 'pending' ? <button className={ghostButtonClassName} onClick={() => void approve(payment.id)}>Approve</button> : null}
+                    </td>
+                  </tr>
+                )
+              })}
+              {!filteredPayments.length ? (
+                <tr>
+                  <td className="py-4 text-center text-zinc-500" colSpan={8}>{paymentsSearch.trim() ? 'No bills match this search.' : 'No bills found.'}</td>
+                </tr>
+              ) : null}
+            </tbody>
           </table>
         </div>
         <PaginationControls page={page} totalCount={totalCount} onPageChange={onPageChange} />
       </Panel>
+      {editingPatientId !== null || patientError ? (
+        <Panel>
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-950">Edit patient</p>
+              <p className="text-sm text-zinc-500">Update the patient and bill details linked to the selected payment.</p>
+            </div>
+            {editingPatientId !== null ? <button className={ghostButtonClassName} type="button" onClick={resetPatientForm}>Cancel edit</button> : null}
+          </div>
+          {editingPatientId !== null ? (
+            <form onSubmit={submitPatientUpdate} className="grid gap-3 rounded border border-sky-100 bg-sky-50/50 p-4 md:grid-cols-4">
+              {patientError ? <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 md:col-span-4">{patientError}</div> : null}
+              <Field label="Patient name"><input className={inputClassName} value={patientForm.patient_name} onChange={(event) => setPatientForm((current) => ({ ...current, patient_name: event.target.value }))} required /></Field>
+              <Field label="Age"><input className={inputClassName} type="number" min="0" value={patientForm.age} onChange={(event) => setPatientForm((current) => ({ ...current, age: event.target.value }))} required /></Field>
+              <Field label="Department">
+                <select
+                  className={inputClassName}
+                  value={patientForm.department}
+                  onChange={(event) =>
+                    setPatientForm((current) => ({
+                      ...current,
+                      department: event.target.value,
+                      payment_type: isFreeDepartment(event.target.value) ? 'free' : (isFreeDepartment(current.department) ? 'full' : current.payment_type),
+                    }))
+                  }
+                >
+                  {departmentOptions.map((department) => <option key={department} value={department}>{department}</option>)}
+                </select>
+              </Field>
+              <Field label="Doctor fee">
+                <input className={inputClassName} type="number" min="0" step="0.01" value={editDepartmentIsFree ? '0.00' : patientForm.doctor_fee} onChange={(event) => setPatientForm((current) => ({ ...current, doctor_fee: event.target.value }))} disabled={editDepartmentIsFree} required={!editDepartmentIsFree} />
+              </Field>
+              <div className="md:col-span-4">
+                <span className="mb-1 block text-sm font-medium text-zinc-700">Payment option</span>
+                <div className="flex flex-wrap gap-3 rounded border border-sky-200 bg-white px-3 py-2 text-sm">
+                  <label className="flex items-center gap-2"><input type="radio" checked={effectiveEditPaymentType === 'full'} onChange={() => chooseEditPaymentType('full')} disabled={editDepartmentIsFree} /> Full payment</label>
+                  <label className="flex items-center gap-2"><input type="radio" checked={effectiveEditPaymentType === 'free'} onChange={() => chooseEditPaymentType('free')} /> Free</label>
+                  <label className="flex items-center gap-2"><input type="radio" checked={effectiveEditPaymentType === 'discount'} onChange={() => chooseEditPaymentType('discount')} disabled={editDepartmentIsFree} /> Discount percentage</label>
+                </div>
+              </div>
+              {effectiveEditPaymentType === 'discount' ? (
+                <Field label="Discount percentage">
+                  <input className={inputClassName} type="number" min="0" max="100" step="0.01" value={patientForm.discount_percentage} onChange={(event) => setPatientForm((current) => ({ ...current, discount_percentage: event.target.value }))} required />
+                </Field>
+              ) : null}
+              <Field label="Notes"><input className={inputClassName} value={patientForm.notes} onChange={(event) => setPatientForm((current) => ({ ...current, notes: event.target.value }))} /></Field>
+              <div className="grid gap-2 rounded border border-pink-100 bg-pink-50 p-3 text-sm md:col-span-4 md:grid-cols-3">
+                <p><strong>Doctor fee:</strong> {formatMoney(editDoctorFee)}</p>
+                <p><strong>Payment option:</strong> {effectiveEditPaymentType === 'free' ? 'Free' : effectiveEditPaymentType === 'discount' ? `${formatPercent(editDiscountPercent)}% discount (${formatMoney(editDiscountAmount)})` : 'Full payment'}</p>
+                <p><strong>Amount after discount:</strong> {effectiveEditPaymentType === 'free' ? 'Free' : formatMoney(editPaymentAmount)}</p>
+              </div>
+              <div className="md:col-span-4">
+                <button className={buttonClassName} disabled={patientSubmitting}>{patientSubmitting ? 'Saving patient...' : 'Save patient changes'}</button>
+              </div>
+            </form>
+          ) : (
+            <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{patientError}</div>
+          )}
+        </Panel>
+      ) : null}
     </>
   )
 }

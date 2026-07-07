@@ -59,9 +59,14 @@ export function LoginPage() {
       <section className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-md items-center">
         <form onSubmit={handleSubmit} className="w-full rounded-md border border-sky-100 bg-white/95 p-6 shadow-xl shadow-sky-100">
           <div className="mb-6">
-            <p className="text-sm font-medium text-sky-600">MCHC MIS</p>
-            <h1 className="mt-2 text-2xl font-semibold">{text.signIn}</h1>
-            <p className="mt-2 text-sm text-slate-600">{text.brandSubtitle}</p>
+            <div className="flex items-center gap-3">
+              <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-14 w-14 rounded-2xl object-cover shadow-sm shadow-sky-100" />
+              <div>
+                <p className="text-sm font-medium text-sky-600">MCHC MIS</p>
+                <h1 className="mt-1 text-2xl font-semibold">{text.signIn}</h1>
+              </div>
+            </div>
+            <p className="mt-3 text-sm text-slate-600">{text.brandSubtitle}</p>
           </div>
 
           {error ? <div className="mb-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}

@@ -68,7 +68,7 @@ class Migration(migrations.Migration):
                 ),
                 ("name", models.CharField(max_length=180)),
                 ("generic_name", models.CharField(blank=True, max_length=180)),
-                ("quantity", models.PositiveIntegerField(default=0)),
+                ("quantity", models.DecimalField(max_digits=10, decimal_places=1)),
                 ("buy_price", models.DecimalField(decimal_places=2, max_digits=12)),
                 (
                     "profit_percentage",
@@ -145,7 +145,7 @@ class Migration(migrations.Migration):
                 ),
                 ("medicine_name", models.CharField(max_length=180)),
                 ("generic_name", models.CharField(blank=True, max_length=180)),
-                ("quantity", models.PositiveIntegerField()),
+                ("quantity", models.DecimalField(decimal_places=2, max_digits=12)),
                 ("unit_price", models.DecimalField(decimal_places=2, max_digits=12)),
                 (
                     "medicine",

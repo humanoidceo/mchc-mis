@@ -256,6 +256,7 @@ class LaboratoryBillViewSet(
     mixins.DestroyModelMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
 ):
     serializer_class = LaboratoryBillSerializer
 
@@ -279,62 +280,92 @@ class LaboratoryBillViewSet(
         return queryset
 
     def get_serializer_class(self):
-        if self.action == 'create':
+        if self.action in {'create', 'update', 'partial_update'}:
             return LaboratoryBillCreateSerializer
         return LaboratoryBillSerializer
+
+    def _guard_bill_editable(self, document: ClinicalDocument):
+        if document.payment is not None and document.payment.status != Payment.Status.PENDING:
+            raise serializers.ValidationError({'payment': 'Only laboratory bills with pending reception payment can be edited.'})
+
+        payload = document.payload if isinstance(document.payload, dict) else {}
+        result_items = payload.get('result_items')
+        if isinstance(result_items, list):
+            for item in result_items:
+                if isinstance(item, dict) and str(item.get('result', '')).strip():
+                    raise serializers.ValidationError({'items': 'Laboratory bills with saved results cannot be edited.'})
+
+    def _resolve_bill_customer(self, serializer, request, existing_document: ClinicalDocument | None = None):
+        customer_type = serializer.validated_data['customer_type']
+        existing_payload = existing_document.payload if existing_document and isinstance(existing_document.payload, dict) else {}
+        existing_customer_type = str(existing_payload.get('customer_type', customer_type)).strip() or customer_type
+
+        if existing_document is not None and customer_type != existing_customer_type:
+            raise serializers.ValidationError({'customer_type': 'Customer type cannot be changed after the laboratory bill is created.'})
+
+        if customer_type == 'internal':
+            patient = Patient.objects.filter(pk=serializer.validated_data['patient']).first()
+            if patient is None:
+                raise serializers.ValidationError({'patient': 'Selected patient was not found.'})
+            order_id = serializer.validated_data.get('lab_order_document')
+            if order_id:
+                order = ClinicalDocument.objects.filter(
+                    pk=order_id,
+                    patient=patient,
+                    document_type=ClinicalDocument.DocumentType.LAB_ORDER,
+                ).first()
+            else:
+                order = latest_lab_order_for_patient(patient.id)
+            if order is None:
+                raise serializers.ValidationError({'patient': 'This patient has no saved lab order.'})
+            customer_name = f'{patient.first_name} {patient.last_name}'.strip()
+            return customer_type, patient, order, customer_name
+
+        customer_name = serializer.validated_data.get('customer_name', '').strip()
+        if existing_document is None:
+            patient = Patient.objects.create(
+                registration_number=next_patient_registration_number(),
+                first_name=customer_name,
+                last_name='',
+                age=None,
+                gender=Patient.Gender.OTHER,
+                date_of_birth=None,
+                phone='',
+                address='',
+                guardian_name='',
+                registered_by=request.user,
+            )
+        else:
+            patient = existing_document.patient
+            patient.first_name = customer_name
+            patient.last_name = ''
+            patient.save(update_fields=['first_name', 'last_name', 'updated_at'])
+        return customer_type, patient, None, customer_name
+
+    def _build_bill_items(self, serializer):
+        items = []
+        result_items = []
+        total_amount = Decimal('0.00')
+        for item in serializer.validated_data['items']:
+            cost = item['cost']
+            total_amount += cost
+            ordered_item, expanded_result_items = expand_lab_test_selection(
+                test_id=item['test'],
+                test_name=item['test_name'],
+                instructions=item.get('instructions', ''),
+                cost=cost,
+            )
+            items.append(ordered_item)
+            result_items.extend(expanded_result_items)
+        return items, result_items, total_amount
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         with transaction.atomic():
-            customer_type = serializer.validated_data['customer_type']
-            if customer_type == 'internal':
-                patient = Patient.objects.filter(pk=serializer.validated_data['patient']).first()
-                if patient is None:
-                    raise serializers.ValidationError({'patient': 'Selected patient was not found.'})
-                order_id = serializer.validated_data.get('lab_order_document')
-                if order_id:
-                    order = ClinicalDocument.objects.filter(
-                        pk=order_id,
-                        patient=patient,
-                        document_type=ClinicalDocument.DocumentType.LAB_ORDER,
-                    ).first()
-                else:
-                    order = latest_lab_order_for_patient(patient.id)
-                if order is None:
-                    raise serializers.ValidationError({'patient': 'This patient has no saved lab order.'})
-                customer_name = f'{patient.first_name} {patient.last_name}'.strip()
-            else:
-                customer_name = serializer.validated_data.get('customer_name', '').strip()
-                patient = Patient.objects.create(
-                    registration_number=next_patient_registration_number(),
-                    first_name=customer_name,
-                    last_name='',
-                    age=None,
-                    gender=Patient.Gender.OTHER,
-                    date_of_birth=None,
-                    phone='',
-                    address='',
-                    guardian_name='',
-                    registered_by=request.user,
-                )
-                order = None
-
-            items = []
-            result_items = []
-            total_amount = Decimal('0.00')
-            for item in serializer.validated_data['items']:
-                cost = item['cost']
-                total_amount += cost
-                ordered_item, expanded_result_items = expand_lab_test_selection(
-                    test_id=item['test'],
-                    test_name=item['test_name'],
-                    instructions=item.get('instructions', ''),
-                    cost=cost,
-                )
-                items.append(ordered_item)
-                result_items.extend(expanded_result_items)
+            customer_type, patient, order, customer_name = self._resolve_bill_customer(serializer, request)
+            items, result_items, total_amount = self._build_bill_items(serializer)
 
             payment = Payment.objects.create(
                 patient=patient,
@@ -370,6 +401,41 @@ class LaboratoryBillViewSet(
 
         output = LaboratoryBillSerializer(document, context=self.get_serializer_context())
         return Response(output.data, status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        document = self.get_object()
+        self._guard_bill_editable(document)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            customer_type, patient, order, customer_name = self._resolve_bill_customer(serializer, request, existing_document=document)
+            items, result_items, total_amount = self._build_bill_items(serializer)
+
+            payment = document.payment
+            if payment is None:
+                raise serializers.ValidationError({'payment': 'This laboratory bill is missing the linked payment record.'})
+
+            payment.patient = patient
+            payment.patient_age = patient.age
+            payment.doctor_fee = total_amount
+            payment.amount = total_amount
+            payment.notes = f'Laboratory {customer_type} bill'
+            payment.save(update_fields=['patient', 'patient_age', 'doctor_fee', 'amount', 'notes', 'updated_at'])
+
+            document.patient = patient
+            document.payload = {
+                'customer_type': customer_type,
+                'customer_name': customer_name,
+                'lab_order_document': order.id if order else None,
+                'ordered_items': items,
+                'result_items': result_items,
+            }
+            document.total_amount = total_amount
+            document.save(update_fields=['patient', 'payload', 'total_amount', 'updated_at'])
+
+        output = LaboratoryBillSerializer(document, context=self.get_serializer_context())
+        return Response(output.data)
 
     @action(detail=True, methods=['post'], url_path='results')
     def results(self, request, pk=None):

@@ -80,7 +80,7 @@ urlpatterns = [
     ),
     path(
         'laboratory/bills/<int:pk>/',
-        LaboratoryBillViewSet.as_view({'get': 'retrieve', 'delete': 'destroy'}),
+        LaboratoryBillViewSet.as_view({'get': 'retrieve', 'delete': 'destroy', 'put': 'update', 'patch': 'partial_update'}),
         name='laboratory-bill-detail',
     ),
     path(

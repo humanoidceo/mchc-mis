@@ -61,7 +61,7 @@ class Medicine(models.Model):
     country_of_product = models.CharField(max_length=120, blank=True)
     production_date = models.DateField(null=True, blank=True)
     expiry_date = models.DateField(null=True, blank=True)
-    quantity = models.PositiveIntegerField(default=0)
+    quantity = models.DecimalField(max_digits=10, decimal_places=2)
     buy_price = models.DecimalField(max_digits=12, decimal_places=2)
     profit_percentage = models.DecimalField(
         max_digits=5,
@@ -176,7 +176,7 @@ class SaleItem(models.Model):
     # Snapshot fields keep old bills correct even if medicine data changes later.
     medicine_name = models.CharField(max_length=180)
     generic_name = models.CharField(max_length=180, blank=True)
-    quantity = models.PositiveIntegerField()
+    quantity = models.DecimalField(max_digits=12, decimal_places=2)
     unit_price = models.DecimalField(max_digits=12, decimal_places=2)
 
     @property

@@ -109,7 +109,7 @@ class PharmacySaleSerializer(serializers.ModelSerializer):
 
 class PharmacySaleCreateItemSerializer(serializers.Serializer):
     medicine = serializers.IntegerField()
-    quantity = serializers.IntegerField(min_value=1)
+    quantity = serializers.DecimalField(max_digits=10, decimal_places=2)
 
 
 class PharmacySaleCreateSerializer(serializers.Serializer):
@@ -214,7 +214,7 @@ class PharmacyRutfOrderSerializer(serializers.Serializer):
     title = serializers.CharField()
     created_at = serializers.DateTimeField()
     payload = serializers.DictField()
-    rutf_quantity = serializers.IntegerField()
+    rutf_quantity = serializers.DecimalField(max_digits=10, decimal_places=1)
     pharmacy_status = serializers.CharField()
     approved_by_name = serializers.CharField(allow_blank=True)
 
@@ -222,7 +222,7 @@ class PharmacyRutfOrderSerializer(serializers.Serializer):
 class PharmacyFamilyPlanningItemSerializer(serializers.Serializer):
     medicine = serializers.IntegerField()
     medicine_name = serializers.CharField()
-    quantity = serializers.IntegerField()
+    quantity = serializers.DecimalField(max_digits=10, decimal_places=1)
 
 
 class PharmacyFamilyPlanningOrderSerializer(serializers.Serializer):

@@ -23,14 +23,16 @@ export function Field({ label, children }: { label: string; children: React.Reac
 export function PaginationControls({
   page,
   totalCount,
+  pageSize = 10,
   onPageChange,
 }: {
   page: number
   totalCount: number
+  pageSize?: number
   onPageChange: (page: number) => void
 }) {
-  const totalPages = Math.max(1, Math.ceil(totalCount / 10))
-  if (totalCount <= 10) {
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
+  if (totalCount <= pageSize) {
     return null
   }
   return (
