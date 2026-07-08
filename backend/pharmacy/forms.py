@@ -20,11 +20,17 @@ class PharmacySettingForm(forms.ModelForm):
 class MedicineForm(forms.ModelForm):
     class Meta:
         model = Medicine
-        fields = ["name", "generic_name", "quantity", "buy_price", "profit_percentage"]
+        fields = ["name", "generic_name", "dosage_form", "strength", "quantity", "buy_price", "profit_percentage"]
         widgets = {
             "name": forms.TextInput(attrs={"class": "form-control", "placeholder": "Medicine name"}),
             "generic_name": forms.TextInput(
                 attrs={"class": "form-control", "placeholder": "Generic name"}
+            ),
+            "dosage_form": forms.TextInput(
+                attrs={"class": "form-control", "placeholder": "Tablet, syrup, capsule"}
+            ),
+            "strength": forms.TextInput(
+                attrs={"class": "form-control", "placeholder": "500 mg, 5 ml, 1 g, 400 IU"}
             ),
             "quantity": forms.NumberInput(attrs={"class": "form-control", "min": "0"}),
             "buy_price": forms.NumberInput(

@@ -24,6 +24,8 @@ class PharmacyMedicineSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "generic_name",
+            "dosage_form",
+            "strength",
             "country_of_product",
             "production_date",
             "expiry_date",
@@ -147,6 +149,7 @@ class PharmacyDashboardSerializer(serializers.Serializer):
     period = serializers.ChoiceField(choices=(("daily", "Daily"), ("weekly", "Weekly"), ("monthly", "Monthly"), ("annual", "Annual")))
     period_label = serializers.CharField()
     medicines_count = serializers.IntegerField()
+    medicines_registered_count = serializers.IntegerField()
     low_stock_count = serializers.IntegerField()
     sales_count = serializers.IntegerField()
     internal_patients = serializers.IntegerField()

@@ -1,12 +1,8 @@
 import type { User } from '../types/domain'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api'
-const ACCESS_TOKEN_KEY = 'mchc_access_token'
-const REFRESH_TOKEN_KEY = 'mchc_refresh_token'
 
 type LoginResponse = {
-  access: string
-  refresh: string
   user: User
 }
 
@@ -21,39 +17,50 @@ export class ApiError extends Error {
   }
 }
 
-const getAccessToken = () => localStorage.getItem(ACCESS_TOKEN_KEY)
+let refreshRequest: Promise<void> | null = null
 
-export const authStorage = {
-  setTokens(access: string, refresh: string) {
-    localStorage.setItem(ACCESS_TOKEN_KEY, access)
-    localStorage.setItem(REFRESH_TOKEN_KEY, refresh)
-  },
-  clear() {
-    localStorage.removeItem(ACCESS_TOKEN_KEY)
-    localStorage.removeItem(REFRESH_TOKEN_KEY)
-  },
-  hasToken() {
-    return Boolean(getAccessToken())
-  },
+function shouldSkipRefresh(path: string): boolean {
+  return path.startsWith('/auth/login/') || path.startsWith('/auth/logout/') || path.startsWith('/auth/refresh/') || path.startsWith('/auth/token/refresh/')
 }
 
-export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getAccessToken()
+async function performFetch(path: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers)
 
   if (!headers.has('Content-Type') && options.body && !(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json')
   }
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`)
-  }
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers,
+    credentials: 'include',
   })
   const contentType = response.headers.get('content-type') ?? ''
   const data = contentType.includes('application/json') ? await response.json() : null
+  return { response, data }
+}
+
+async function refreshAccessToken(): Promise<void> {
+  if (!refreshRequest) {
+    refreshRequest = (async () => {
+      const { response, data } = await performFetch('/auth/refresh/', { method: 'POST' })
+      if (!response.ok) {
+        throw new ApiError(response.status, data?.detail ?? 'Unable to refresh access token.', data)
+      }
+    })().finally(() => {
+      refreshRequest = null
+    })
+  }
+  await refreshRequest
+}
+
+export async function apiFetch<T>(path: string, options: RequestInit = {}, retryOnUnauthorized = true): Promise<T> {
+  const { response, data } = await performFetch(path, options)
+
+  if (response.status === 401 && retryOnUnauthorized && !shouldSkipRefresh(path)) {
+    await refreshAccessToken()
+    return apiFetch<T>(path, options, false)
+  }
 
   if (!response.ok) {
     throw new ApiError(response.status, data?.detail ?? 'Request failed', data)
@@ -67,6 +74,16 @@ export async function login(email: string, password: string): Promise<User> {
     method: 'POST',
     body: JSON.stringify({ email, password }),
   })
-  authStorage.setTokens(data.access, data.refresh)
   return data.user
+}
+
+export async function logout(): Promise<void> {
+  try {
+    await apiFetch<{ detail: string }>('/auth/logout/', { method: 'POST' }, false)
+  } catch (caught) {
+    if (caught instanceof ApiError && caught.status === 401) {
+      return
+    }
+    throw caught
+  }
 }

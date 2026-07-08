@@ -67,7 +67,7 @@ export function VaccinationDashboardLayout() {
                 <p className="text-xs text-zinc-500">{user?.profile?.role_label ?? 'Staff'}</p>
               </div>
             </div>
-            <button onClick={logout} className="rounded border border-pink-200 bg-white px-3 py-2 text-sm font-medium hover:bg-pink-50">{common.logout}</button>
+            <button onClick={() => void logout()} className="rounded border border-pink-200 bg-white px-3 py-2 text-sm font-medium hover:bg-pink-50">{common.logout}</button>
           </div>
         </header>
 

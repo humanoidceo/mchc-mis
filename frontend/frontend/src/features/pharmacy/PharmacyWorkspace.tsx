@@ -35,6 +35,7 @@ const emptyDashboard: PharmacyDashboardStats = {
   period: 'monthly',
   period_label: 'Monthly',
   medicines_count: 0,
+  medicines_registered_count: 0,
   low_stock_count: 0,
   sales_count: 0,
   internal_patients: 0,
@@ -166,6 +167,7 @@ export function PharmacyWorkspace({ view }: { view: View }) {
         <SalesWorkspace
           setting={setting}
           onCreated={setSelectedSale}
+          onUpdated={(sale) => setSelectedSale((current) => current?.id === sale.id ? sale : current)}
           onSelectSale={setSelectedSale}
         />
       ) : null}
@@ -262,6 +264,7 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
   }, [period, recentSalesPage])
 
   const statCards = [
+    { label: 'Medicines registered', value: report.medicines_registered_count ?? 0, detail: report.period_label, tone: 'border-lime-100 bg-lime-50 text-lime-700' },
     { label: 'Internal patients', value: report.internal_patients, amount: report.internal_amount, tone: 'border-sky-100 bg-sky-50 text-sky-700' },
     { label: 'External patients', value: report.external_patients, amount: report.external_amount, tone: 'border-cyan-100 bg-cyan-50 text-cyan-700' },
     { label: 'Full paid', value: report.full_paid, amount: report.full_paid_amount, tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
@@ -292,7 +295,8 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
           <div key={card.label} className={`rounded-md border p-4 shadow-sm ${card.tone}`}>
             <p className="text-xs font-semibold uppercase tracking-wide opacity-80">{card.label}</p>
             <p className="mt-3 text-3xl font-semibold text-slate-950">{card.value}</p>
-            <p className="mt-2 text-sm font-medium text-slate-700">{formatMoneyAfn(card.amount)}</p>
+            {card.amount !== undefined ? <p className="mt-2 text-sm font-medium text-slate-700">{formatMoneyAfn(card.amount)}</p> : null}
+            {card.detail !== undefined ? <p className="mt-2 text-sm font-medium text-slate-700">{card.detail}</p> : null}
           </div>
         ))}
         <div className="rounded-md border border-pink-100 bg-pink-50 p-4 shadow-sm text-pink-700">
@@ -300,7 +304,7 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
           <p className="mt-3 text-3xl font-semibold text-slate-950">{report.family_planning_items_dispensed}</p>
           <p className="mt-2 text-sm font-medium text-slate-700">{report.period_label}</p>
         </div>
-        <div className="rounded-md border border-indigo-100 bg-indigo-50 p-4 shadow-sm text-indigo-700">
+        <div className="rounded-md border border-indigo-100 bg-indigo-50 p-4 shadow-sm text-indigo-700 sm:col-span-2 lg:col-span-2 xl:col-span-2">
           <p className="text-xs font-semibold uppercase tracking-wide opacity-80">Medicines sold</p>
           <p className="mt-3 text-3xl font-semibold text-slate-950">{report.period_label}</p>
           <div className="mt-3 space-y-1 text-sm font-medium text-slate-700">
@@ -540,10 +544,12 @@ function LowStockReport() {
 function SalesWorkspace({
   setting,
   onCreated,
+  onUpdated,
   onSelectSale,
 }: {
   setting: PharmacySetting
   onCreated: (sale: PharmacySale) => void
+  onUpdated: (sale: PharmacySale) => void
   onSelectSale: (sale: PharmacySale) => void
 }) {
   const [sales, setSales] = useState<PharmacySale[]>([])
@@ -557,6 +563,8 @@ function SalesWorkspace({
   const [notice, setNotice] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [loadingPrescription, setLoadingPrescription] = useState(false)
+  const [editingSaleId, setEditingSaleId] = useState<number | null>(null)
+  const [editingPrescriptionDocumentId, setEditingPrescriptionDocumentId] = useState<number | null>(null)
   const [filterText, setFilterText] = useState('')
   const [deferredFilterText, setDeferredFilterText] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
@@ -584,6 +592,16 @@ function SalesWorkspace({
   const totalAmount = rows.reduce((sum, row) => {
     return sum + (Number(row.unit_price || 0) * Number(row.quantity || 0))
   }, 0)
+
+  function resetBillingForm() {
+    setEditingSaleId(null)
+    setEditingPrescriptionDocumentId(null)
+    setCustomerType('internal')
+    setCustomerName('')
+    setSelectedPatient(null)
+    setPrescription(null)
+    setRows([{ medicine: '', quantity: '1' }])
+  }
 
   async function loadPrescription(patient: PharmacyPatientSearchOption) {
     setSelectedPatient(patient)
@@ -625,27 +643,58 @@ function SalesWorkspace({
       if (!normalizedItems.length) {
         throw new Error('Select at least one medicine.')
       }
-      const sale = await apiFetch<PharmacySale>('/pharmacy/sales/', {
-        method: 'POST',
+      const sale = await apiFetch<PharmacySale>(editingSaleId === null ? '/pharmacy/sales/' : `/pharmacy/sales/${editingSaleId}/`, {
+        method: editingSaleId === null ? 'POST' : 'PATCH',
         body: JSON.stringify({
           customer_type: customerType,
           patient: customerType === 'internal' ? selectedPatient?.id : undefined,
-          prescription_document: customerType === 'internal' ? prescription?.id : undefined,
+          prescription_document: customerType === 'internal' ? prescription?.id ?? editingPrescriptionDocumentId ?? undefined : undefined,
           customer_name: customerType === 'external' ? customerName : '',
           items: normalizedItems,
         }),
       })
-      setCustomerName('')
-      setSelectedPatient(null)
-      setPrescription(null)
-      setRows([{ medicine: '', quantity: '1' }])
-      setNotice(`Bill ${sale.bill_no} created. Reception must approve payment ${sale.payment_status ?? 'pending'}.`)
-      onCreated(sale)
+      resetBillingForm()
+      setNotice(editingSaleId === null ? `Bill ${sale.bill_no} created. Reception must approve payment ${sale.payment_status ?? 'pending'}.` : 'Bill updated.')
+      if (editingSaleId === null) {
+        onCreated(sale)
+      } else {
+        onUpdated(sale)
+      }
       await loadSales(currentPage, deferredFilterText)
     } catch (caught) {
-      setError(caught instanceof Error && !(caught instanceof ApiError) ? caught.message : describeApiError(caught, 'Unable to create bill.'))
+      setError(caught instanceof Error && !(caught instanceof ApiError) ? caught.message : describeApiError(caught, editingSaleId === null ? 'Unable to create bill.' : 'Unable to update bill.'))
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function editSale(sale: PharmacySale) {
+    setError('')
+    setNotice('')
+    setEditingSaleId(sale.id)
+    setEditingPrescriptionDocumentId(sale.prescription_document_id)
+    setCustomerType(sale.customer_type)
+    setRows(sale.items.map((item) => ({
+      medicine: item.medicine ? String(item.medicine) : '',
+      quantity: String(item.quantity),
+      medicine_label: item.medicine_name,
+      unit_price: item.unit_price,
+    })))
+
+    if (sale.customer_type === 'external') {
+      setCustomerName(sale.customer_name || saleCustomerLabel(sale))
+      setSelectedPatient(null)
+      setPrescription(null)
+      return
+    }
+
+    try {
+      const patient = await apiFetch<PharmacyPatientSearchOption>(`/patients/${sale.patient}/`)
+      setSelectedPatient(patient)
+      setCustomerName('')
+      setPrescription(null)
+    } catch (caught) {
+      setError(describeApiError(caught, 'Unable to load the internal patient for editing this bill.'))
     }
   }
 
@@ -672,8 +721,9 @@ function SalesWorkspace({
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <button
             type="button"
-            className={`rounded border px-4 py-3 text-left text-sm ${customerType === 'internal' ? 'border-pink-200 bg-pink-50 text-pink-700' : 'border-sky-100 bg-white text-slate-700 hover:bg-sky-50'}`}
+            className={`rounded border px-4 py-3 text-left text-sm ${customerType === 'internal' ? 'border-pink-200 bg-pink-50 text-pink-700' : 'border-sky-100 bg-white text-slate-700 hover:bg-sky-50'} ${editingSaleId !== null ? 'cursor-not-allowed opacity-70' : ''}`}
             onClick={() => {
+              if (editingSaleId !== null) return
               setCustomerType('internal')
               setCustomerName('')
               setNotice('')
@@ -684,8 +734,9 @@ function SalesWorkspace({
           </button>
           <button
             type="button"
-            className={`rounded border px-4 py-3 text-left text-sm ${customerType === 'external' ? 'border-pink-200 bg-pink-50 text-pink-700' : 'border-sky-100 bg-white text-slate-700 hover:bg-sky-50'}`}
+            className={`rounded border px-4 py-3 text-left text-sm ${customerType === 'external' ? 'border-pink-200 bg-pink-50 text-pink-700' : 'border-sky-100 bg-white text-slate-700 hover:bg-sky-50'} ${editingSaleId !== null ? 'cursor-not-allowed opacity-70' : ''}`}
             onClick={() => {
+              if (editingSaleId !== null) return
               setCustomerType('external')
               setSelectedPatient(null)
               setPrescription(null)
@@ -778,7 +829,8 @@ function SalesWorkspace({
             <div className="rounded border border-zinc-200 bg-white px-4 py-2 text-sm text-slate-700">
               Total {formatMoney(totalAmount)}
             </div>
-            <button className={buttonClassName} disabled={submitting || (customerType === 'internal' && loadingPrescription)} type="submit">{submitting ? 'Saving...' : 'Create bill and send to reception'}</button>
+            <button className={buttonClassName} disabled={submitting || (customerType === 'internal' && loadingPrescription)} type="submit">{submitting ? 'Saving...' : editingSaleId === null ? 'Create bill and send to reception' : 'Save bill changes'}</button>
+            {editingSaleId !== null ? <button className={ghostButtonClassName} type="button" onClick={resetBillingForm}>Cancel edit</button> : null}
           </div>
         </form>
       </Panel>
@@ -822,6 +874,7 @@ function SalesWorkspace({
               </div>
               <div className="mt-4 flex gap-2">
                 <button className={buttonClassName} onClick={() => onSelectSale(sale)}>Print bill</button>
+                {sale.payment_status === 'pending' ? <button className={ghostButtonClassName} onClick={() => void editSale(sale)}>Edit</button> : null}
                 <button className={ghostButtonClassName} onClick={() => void deleteSale(sale.id)}>Delete</button>
               </div>
             </div>

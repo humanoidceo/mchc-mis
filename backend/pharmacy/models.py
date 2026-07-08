@@ -58,6 +58,8 @@ class Medicine(models.Model):
     )
     name = models.CharField(max_length=180)
     generic_name = models.CharField(max_length=180, blank=True)
+    dosage_form = models.CharField(max_length=120, blank=True)
+    strength = models.CharField(max_length=120, blank=True)
     country_of_product = models.CharField(max_length=120, blank=True)
     production_date = models.DateField(null=True, blank=True)
     expiry_date = models.DateField(null=True, blank=True)
@@ -80,12 +82,6 @@ class Medicine(models.Model):
 
     class Meta:
         ordering = ["name"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["pharmacist", "name", "generic_name"],
-                name="unique_medicine_per_pharmacist",
-            )
-        ]
 
     def calculate_sell_price(self):
         default_profit_percentage = pharmacy_default_profit_percentage(self.pharmacist)

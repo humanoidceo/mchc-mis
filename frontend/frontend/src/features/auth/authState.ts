@@ -6,7 +6,7 @@ export type AuthContextValue = {
   user: User | null
   loading: boolean
   login: (email: string, password: string) => Promise<User>
-  logout: () => void
+  logout: () => Promise<void>
   hasPermission: (permission: string) => boolean
   setCurrentUser: (user: User | null) => void
 }

@@ -289,6 +289,7 @@ class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
                 "period": period,
                 "period_label": period_label,
                 "medicines_count": medicines.count(),
+                "medicines_registered_count": medicines.filter(created_at__gte=start_at).count(),
                 "low_stock_count": low_stock_count,
                 "sales_count": period_sales.count(),
                 "internal_patients": internal_patients,
@@ -468,6 +469,7 @@ class PharmacySaleViewSet(
     mixins.DestroyModelMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
 ):
     serializer_class = PharmacySaleSerializer
 
@@ -492,71 +494,116 @@ class PharmacySaleViewSet(
         return queryset
 
     def get_serializer_class(self):
-        if self.action == "create":
+        if self.action in {"create", "update", "partial_update"}:
             return PharmacySaleCreateSerializer
         return PharmacySaleSerializer
+
+    def _guard_sale_editable(self, sale: Sale):
+        if sale.payment is not None and sale.payment.status != Payment.Status.PENDING:
+            raise serializers.ValidationError({"payment": "Only pharmacy bills with pending reception payment can be edited."})
+
+    def _resolve_sale_customer(self, serializer, request, existing_sale: Sale | None = None):
+        customer_type = serializer.validated_data["customer_type"]
+        existing_customer_type = existing_sale.customer_type if existing_sale is not None else customer_type
+
+        if existing_sale is not None and customer_type != existing_customer_type:
+            raise serializers.ValidationError({"customer_type": "Customer type cannot be changed after the pharmacy bill is created."})
+
+        if customer_type == Sale.CustomerType.INTERNAL:
+            patient = Patient.objects.filter(pk=serializer.validated_data["patient"]).first()
+            if patient is None:
+                raise serializers.ValidationError({"patient": "Selected patient was not found."})
+            prescription_id = serializer.validated_data.get("prescription_document")
+            if prescription_id:
+                prescription = ClinicalDocument.objects.filter(
+                    pk=prescription_id,
+                    patient=patient,
+                    document_type=ClinicalDocument.DocumentType.PRESCRIPTION,
+                ).first()
+            else:
+                prescription = latest_prescription_for_patient(patient.id)
+            if prescription is None:
+                raise serializers.ValidationError({"patient": "This patient has no prescription yet."})
+            return customer_type, patient, prescription, f"{patient.first_name} {patient.last_name}".strip()
+
+        customer_name = serializer.validated_data.get("customer_name", "").strip()
+        if existing_sale is None or existing_sale.patient is None:
+            patient = Patient.objects.create(
+                registration_number=next_patient_registration_number(),
+                first_name=customer_name,
+                last_name="",
+                age=None,
+                gender=Patient.Gender.OTHER,
+                date_of_birth=None,
+                phone="",
+                address="",
+                guardian_name="",
+                registered_by=request.user,
+            )
+        else:
+            patient = existing_sale.patient
+            patient.first_name = customer_name
+            patient.last_name = ""
+            patient.save(update_fields=["first_name", "last_name", "updated_at"])
+        return customer_type, patient, None, customer_name
+
+    def _prepare_sale_items(self, user, requested_items, existing_sale: Sale | None = None):
+        existing_items = list(existing_sale.items.all()) if existing_sale is not None else []
+        medicine_ids = {
+            item["medicine"]
+            for item in requested_items
+        }
+        medicine_ids.update(item.medicine_id for item in existing_items if item.medicine_id is not None)
+
+        medicines = {
+            medicine.id: medicine
+            for medicine in Medicine.objects.select_for_update().filter(
+                pk__in=medicine_ids,
+                pharmacist=user,
+            )
+        }
+        available_quantities = {
+            medicine_id: medicine.quantity
+            for medicine_id, medicine in medicines.items()
+        }
+
+        for item in existing_items:
+            if item.medicine_id in available_quantities:
+                available_quantities[item.medicine_id] += item.quantity
+
+        prepared_items = []
+        for item in requested_items:
+            medicine = medicines.get(item["medicine"])
+            if medicine is None:
+                raise serializers.ValidationError(
+                    {"items": [f"Medicine {item['medicine']} is invalid."]}
+                )
+            if item["quantity"] > available_quantities[medicine.id]:
+                raise serializers.ValidationError(
+                    {"items": [f"{medicine.name}: only {available_quantities[medicine.id]} available in stock."]}
+                )
+            available_quantities[medicine.id] -= item["quantity"]
+            prepared_items.append((medicine, item["quantity"]))
+
+        return existing_items, medicines, prepared_items
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         with transaction.atomic():
-            prepared_items = []
-            customer_type = serializer.validated_data["customer_type"]
-            patient = None
-            prescription = None
-
-            if customer_type == Sale.CustomerType.INTERNAL:
-                patient = Patient.objects.filter(pk=serializer.validated_data["patient"]).first()
-                if patient is None:
-                    raise serializers.ValidationError({"patient": "Selected patient was not found."})
-                prescription_id = serializer.validated_data.get("prescription_document")
-                if prescription_id:
-                    prescription = ClinicalDocument.objects.filter(
-                        pk=prescription_id,
-                        patient=patient,
-                        document_type=ClinicalDocument.DocumentType.PRESCRIPTION,
-                    ).first()
-                else:
-                    prescription = latest_prescription_for_patient(patient.id)
-                if prescription is None:
-                    raise serializers.ValidationError({"patient": "This patient has no prescription yet."})
-            else:
-                customer_name = serializer.validated_data.get("customer_name", "").strip()
-                patient = Patient.objects.create(
-                    registration_number=next_patient_registration_number(),
-                    first_name=customer_name,
-                    last_name="",
-                    age=None,
-                    gender=Patient.Gender.OTHER,
-                    date_of_birth=None,
-                    phone="",
-                    address="",
-                    guardian_name="",
-                    registered_by=request.user,
-                )
-
-            for item in serializer.validated_data["items"]:
-                medicine = Medicine.objects.select_for_update().filter(
-                    pk=item["medicine"],
-                    pharmacist=request.user,
-                ).first()
-                if medicine is None:
-                    raise serializers.ValidationError(
-                        {"items": [f"Medicine {item['medicine']} is invalid."]}
-                    )
-                if item["quantity"] > medicine.quantity:
-                    raise serializers.ValidationError(
-                        {"items": [f"{medicine.name}: only {medicine.quantity} available in stock."]}
-                    )
-                prepared_items.append((medicine, item["quantity"]))
+            customer_type, patient, prescription, customer_name = self._resolve_sale_customer(serializer, request)
+            _existing_items, _medicines, prepared_items = self._prepare_sale_items(
+                request.user,
+                serializer.validated_data["items"],
+            )
 
             sale = Sale.objects.create(
                 pharmacist=request.user,
                 customer_type=customer_type,
                 patient=patient,
                 prescription_document=prescription,
-                customer_name=serializer.validated_data.get("customer_name", "").strip(),
+                customer_name=customer_name,
             )
 
             for medicine, quantity in prepared_items:
@@ -587,12 +634,68 @@ class PharmacySaleViewSet(
                 created_by=request.user,
             )
             sale.payment = payment
-            if customer_type == Sale.CustomerType.INTERNAL and not sale.customer_name:
-                sale.customer_name = f"{patient.first_name} {patient.last_name}".strip()
             sale.save(update_fields=["payment", "customer_name"])
 
         output = PharmacySaleSerializer(sale, context=self.get_serializer_context())
         return Response(output.data, status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        sale = self.get_object()
+        self._guard_sale_editable(sale)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            customer_type, patient, prescription, customer_name = self._resolve_sale_customer(
+                serializer,
+                request,
+                existing_sale=sale,
+            )
+            existing_items, medicines, prepared_items = self._prepare_sale_items(
+                request.user,
+                serializer.validated_data["items"],
+                existing_sale=sale,
+            )
+
+            payment = sale.payment
+            if payment is None:
+                raise serializers.ValidationError({"payment": "This pharmacy bill is missing the linked payment record."})
+
+            for item in existing_items:
+                if item.medicine_id in medicines:
+                    medicine = medicines[item.medicine_id]
+                    medicine.quantity += item.quantity
+
+            sale.items.all().delete()
+
+            for medicine, quantity in prepared_items:
+                SaleItem.objects.create(
+                    sale=sale,
+                    medicine=medicine,
+                    medicine_name=medicine.name,
+                    generic_name=medicine.generic_name,
+                    quantity=quantity,
+                    unit_price=medicine.sell_price,
+                )
+                medicine.quantity -= quantity
+
+            for medicine in medicines.values():
+                medicine.save(update_fields=["quantity", "sell_price", "updated_at"])
+
+            payment.patient = patient
+            payment.patient_age = patient.age
+            payment.doctor_fee = sale.total_amount
+            payment.amount = sale.total_amount
+            payment.notes = f"Pharmacy {customer_type} bill {sale.bill_no}"
+            payment.save(update_fields=["patient", "patient_age", "doctor_fee", "amount", "notes", "updated_at"])
+
+            sale.patient = patient
+            sale.prescription_document = prescription
+            sale.customer_name = customer_name
+            sale.save(update_fields=["patient", "prescription_document", "customer_name"])
+
+        output = PharmacySaleSerializer(sale, context=self.get_serializer_context())
+        return Response(output.data)
 
     def destroy(self, request, *args, **kwargs):
         sale = self.get_object()

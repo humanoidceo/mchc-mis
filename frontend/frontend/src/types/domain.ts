@@ -436,6 +436,8 @@ export type PharmacyMedicine = {
   id: number
   name: string
   generic_name: string
+  dosage_form: string
+  strength: string
   country_of_product: string
   production_date: string | null
   expiry_date: string | null
@@ -479,6 +481,7 @@ export type PharmacyDashboardStats = {
   period: 'daily' | 'weekly' | 'monthly' | 'annual'
   period_label: string
   medicines_count: number
+  medicines_registered_count: number
   low_stock_count: number
   sales_count: number
   internal_patients: number

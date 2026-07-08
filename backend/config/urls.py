@@ -18,12 +18,12 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
-from rest_framework_simplejwt.views import TokenRefreshView
+from accounts.views import MchcTokenRefreshView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('accounts.urls')),
-    path('api/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/auth/token/refresh/', MchcTokenRefreshView.as_view(), name='token_refresh_legacy'),
     path('api/pharmacy/', include('pharmacy.api_urls')),
     path('api/', include('clinic.urls')),
     path("pharmacy/", include("pharmacy.urls")),

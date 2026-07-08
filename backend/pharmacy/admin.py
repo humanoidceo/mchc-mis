@@ -19,6 +19,8 @@ class MedicineAdmin(admin.ModelAdmin):
     list_display = (
         "name",
         "generic_name",
+        "dosage_form",
+        "strength",
         "pharmacist",
         "quantity",
         "buy_price",
@@ -26,7 +28,7 @@ class MedicineAdmin(admin.ModelAdmin):
         "sell_price",
     )
     list_filter = ("pharmacist",)
-    search_fields = ("name", "generic_name", "pharmacist__username")
+    search_fields = ("name", "generic_name", "dosage_form", "strength", "pharmacist__username")
     readonly_fields = ("sell_price",)
 
 

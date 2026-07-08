@@ -8,6 +8,8 @@ import type { PaginatedResponse, PharmacyMedicine, PharmacySetting } from '../..
 type MedicineFormState = {
   name: string
   generic_name: string
+  dosage_form: string
+  strength: string
   country_of_product: string
   production_date: string
   expiry_date: string
@@ -19,6 +21,8 @@ type MedicineFormState = {
 const emptyMedicineForm: MedicineFormState = {
   name: '',
   generic_name: '',
+  dosage_form: '',
+  strength: '',
   country_of_product: '',
   production_date: '',
   expiry_date: '',
@@ -210,6 +214,8 @@ function MedicineManager({
         ? {
             name: form.name.trim(),
             generic_name: 'Family Planning',
+            dosage_form: '',
+            strength: '',
             country_of_product: '',
             production_date: null,
             expiry_date: monthValueToDate(form.expiry_date),
@@ -221,6 +227,8 @@ function MedicineManager({
         ? {
             name: form.name.trim(),
             generic_name: 'RUTF',
+            dosage_form: '',
+            strength: '',
             country_of_product: form.country_of_product.trim(),
             production_date: form.production_date || null,
             expiry_date: monthValueToDate(form.expiry_date),
@@ -284,10 +292,12 @@ function MedicineManager({
             <thead className="text-slate-500">
               <tr>
                 <th className="pb-3 pr-4 font-medium">{rutfOnly || familyPlanningOnly ? 'Product name' : 'Medicine'}</th>
-                <th className="pb-3 pr-4 font-medium">{rutfOnly ? 'Country' : 'Quantity'}</th>
-                <th className="pb-3 pr-4 font-medium">{rutfOnly ? 'Produce date' : familyPlanningOnly ? 'Expiry date' : 'Buy'}</th>
-                <th className="pb-3 pr-4 font-medium">{rutfOnly || familyPlanningOnly || expiredOnly || upcomingExpiredOnly ? (familyPlanningOnly ? 'Status' : 'Expiry date') : 'Sell'}</th>
-                <th className="pb-3 pr-4 font-medium">{rutfOnly ? 'Quantity' : familyPlanningOnly ? 'Updated' : expiredOnly || upcomingExpiredOnly ? 'Sell' : 'Margin'}</th>
+                <th className="pb-3 pr-4 font-medium">{rutfOnly ? 'Country' : familyPlanningOnly ? 'Quantity' : 'Dosage form'}</th>
+                <th className="pb-3 pr-4 font-medium">{rutfOnly ? 'Produce date' : familyPlanningOnly ? 'Expiry date' : 'Strength'}</th>
+                <th className="pb-3 pr-4 font-medium">{rutfOnly || familyPlanningOnly || expiredOnly || upcomingExpiredOnly ? (familyPlanningOnly ? 'Status' : 'Expiry date') : 'Quantity'}</th>
+                <th className="pb-3 pr-4 font-medium">{rutfOnly ? 'Quantity' : familyPlanningOnly ? 'Updated' : expiredOnly || upcomingExpiredOnly ? 'Sell' : 'Buy'}</th>
+                <th className="pb-3 pr-4 font-medium">{rutfOnly || familyPlanningOnly || expiredOnly || upcomingExpiredOnly ? '' : 'Sell'}</th>
+                <th className="pb-3 pr-4 font-medium">{rutfOnly || familyPlanningOnly || expiredOnly || upcomingExpiredOnly ? '' : 'Margin'}</th>
                 <th className="pb-3 font-medium text-right">Action</th>
               </tr>
             </thead>
@@ -298,10 +308,12 @@ function MedicineManager({
                     <p className="font-medium text-slate-900">{medicine.name}</p>
                     {!rutfOnly && !familyPlanningOnly ? <p className="text-xs text-slate-500">{medicine.generic_name || 'No generic name'}</p> : null}
                   </td>
-                  <td className="py-3 pr-4 text-slate-700">{rutfOnly ? (medicine.country_of_product || '-') : medicine.quantity}</td>
-                  <td className="py-3 pr-4 text-slate-700">{rutfOnly ? (medicine.production_date || '-') : familyPlanningOnly ? formatMonthValue(medicine.expiry_date) : formatMoneyAfn(medicine.buy_price)}</td>
-                  <td className="py-3 pr-4 text-slate-700">{rutfOnly ? formatMonthValue(medicine.expiry_date) : familyPlanningOnly ? medicine.stock_status : expiredOnly || upcomingExpiredOnly ? formatMonthValue(medicine.expiry_date) : formatMoneyAfn(medicine.sell_price)}</td>
-                  <td className="py-3 pr-4 text-slate-700">{rutfOnly ? medicine.quantity : familyPlanningOnly ? formatDate(medicine.updated_at) : expiredOnly || upcomingExpiredOnly ? formatMoneyAfn(medicine.sell_price) : `${medicine.profit_percentage}%`}</td>
+                  <td className="py-3 pr-4 text-slate-700">{rutfOnly ? (medicine.country_of_product || '-') : familyPlanningOnly ? medicine.quantity : (medicine.dosage_form || '-')}</td>
+                  <td className="py-3 pr-4 text-slate-700">{rutfOnly ? (medicine.production_date || '-') : familyPlanningOnly ? formatMonthValue(medicine.expiry_date) : (medicine.strength || '-')}</td>
+                  <td className="py-3 pr-4 text-slate-700">{rutfOnly ? formatMonthValue(medicine.expiry_date) : familyPlanningOnly ? medicine.stock_status : expiredOnly || upcomingExpiredOnly ? formatMonthValue(medicine.expiry_date) : medicine.quantity}</td>
+                  <td className="py-3 pr-4 text-slate-700">{rutfOnly ? medicine.quantity : familyPlanningOnly ? formatDate(medicine.updated_at) : expiredOnly || upcomingExpiredOnly ? formatMoneyAfn(medicine.sell_price) : formatMoneyAfn(medicine.buy_price)}</td>
+                  <td className="py-3 pr-4 text-slate-700">{rutfOnly || familyPlanningOnly || expiredOnly || upcomingExpiredOnly ? '' : formatMoneyAfn(medicine.sell_price)}</td>
+                  <td className="py-3 pr-4 text-slate-700">{rutfOnly || familyPlanningOnly || expiredOnly || upcomingExpiredOnly ? '' : `${medicine.profit_percentage}%`}</td>
                   <td className="py-3 text-right">
                     <div className="flex justify-end gap-2">
                       <button
@@ -311,6 +323,8 @@ function MedicineManager({
                           setForm({
                             name: medicine.name,
                             generic_name: medicine.generic_name,
+                            dosage_form: medicine.dosage_form || '',
+                            strength: medicine.strength || '',
                             country_of_product: medicine.country_of_product || '',
                             production_date: medicine.production_date || '',
                             expiry_date: monthInputValue(medicine.expiry_date),
@@ -329,7 +343,7 @@ function MedicineManager({
               ))}
               {!medicines.length && !loading ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-500">{familyPlanningOnly ? 'No family planning stock entries match this search.' : rutfOnly ? 'No malnutrition stock entries match this search.' : expiredOnly ? 'No expired medicines match this search.' : upcomingExpiredOnly ? 'No upcoming expired medicines match this search.' : 'No medicines match this search.'}</td>
+                  <td colSpan={8} className="py-8 text-center text-slate-500">{familyPlanningOnly ? 'No family planning stock entries match this search.' : rutfOnly ? 'No malnutrition stock entries match this search.' : expiredOnly ? 'No expired medicines match this search.' : upcomingExpiredOnly ? 'No upcoming expired medicines match this search.' : 'No medicines match this search.'}</td>
                 </tr>
               ) : null}
             </tbody>
@@ -394,6 +408,14 @@ function MedicineManager({
               <Field label="Generic name">
                 <input value={form.generic_name} onChange={(event) => setForm({ ...form, generic_name: event.target.value })} className={inputClassName} />
               </Field>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Dosage form">
+                  <input value={form.dosage_form} onChange={(event) => setForm({ ...form, dosage_form: event.target.value })} className={inputClassName} placeholder="Tablet, syrup, capsule" />
+                </Field>
+                <Field label="Strength">
+                  <input value={form.strength} onChange={(event) => setForm({ ...form, strength: event.target.value })} className={inputClassName} placeholder="500 mg, 5 ml, 1 g, 400 IU" />
+                </Field>
+              </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Quantity">
                   <input value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} className={inputClassName} min="0" step="0.1" type="number" required />
