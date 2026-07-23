@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.db import models
 
+from shared.soft_delete import SoftDeleteModel
+
 
 class TimestampedModel(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
@@ -10,16 +12,21 @@ class TimestampedModel(models.Model):
         abstract = True
 
 
-class Patient(TimestampedModel):
+class Patient(TimestampedModel, SoftDeleteModel):
     class Gender(models.TextChoices):
         FEMALE = 'female', 'Female'
         MALE = 'male', 'Male'
         OTHER = 'other', 'Other'
 
+    class AgeUnit(models.TextChoices):
+        MONTH = 'month', 'Month'
+        YEAR = 'year', 'Year'
+
     registration_number = models.CharField(max_length=32, unique=True)
     first_name = models.CharField(max_length=80)
     last_name = models.CharField(max_length=80, blank=True)
     age = models.PositiveIntegerField(null=True, blank=True)
+    age_unit = models.CharField(max_length=8, choices=AgeUnit.choices, default=AgeUnit.YEAR)
     gender = models.CharField(max_length=16, choices=Gender.choices)
     date_of_birth = models.DateField(null=True, blank=True)
     phone = models.CharField(max_length=32, blank=True)
@@ -34,7 +41,7 @@ class Patient(TimestampedModel):
         return f'{self.registration_number} - {self.first_name} {self.last_name}'.strip()
 
 
-class Payment(TimestampedModel):
+class Payment(TimestampedModel, SoftDeleteModel):
     class Status(models.TextChoices):
         PENDING = 'pending', 'Pending'
         APPROVED = 'approved', 'Approved'
@@ -49,6 +56,7 @@ class Payment(TimestampedModel):
     department = models.CharField(max_length=120, blank=True)
     doctor_name = models.CharField(max_length=120, blank=True)
     patient_age = models.PositiveIntegerField(null=True, blank=True)
+    patient_age_unit = models.CharField(max_length=8, choices=Patient.AgeUnit.choices, default=Patient.AgeUnit.YEAR)
     doctor_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     payment_type = models.CharField(max_length=16, choices=PaymentType.choices, default=PaymentType.FULL)
     discount_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0)
@@ -64,7 +72,7 @@ class Payment(TimestampedModel):
         ordering = ('-created_at',)
 
 
-class SalaryPayment(TimestampedModel):
+class SalaryPayment(TimestampedModel, SoftDeleteModel):
     employee = models.ForeignKey('accounts.Employee', on_delete=models.PROTECT, related_name='salary_payments')
     afghan_year = models.PositiveIntegerField()
     months = models.JSONField(default=list, blank=True)
@@ -92,7 +100,7 @@ class SalaryPayment(TimestampedModel):
         return f'Salary payment - {self.employee} - {self.afghan_year}'
 
 
-class SalaryAdvance(TimestampedModel):
+class SalaryAdvance(TimestampedModel, SoftDeleteModel):
     employee = models.ForeignKey('accounts.Employee', on_delete=models.PROTECT, related_name='salary_advances')
     afghan_year = models.PositiveIntegerField()
     afghan_month = models.CharField(max_length=24)
@@ -120,7 +128,7 @@ class SalaryAdvanceSettlement(TimestampedModel):
         ordering = ('created_at', 'id')
 
 
-class Expense(TimestampedModel):
+class Expense(TimestampedModel, SoftDeleteModel):
     name = models.CharField(max_length=180)
     category = models.CharField(max_length=120)
     amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -152,7 +160,7 @@ class Expense(TimestampedModel):
         return f'{self.name} ({self.category})'
 
 
-class ClinicalDocument(TimestampedModel):
+class ClinicalDocument(TimestampedModel, SoftDeleteModel):
     class DocumentType(models.TextChoices):
         PRESCRIPTION = 'prescription', 'Prescription'
         LAB_ORDER = 'lab_order', 'Laboratory order'
@@ -187,7 +195,7 @@ class ClinicalDocument(TimestampedModel):
         return f'{self.get_document_type_display()} - {self.patient}'
 
 
-class Medicine(TimestampedModel):
+class Medicine(TimestampedModel, SoftDeleteModel):
     name = models.CharField(max_length=160, unique=True)
     unit = models.CharField(max_length=32, default='tablet')
     sale_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
@@ -258,6 +266,10 @@ def website_logo_upload_path(instance, filename: str) -> str:
     return f'website/logo/{filename}'
 
 
+def private_document_upload_path(instance, filename: str) -> str:
+    return f'private-documents/{instance.category or "general"}/{filename}'
+
+
 class WebsitePageContent(TimestampedModel):
     class Page(models.TextChoices):
         HOME = 'home', 'Home'
@@ -311,3 +323,21 @@ class WebsiteSettings(TimestampedModel):
 
     def __str__(self) -> str:
         return 'Website settings'
+
+
+class PrivateDocument(TimestampedModel, SoftDeleteModel):
+    title = models.CharField(max_length=180)
+    category = models.CharField(max_length=120)
+    file = models.FileField(upload_to=private_document_upload_path)
+    max_size_mb = models.DecimalField(max_digits=6, decimal_places=2, default=1)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='private_documents',
+    )
+
+    class Meta:
+        ordering = ('-created_at', 'title')
+
+    def __str__(self) -> str:
+        return f'{self.title} ({self.category})'

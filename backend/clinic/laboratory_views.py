@@ -12,6 +12,7 @@ from rest_framework.response import Response
 
 from accounts.access import user_has_permission
 from accounts.permissions import Role
+from accounts.trash import soft_delete_instance
 
 from .laboratory_serializers import (
     LaboratoryBillCreateSerializer,
@@ -44,7 +45,7 @@ def is_laboratory_user(user) -> bool:
 def next_patient_registration_number() -> str:
     numeric_registration_numbers = [
         int(registration_number)
-        for registration_number in Patient.objects.select_for_update().values_list('registration_number', flat=True)
+        for registration_number in Patient.all_objects.select_for_update().values_list('registration_number', flat=True)
         if registration_number.isdigit()
     ]
     return str(max(numeric_registration_numbers, default=0) + 1)
@@ -373,6 +374,7 @@ class LaboratoryBillViewSet(
                 department='Laboratory',
                 doctor_name='',
                 patient_age=patient.age,
+                patient_age_unit=patient.age_unit,
                 doctor_fee=total_amount,
                 payment_type=Payment.PaymentType.FULL,
                 discount_percentage=Decimal('0.00'),
@@ -418,10 +420,11 @@ class LaboratoryBillViewSet(
 
             payment.patient = patient
             payment.patient_age = patient.age
+            payment.patient_age_unit = patient.age_unit
             payment.doctor_fee = total_amount
             payment.amount = total_amount
             payment.notes = f'Laboratory {customer_type} bill'
-            payment.save(update_fields=['patient', 'patient_age', 'doctor_fee', 'amount', 'notes', 'updated_at'])
+            payment.save(update_fields=['patient', 'patient_age', 'patient_age_unit', 'doctor_fee', 'amount', 'notes', 'updated_at'])
 
             document.patient = patient
             document.payload = {
@@ -479,8 +482,5 @@ class LaboratoryBillViewSet(
     def destroy(self, request, *args, **kwargs):
         document = self.get_object()
         with transaction.atomic():
-            payment = document.payment
-            document.delete()
-            if payment is not None:
-                payment.delete()
+            soft_delete_instance(document, request.user)
         return Response(status=status.HTTP_204_NO_CONTENT)

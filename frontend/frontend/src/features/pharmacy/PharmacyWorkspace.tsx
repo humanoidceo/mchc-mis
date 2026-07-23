@@ -17,10 +17,10 @@ import type {
   SearchResponse,
 } from '../../types/domain'
 import { useAuth } from '../auth/useAuth'
-import { PrintDocument } from '../clinic/PrintDocument'
+import { BillReceiptNote, BillSignature, BillTitle, billBoxClassName, billCellClassName, billHeaderCellClassName, billPaperClassName, PrintDocument } from '../clinic/PrintDocument'
 import { PharmacyMedicineStockSection } from './PharmacyMedicineStockSection'
 
-type View = 'dashboard' | 'medicines' | 'family-planning-stock' | 'family-planning-orders' | 'expired-medicines' | 'upcoming-expired-medicines' | 'rutf-stock' | 'low-stock' | 'sales' | 'rutf-orders' | 'settings'
+type View = 'dashboard' | 'report' | 'medicines' | 'family-planning-stock' | 'family-planning-orders' | 'expired-medicines' | 'upcoming-expired-medicines' | 'rutf-stock' | 'low-stock' | 'sales' | 'rutf-orders' | 'settings'
 type SaleDraftRow = {
   medicine: string
   quantity: string
@@ -29,6 +29,25 @@ type SaleDraftRow = {
   stock?: number
   prescribed_name?: string
   instructions?: string
+}
+type FamilyPlanningDraftItem = {
+  medicine: number
+  medicine_name: string
+  quantity: string
+}
+type PharmacyInventoryReportSummary = {
+  from: string
+  to: string
+  sales_count: number
+  sold_quantity: string
+  sold_amount: string
+  sold_cost_amount: string
+  sold_profit_amount: string
+  available_medicines_count: number
+  stock_units: string
+  stock_value_cost: string
+  stock_value_sale: string
+  generated_at: string
 }
 
 const emptyDashboard: PharmacyDashboardStats = {
@@ -52,7 +71,7 @@ const emptyDashboard: PharmacyDashboardStats = {
   pending_reception_amount: '0.00',
   approved_reception_payments: 0,
   approved_reception_amount: '0.00',
-  stock_units: 0,
+  stock_units: '0.00',
   inventory_value: '0.00',
   total_billed: '0.00',
   sold_medicines_total: '0.00',
@@ -70,6 +89,7 @@ const dashboardPeriodOptions: Array<{ value: PharmacyDashboardStats['period']; l
   { value: 'weekly', label: 'Weekly' },
   { value: 'monthly', label: 'Monthly' },
   { value: 'annual', label: 'Annual' },
+  { value: 'custom', label: 'Custom' },
 ]
 
 const emptySetting: PharmacySetting = {
@@ -86,6 +106,48 @@ function formatMoney(value: string | number): string {
 
 function formatMoneyAfn(value: string | number): string {
   return `${formatMoney(value)} AFN`
+}
+
+function formatDariDate(value: string): string {
+  return new Intl.DateTimeFormat('fa-AF-u-ca-gregory', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  }).format(new Date(value))
+}
+
+function formatDariDateFromInput(value: string): string {
+  return formatDariDate(`${value}T00:00:00`)
+}
+
+function formatDariDateTime(value: string): string {
+  return new Intl.DateTimeFormat('fa-AF-u-ca-gregory', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value))
+}
+
+function formatDariNumber(value: number): string {
+  return new Intl.NumberFormat('fa-AF').format(value)
+}
+
+function formatDariMoney(value: string | number): string {
+  return `${new Intl.NumberFormat('fa-AF', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Number(value || 0))} افغانی`
+}
+
+function formatDariQuantity(value: string | number): string {
+  const numericValue = Number(value || 0)
+  const hasFraction = Math.abs(numericValue % 1) > 0.0001
+  return new Intl.NumberFormat('fa-AF', {
+    minimumFractionDigits: hasFraction ? 1 : 0,
+    maximumFractionDigits: 1,
+  }).format(numericValue)
 }
 
 function formatDate(value: string): string {
@@ -115,6 +177,39 @@ function describeApiError(caught: unknown, fallback: string): string {
   return fallback
 }
 
+function todayDateInputValue(): string {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function buildPharmacyDashboardQuery(period: PharmacyDashboardStats['period'], recentPage: number, fromDate: string, toDate: string): string {
+  const params = new URLSearchParams({
+    period,
+    recent_page: String(recentPage),
+  })
+  if (period === 'custom') {
+    params.set('from', fromDate)
+    params.set('to', toDate)
+  }
+  return params.toString()
+}
+
+function normalizeSaleQuantityInput(value: string): string {
+  const sanitized = value.replace(/[^\d.]/g, '')
+  const [wholePart, ...decimalParts] = sanitized.split('.')
+  if (!decimalParts.length) {
+    return wholePart
+  }
+  return `${wholePart}.${decimalParts.join('').slice(0, 1)}`
+}
+
+function normalizeFamilyPlanningQuantityInput(value: string): string {
+  return value.replace(/[^\d]/g, '')
+}
+
 export function PharmacyWorkspace({ view }: { view: View }) {
   const { user } = useAuth()
   const [dashboard, setDashboard] = useState<PharmacyDashboardStats>(emptyDashboard)
@@ -124,12 +219,12 @@ export function PharmacyWorkspace({ view }: { view: View }) {
   const [selectedRutfOrder, setSelectedRutfOrder] = useState<PharmacyRutfOrder | null>(null)
   const [error, setError] = useState('')
 
-  async function loadData(currentView = view, period: PharmacyDashboardStats['period'] = 'monthly', recentPage = 1) {
+  async function loadData(currentView = view, period: PharmacyDashboardStats['period'] = 'monthly', recentPage = 1, fromDate = todayDateInputValue(), toDate = todayDateInputValue()) {
     setError('')
     try {
       if (currentView === 'dashboard') {
         const [dashboardData, settingData] = await Promise.all([
-          apiFetch<PharmacyDashboardStats>(`/pharmacy/dashboard/?period=${period}&recent_page=${recentPage}`),
+          apiFetch<PharmacyDashboardStats>(`/pharmacy/dashboard/?${buildPharmacyDashboardQuery(period, recentPage, fromDate, toDate)}`),
           apiFetch<PharmacySetting>('/pharmacy/settings/'),
         ])
         setDashboard(dashboardData)
@@ -155,7 +250,8 @@ export function PharmacyWorkspace({ view }: { view: View }) {
   return (
     <div className="space-y-6">
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-      {view === 'dashboard' ? <PharmacyDashboard dashboard={dashboard} onRefresh={(period, recentPage) => void loadData('dashboard', period, recentPage)} /> : null}
+      {view === 'dashboard' ? <PharmacyDashboard dashboard={dashboard} onRefresh={(period, recentPage, fromDate, toDate) => void loadData('dashboard', period, recentPage, fromDate, toDate)} /> : null}
+      {view === 'report' ? <PharmacyInventoryReport /> : null}
       {view === 'medicines' ? <PharmacyMedicineStockSection key="medicines" /> : null}
       {view === 'family-planning-stock' ? <PharmacyMedicineStockSection key="family-planning-stock" familyPlanningOnly /> : null}
       {view === 'family-planning-orders' ? <FamilyPlanningOrdersWorkspace onSelectOrder={setSelectedFamilyPlanningOrder} /> : null}
@@ -230,30 +326,197 @@ export function PharmacyWorkspace({ view }: { view: View }) {
   )
 }
 
-function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashboardStats; onRefresh: (period: PharmacyDashboardStats['period'], recentPage: number) => void }) {
+function PharmacyInventoryReport() {
+  const [fromDate, setFromDate] = useState(todayDateInputValue())
+  const [toDate, setToDate] = useState(todayDateInputValue())
+  const [report, setReport] = useState<PharmacyInventoryReportSummary | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const loadReport = useCallback(async (currentFrom = fromDate, currentTo = toDate) => {
+    setLoading(true)
+    setError('')
+    try {
+      const params = new URLSearchParams({
+        from: currentFrom,
+        to: currentTo,
+      })
+      const response = await apiFetch<PharmacyInventoryReportSummary>(`/pharmacy/dashboard/report/?${params.toString()}`)
+      setReport(response)
+    } catch (caught) {
+      setError(describeApiError(caught, 'Unable to load pharmacy report.'))
+    } finally {
+      setLoading(false)
+    }
+  }, [fromDate, toDate])
+
+  useEffect(() => {
+    void loadReport(fromDate, toDate)
+  }, [fromDate, loadReport, toDate])
+
+  return (
+    <div className="space-y-5">
+      <section className="no-print flex flex-wrap items-end justify-between gap-4">
+        <SectionHeader title="Pharmacy report" subtitle="Choose a date range and print a formal Dari A4 pharmacy report." />
+        <form
+          className="flex w-full max-w-3xl flex-wrap items-end justify-end gap-3 rounded-2xl border border-sky-100 bg-white px-4 py-3 shadow-sm shadow-sky-100/70"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void loadReport()
+          }}
+        >
+          <label className="block w-full sm:w-52">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">From</span>
+            <input className={inputClassName} type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
+          </label>
+          <label className="block w-full sm:w-52">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">To</span>
+            <input className={inputClassName} type="date" value={toDate} min={fromDate || undefined} onChange={(event) => setToDate(event.target.value)} />
+          </label>
+          <button className={ghostButtonClassName} type="submit" disabled={loading}>{loading ? 'Loading...' : 'Generate report'}</button>
+          <button className={buttonClassName} type="button" onClick={() => window.print()} disabled={!report}>Print report</button>
+        </form>
+      </section>
+
+      {error ? <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+
+      <section className="print-area">
+        <article dir="rtl" lang="fa-AF" className="a4-report mx-auto max-w-3xl rounded-md border border-zinc-200 bg-white p-8 text-right text-zinc-950">
+          <header className="border-b border-zinc-200 pb-5">
+            <div className="flex items-center justify-center gap-4 text-center">
+              <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-20 w-20 rounded-2xl border border-sky-100 object-cover shadow-sm shadow-sky-100/70" />
+              <div>
+                <p className="text-sm font-semibold text-sky-700">Mother and Child Health Support Center</p>
+                <p className="mt-1 text-base font-semibold text-slate-800">مرکز حمایه صحت طفل و مادر</p>
+                <h1 className="mt-2 text-3xl font-bold text-slate-950">گزارش دواخانه</h1>
+              </div>
+            </div>
+          </header>
+
+          <div className="mt-6 grid gap-3 text-sm text-slate-700 sm:grid-cols-2">
+            <p><strong>بخش مربوطه:</strong> دواخانه کلینیک</p>
+            <p><strong>تاریخ ترتیب گزارش:</strong> {report ? formatDariDateTime(report.generated_at) : formatDariDateTime(new Date().toISOString())}</p>
+            <p><strong>از تاریخ:</strong> {formatDariDateFromInput(fromDate)}</p>
+            <p><strong>الی تاریخ:</strong> {formatDariDateFromInput(toDate)}</p>
+          </div>
+
+          <section className="mt-8 rounded-2xl border border-sky-100 bg-sky-50/70 p-6">
+            <p className="text-lg leading-9 text-slate-900">
+              این گزارش رسمی دواخانه نشان می‌دهد که در فاصله زمانی از تاریخ{' '}
+              <strong>{formatDariDateFromInput(fromDate)}</strong>{' '}
+              الی{' '}
+              <strong>{formatDariDateFromInput(toDate)}</strong>
+              ، به تعداد{' '}
+              <strong className="text-sky-800">{formatDariNumber(report?.sales_count ?? 0)}</strong>{' '}
+              بل فروش ثبت گردیده، به مقدار{' '}
+              <strong className="text-sky-800">{formatDariQuantity(report?.sold_quantity ?? 0)}</strong>{' '}
+              واحد دوا فروخته شده و مبلغ مجموعی فروشات به{' '}
+              <strong className="text-sky-800">{formatDariMoney(report?.sold_amount ?? 0)}</strong>{' '}
+              رسیده است.
+            </p>
+          </section>
+
+          <section className="mt-8 grid gap-4 sm:grid-cols-[1.1fr_0.9fr]">
+            <div className="rounded-2xl border border-zinc-200 bg-white p-5">
+              <p className="text-sm font-semibold text-zinc-700">خلاصه گزارش</p>
+              <p className="mt-4 text-4xl font-bold text-slate-950">{formatDariMoney(report?.sold_amount ?? 0)}</p>
+              <p className="mt-2 text-sm text-zinc-500">فروش مجموعی دوا در محدوده فوق الذکر</p>
+            </div>
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-5 text-sm leading-7 text-slate-700">
+              <p><strong>تعداد اقلام موجود دوا:</strong> {formatDariNumber(report?.available_medicines_count ?? 0)}</p>
+              <p className="mt-2"><strong>تعداد مجموعی واحدهای موجود:</strong> {formatDariQuantity(report?.stock_units ?? 0)}</p>
+              <p className="mt-2"><strong>ارزش فعلی استاک به قیمت خرید:</strong> {formatDariMoney(report?.stock_value_cost ?? 0)}</p>
+              <p className="mt-2"><strong>ارزش فعلی استاک به قیمت فروش:</strong> {formatDariMoney(report?.stock_value_sale ?? 0)}</p>
+            </div>
+          </section>
+
+          <section className="mt-8 rounded-2xl border border-zinc-200 bg-white p-5">
+            <div className="flex items-center justify-between gap-3 border-b border-zinc-200 pb-3">
+              <h2 className="text-lg font-semibold text-slate-950">تفصیل فروش و وضعیت فعلی استاک دواخانه</h2>
+              <span className="text-sm text-zinc-500">واحد پول: افغانی</span>
+            </div>
+            <div className="mt-4 overflow-hidden rounded-xl border border-zinc-200">
+              <table className="min-w-full text-sm">
+                <thead className="bg-sky-50 text-slate-800">
+                  <tr>
+                    <th className="px-4 py-3 text-right font-semibold">شاخص</th>
+                    <th className="px-4 py-3 text-right font-semibold">مقدار پول</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-t border-zinc-100">
+                    <td className="px-4 py-3 font-medium text-slate-900">فروش دوا در بازه فوق الذکر</td>
+                    <td className="px-4 py-3 text-slate-700">{formatDariMoney(report?.sold_amount ?? 0)}</td>
+                  </tr>
+                  <tr className="border-t border-zinc-100">
+                    <td className="px-4 py-3 font-medium text-slate-900">قیمت خرید دواهای فروخته‌شده</td>
+                    <td className="px-4 py-3 text-slate-700">{formatDariMoney(report?.sold_cost_amount ?? 0)}</td>
+                  </tr>
+                  <tr className="border-t border-zinc-100">
+                    <td className="px-4 py-3 font-medium text-slate-900">مفاد حاصل‌شده از فروش دوا</td>
+                    <td className="px-4 py-3 text-slate-700">{formatDariMoney(report?.sold_profit_amount ?? 0)}</td>
+                  </tr>
+                  <tr className="border-t border-zinc-100">
+                    <td className="px-4 py-3 font-medium text-slate-900">اقلام فعلی موجود در استاک</td>
+                    <td className="px-4 py-3 text-slate-700">{formatDariMoney(report?.stock_value_cost ?? 0)}</td>
+                  </tr>
+                  <tr className="border-t border-zinc-100">
+                    <td className="px-4 py-3 font-medium text-slate-900">ارزش فعلی استاک به قیمت فروش</td>
+                    <td className="px-4 py-3 text-slate-700">{formatDariMoney(report?.stock_value_sale ?? 0)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="mt-12 grid gap-10 text-sm text-slate-800 sm:grid-cols-2">
+            <div className="text-right">
+              <p className="font-semibold">مسؤول دواخانه</p>
+              <p className="mt-8">نام: __________________</p>
+              <p className="mt-6">امضاء: __________________</p>
+            </div>
+            <div className="text-right sm:text-left">
+              <p className="font-semibold">مدیریت</p>
+              <p className="mt-8">نام: __________________</p>
+              <p className="mt-6">امضاء: __________________</p>
+            </div>
+          </section>
+        </article>
+      </section>
+    </div>
+  )
+}
+
+function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashboardStats; onRefresh: (period: PharmacyDashboardStats['period'], recentPage: number, fromDate: string, toDate: string) => void }) {
   const [period, setPeriod] = useState<PharmacyDashboardStats['period']>(dashboard.period || 'monthly')
+  const [fromDate, setFromDate] = useState(todayDateInputValue())
+  const [toDate, setToDate] = useState(todayDateInputValue())
   const [report, setReport] = useState(dashboard)
   const [recentSalesPage, setRecentSalesPage] = useState(1)
   const [error, setError] = useState('')
 
   useEffect(() => {
     setReport(dashboard)
+    setPeriod(dashboard.period || 'monthly')
   }, [dashboard])
 
   useEffect(() => {
     setRecentSalesPage(1)
-  }, [period])
+  }, [period, fromDate, toDate])
 
   useEffect(() => {
     let ignore = false
 
     async function loadReport() {
+      if (period === 'custom' && (!fromDate || !toDate)) {
+        return
+      }
       setError('')
       try {
-        const nextReport = await apiFetch<PharmacyDashboardStats>(`/pharmacy/dashboard/?period=${period}&recent_page=${recentSalesPage}`)
+        const nextReport = await apiFetch<PharmacyDashboardStats>(`/pharmacy/dashboard/?${buildPharmacyDashboardQuery(period, recentSalesPage, fromDate, toDate)}`)
         if (!ignore) setReport(nextReport)
-      } catch {
-        if (!ignore) setError('Unable to load pharmacy dashboard.')
+      } catch (caught) {
+        if (!ignore) setError(describeApiError(caught, 'Unable to load pharmacy dashboard.'))
       }
     }
 
@@ -261,7 +524,7 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
     return () => {
       ignore = true
     }
-  }, [period, recentSalesPage])
+  }, [period, recentSalesPage, fromDate, toDate])
 
   const statCards = [
     { label: 'Medicines registered', value: report.medicines_registered_count ?? 0, detail: report.period_label, tone: 'border-lime-100 bg-lime-50 text-lime-700' },
@@ -286,7 +549,19 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
               {dashboardPeriodOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
-          <button className={ghostButtonClassName} onClick={() => onRefresh(period, recentSalesPage)}>Refresh data</button>
+          {period === 'custom' ? (
+            <>
+              <label className="flex-1 text-sm font-medium text-zinc-700">
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">From</span>
+                <input className={`${inputClassName} w-full`} type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
+              </label>
+              <label className="flex-1 text-sm font-medium text-zinc-700">
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">To</span>
+                <input className={`${inputClassName} w-full`} type="date" value={toDate} min={fromDate || undefined} onChange={(event) => setToDate(event.target.value)} />
+              </label>
+            </>
+          ) : null}
+          <button className={ghostButtonClassName} onClick={() => onRefresh(period, recentSalesPage, fromDate, toDate)}>Refresh data</button>
         </div>
       </div>
 
@@ -367,12 +642,12 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-semibold text-slate-950">Patient trend</p>
           <p className="text-xs font-medium text-zinc-500">
-            {report.period === 'weekly' ? 'Daily trend for this week' : report.period === 'monthly' ? 'Daily trend for this month' : report.period === 'annual' ? 'Monthly trend for this year' : 'Select weekly, monthly, or annual'}
+            {report.period === 'weekly' ? 'Daily trend for this week' : report.period === 'monthly' ? 'Daily trend for this month' : report.period === 'annual' ? 'Monthly trend for this year' : report.period === 'custom' ? 'Patient trend is not shown for custom periods' : 'Select weekly, monthly, annual, or custom'}
           </p>
         </div>
-        {report.period === 'daily' ? (
+        {report.period === 'daily' || report.period === 'custom' ? (
           <div className="mt-4 rounded border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500">
-            Change the period to weekly, monthly, or annual to view the patient trend graph.
+            {report.period === 'custom' ? 'Choose daily, weekly, monthly, or annual to view the patient trend graph.' : 'Change the period to weekly, monthly, or annual to view the patient trend graph.'}
           </div>
         ) : (
           <PharmacyTrendChart data={report.patient_trend} />
@@ -800,9 +1075,9 @@ function SalesWorkspace({
                   <Field label="Quantity">
                     <input value={row.quantity} onChange={(event) => {
                       const nextRows = [...rows]
-                      nextRows[index] = { ...row, quantity: event.target.value }
+                      nextRows[index] = { ...row, quantity: normalizeSaleQuantityInput(event.target.value) }
                       setRows(nextRows)
-                    }} className={inputClassName} min="1" type="number" required />
+                    }} className={inputClassName} min="0.1" step="0.1" inputMode="decimal" type="number" required />
                   </Field>
                   <div className="flex items-end">
                     <button className={ghostButtonClassName} disabled={rows.length === 1} onClick={() => setRows(rows.filter((_, rowIndex) => rowIndex !== index))} type="button">Remove</button>
@@ -874,7 +1149,7 @@ function SalesWorkspace({
               </div>
               <div className="mt-4 flex gap-2">
                 <button className={buttonClassName} onClick={() => onSelectSale(sale)}>Print bill</button>
-                {sale.payment_status === 'pending' ? <button className={ghostButtonClassName} onClick={() => void editSale(sale)}>Edit</button> : null}
+                <button className={ghostButtonClassName} onClick={() => void editSale(sale)}>Edit</button>
                 <button className={ghostButtonClassName} onClick={() => void deleteSale(sale.id)}>Delete</button>
               </div>
             </div>
@@ -988,12 +1263,20 @@ function RutfOrdersWorkspace({ onSelectOrder }: { onSelectOrder: (order: Pharmac
 }
 
 function FamilyPlanningOrdersWorkspace({ onSelectOrder }: { onSelectOrder: (order: PharmacyFamilyPlanningOrder) => void }) {
+  const [selectedPatientId, setSelectedPatientId] = useState<number | null>(null)
+  const [selectedPatientLabel, setSelectedPatientLabel] = useState('')
+  const [selectedItem, setSelectedItem] = useState<PharmacyMedicine | null>(null)
+  const [selectedItemLabel, setSelectedItemLabel] = useState('')
+  const [itemQuantity, setItemQuantity] = useState('')
+  const [items, setItems] = useState<FamilyPlanningDraftItem[]>([])
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [saving, setSaving] = useState(false)
   const [orders, setOrders] = useState<PharmacyFamilyPlanningOrder[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
   const [filterText, setFilterText] = useState('')
   const [deferredFilterText, setDeferredFilterText] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'dispensed'>('pending')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'dispensed'>('all')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(false)
@@ -1024,6 +1307,117 @@ function FamilyPlanningOrdersWorkspace({ onSelectOrder }: { onSelectOrder: (orde
     void loadOrders(page, deferredFilterText, statusFilter)
   }, [deferredFilterText, loadOrders, page, statusFilter])
 
+  function resetCreateForm() {
+    setSelectedPatientId(null)
+    setSelectedPatientLabel('')
+    setSelectedItem(null)
+    setSelectedItemLabel('')
+    setItemQuantity('')
+    setItems([])
+    setEditingId(null)
+  }
+
+  function addItem(medicine: PharmacyMedicine | null) {
+    if (!medicine) {
+      setError('Select a family planning item first.')
+      return
+    }
+    const quantity = Number(itemQuantity)
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      setError('Enter a valid quantity.')
+      return
+    }
+    if (items.some((item) => item.medicine === medicine.id)) {
+      setError('This family planning item is already added.')
+      return
+    }
+    setItems((current) => [
+      ...current,
+      {
+        medicine: medicine.id,
+        medicine_name: medicine.name,
+        quantity: String(quantity),
+      },
+    ])
+    setSelectedItem(null)
+    setSelectedItemLabel('')
+    setItemQuantity('')
+    setError('')
+  }
+
+  async function submitOrder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedPatientId) {
+      setError('Select a patient first.')
+      return
+    }
+    if (!items.length) {
+      setError('Add at least one family planning item.')
+      return
+    }
+
+    setSaving(true)
+    setError('')
+    setNotice('')
+    try {
+      await apiFetch<PharmacyFamilyPlanningOrder>(editingId ? `/pharmacy/family-planning-orders/${editingId}/` : '/pharmacy/family-planning-orders/', {
+        method: editingId ? 'PATCH' : 'POST',
+        body: JSON.stringify({
+          patient: selectedPatientId,
+          title: 'Family planning order',
+          payload: {
+            family_planning_record: true,
+            items: items.map((item) => ({
+              medicine: item.medicine,
+              medicine_name: item.medicine_name,
+              quantity: Number(item.quantity),
+            })),
+          },
+        }),
+      })
+      setNotice(editingId ? 'Family planning order updated.' : 'Family planning order saved and added to pharmacy queue.')
+      resetCreateForm()
+      await loadOrders(page, deferredFilterText, statusFilter)
+    } catch (caught) {
+      setError(describeApiError(caught, 'Unable to save family planning order.'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function editOrder(order: PharmacyFamilyPlanningOrder) {
+    setEditingId(order.id)
+    setSelectedPatientId(order.patient)
+    setSelectedPatientLabel(order.patient_name)
+    setSelectedItem(null)
+    setSelectedItemLabel('')
+    setItemQuantity('')
+    setItems(order.items.map((item) => ({
+      medicine: item.medicine,
+      medicine_name: item.medicine_name,
+      quantity: String(item.quantity),
+    })))
+    setError('')
+    setNotice('')
+  }
+
+  async function deleteOrder(order: PharmacyFamilyPlanningOrder) {
+    const confirmed = window.confirm(`Delete family planning order for "${order.patient_name}"?`)
+    if (!confirmed) return
+    setError('')
+    setNotice('')
+    try {
+      await apiFetch(`/pharmacy/family-planning-orders/${order.id}/`, { method: 'DELETE' })
+      if (editingId === order.id) {
+        resetCreateForm()
+      }
+      setNotice(`Family planning order deleted for ${order.patient_name}.`)
+      await loadOrders(page, deferredFilterText, statusFilter)
+    } catch (caught) {
+      setError(describeApiError(caught, 'Unable to delete family planning order.'))
+    }
+  }
+
   async function dispenseOrder(orderId: number) {
     setError('')
     setNotice('')
@@ -1038,50 +1432,130 @@ function FamilyPlanningOrdersWorkspace({ onSelectOrder }: { onSelectOrder: (orde
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <SectionHeader title="Family planning orders" subtitle="Search the patient, print the issued items, and dispense them from Family Planning Stock." />
-        <div className="flex flex-wrap gap-2">
-          <input value={filterText} onChange={(event) => setFilterText(event.target.value)} className={inputClassName} placeholder="Search by patient or order" />
-          <select className={inputClassName} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as 'all' | 'pending' | 'dispensed')}>
-            <option value="pending">Pending</option>
-            <option value="dispensed">Dispensed</option>
-            <option value="all">All</option>
-          </select>
+      <div className="grid gap-6 xl:grid-cols-[26rem_minmax(0,1fr)]">
+        <div className="xl:sticky xl:top-24 xl:self-start">
+          <Panel>
+            <SectionHeader title="Family planning orders" subtitle="Create family planning orders from the pharmacy account when the gynecologist is busy, then send them to the pharmacy queue." />
+            {error ? <div className="mt-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+            {notice ? <div className="mt-4 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div> : null}
+
+            <form onSubmit={submitOrder} className="mt-5 space-y-4">
+              <SearchCombo<PharmacyPatientSearchOption>
+                label="Patient"
+                placeholder="Search patient by registration number or name"
+                searchPath="/patients/search/"
+                valueText={selectedPatientLabel}
+                renderOption={(patient) => `${patient.registration_number} - ${patient.first_name} ${patient.last_name}${patient.age ? ` (${patient.age})` : ''}${patient.phone ? ` - ${patient.phone}` : ''}`}
+                onSelect={(patient) => {
+                  setSelectedPatientId(patient.id)
+                  setSelectedPatientLabel(`${patient.registration_number} - ${patient.first_name} ${patient.last_name}`)
+                  setError('')
+                }}
+              />
+              <div className="rounded border border-sky-100 bg-sky-50/60 p-4">
+                <SearchCombo<PharmacyMedicine>
+                  label="Family planning item"
+                  placeholder="Search family planning stock"
+                  searchPath="/pharmacy/medicines/search/"
+                  extraParams="family_planning_only=1"
+                  valueText={selectedItemLabel}
+                  renderOption={(medicine) => `${medicine.name} - stock ${medicine.quantity}`}
+                  onSelect={(medicine) => {
+                    setSelectedItem(medicine)
+                    setSelectedItemLabel(medicine.name)
+                    setError('')
+                  }}
+                />
+                <Field label="Quantity">
+                  <input
+                    className={inputClassName}
+                    min="1"
+                    step="1"
+                    type="number"
+                    value={itemQuantity}
+                    onChange={(event) => setItemQuantity(normalizeFamilyPlanningQuantityInput(event.target.value))}
+                    placeholder="Type quantity before adding"
+                  />
+                </Field>
+                <div className="flex flex-wrap gap-2">
+                  <button className={ghostButtonClassName} type="button" onClick={() => addItem(selectedItem)}>Add item</button>
+                  <button className={ghostButtonClassName} type="button" onClick={() => { setSelectedItem(null); setSelectedItemLabel(''); setItemQuantity('') }}>Clear selected item</button>
+                </div>
+              </div>
+
+              <div className="rounded border border-sky-100 bg-white p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-slate-900">Requested items</p>
+                  {items.length ? <button className={ghostButtonClassName} type="button" onClick={() => setItems([])}>Clear all</button> : null}
+                </div>
+                <div className="space-y-2">
+                  {items.map((item) => (
+                    <div key={item.medicine} className="flex items-center justify-between rounded border border-zinc-100 bg-slate-50 px-3 py-2 text-sm">
+                      <div>
+                        <p className="font-medium text-slate-900">{item.medicine_name}</p>
+                        <p className="text-slate-500">Quantity: {item.quantity}</p>
+                      </div>
+                      <button className={ghostButtonClassName} type="button" onClick={() => setItems((current) => current.filter((row) => row.medicine !== item.medicine))}>Remove</button>
+                    </div>
+                  ))}
+                  {!items.length ? <p className="text-sm text-slate-500">No family planning items added.</p> : null}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button className={buttonClassName} disabled={saving} type="submit">{saving ? 'Saving...' : editingId ? 'Update family planning order' : 'Save family planning order'}</button>
+                <button className={ghostButtonClassName} type="button" onClick={resetCreateForm}>{editingId ? 'Cancel edit' : 'Reset'}</button>
+              </div>
+            </form>
+          </Panel>
+        </div>
+
+        <div className="space-y-6">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <SectionHeader title="Pharmacy queue" subtitle="Review all family planning orders from doctors and pharmacists, print the issued items, and dispense them from Family Planning Stock." />
+            <div className="flex flex-wrap gap-2">
+              <input value={filterText} onChange={(event) => setFilterText(event.target.value)} className={inputClassName} placeholder="Search by patient or order" />
+              <select className={inputClassName} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as 'all' | 'pending' | 'dispensed')}>
+                <option value="pending">Pending</option>
+                <option value="dispensed">Dispensed</option>
+                <option value="all">All</option>
+              </select>
+            </div>
+          </div>
+
+          <Panel>
+            <div className="space-y-3">
+              {orders.map((order) => (
+                <div key={order.id} className="rounded border border-sky-100 bg-white p-4 shadow-sm shadow-sky-100/60">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-lg font-semibold text-slate-950">{order.patient_name}</p>
+                      <p className="text-sm text-slate-500">Requested by {order.created_by_name}</p>
+                      <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-400">{formatDate(order.created_at)}</p>
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-medium ${order.pharmacy_status === 'dispensed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                      {order.pharmacy_status === 'dispensed' ? 'Dispensed' : 'Pending'}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid gap-2 text-sm text-slate-700">
+                    {order.items.map((item) => (
+                      <p key={`${item.medicine}-${item.medicine_name}`}><strong>{item.medicine_name}</strong> x {item.quantity}</p>
+                    ))}
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button className={buttonClassName} onClick={() => onSelectOrder(order)}>Print</button>
+                    <button className={ghostButtonClassName} onClick={() => editOrder(order)}>Edit</button>
+                    <button className={ghostButtonClassName} onClick={() => void deleteOrder(order)}>Delete</button>
+                    {order.pharmacy_status !== 'dispensed' ? <button className={ghostButtonClassName} onClick={() => void dispenseOrder(order.id)}>Dispense</button> : null}
+                  </div>
+                </div>
+              ))}
+              {!orders.length && !loading ? <p className="rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-600">No family planning orders found.</p> : null}
+              <PaginationControls page={page} totalCount={totalCount} pageSize={5} onPageChange={setPage} />
+            </div>
+          </Panel>
         </div>
       </div>
-
-      {error ? <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-      {notice ? <div className="rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div> : null}
-
-      <Panel>
-        <div className="space-y-3">
-          {orders.map((order) => (
-            <div key={order.id} className="rounded border border-sky-100 bg-white p-4 shadow-sm shadow-sky-100/60">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-lg font-semibold text-slate-950">{order.patient_name}</p>
-                  <p className="text-sm text-slate-500">Requested by {order.created_by_name}</p>
-                  <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-400">{formatDate(order.created_at)}</p>
-                </div>
-                <span className={`rounded-full px-3 py-1 text-xs font-medium ${order.pharmacy_status === 'dispensed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-                  {order.pharmacy_status === 'dispensed' ? 'Dispensed' : 'Pending'}
-                </span>
-              </div>
-              <div className="mt-3 grid gap-2 text-sm text-slate-700">
-                {order.items.map((item) => (
-                  <p key={`${item.medicine}-${item.medicine_name}`}><strong>{item.medicine_name}</strong> x {item.quantity}</p>
-                ))}
-              </div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button className={buttonClassName} onClick={() => onSelectOrder(order)}>Print</button>
-                {order.pharmacy_status !== 'dispensed' ? <button className={ghostButtonClassName} onClick={() => void dispenseOrder(order.id)}>Dispense</button> : null}
-              </div>
-            </div>
-          ))}
-          {!orders.length && !loading ? <p className="rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-600">No family planning orders found.</p> : null}
-          <PaginationControls page={page} totalCount={totalCount} onPageChange={setPage} />
-        </div>
-      </Panel>
     </div>
   )
 }
@@ -1277,73 +1751,75 @@ function PrintPharmacyBill({
   printedBy: string
 }) {
   return (
-    <div className="print-area">
-      <article className="a4-report mx-auto max-w-3xl rounded-3xl border border-slate-200 bg-white p-8 shadow-lg shadow-slate-200">
-        <header className="flex items-start justify-between gap-6 border-b border-slate-200 pb-6">
-          <div className="flex items-start gap-4">
-            <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-16 w-16 rounded-2xl object-cover" />
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-sky-600">Pharmacy bill</p>
-              <h1 className="mt-2 text-3xl font-semibold text-slate-950">{setting.pharmacy_name}</h1>
-              <p className="mt-2 text-sm text-slate-500">{setting.address || 'Address not set'}</p>
-              <p className="text-sm text-slate-500">{setting.phone || 'Phone not set'}</p>
-            </div>
-          </div>
-          <div className="rounded-2xl bg-slate-950 px-5 py-4 text-right text-white">
-            <p className="text-xs uppercase tracking-[0.25em] text-sky-200">Bill no</p>
-            <p className="mt-2 text-xl font-semibold">{sale.bill_no}</p>
-          </div>
-        </header>
+    <section className={billPaperClassName}>
+      <BillTitle title={setting.pharmacy_name} subtitle="Pharmacy bill" />
 
-        <section className="mt-6 grid gap-4 sm:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Customer</p>
-            <p className="mt-2 text-lg font-medium text-slate-900">{saleCustomerLabel(sale)}</p>
-            <p className="mt-1 text-sm text-slate-500">{sale.customer_type_label} customer</p>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Issued at</p>
-            <p className="mt-2 text-lg font-medium text-slate-900">{formatDate(sale.created_at)}</p>
-            <p className="mt-1 text-sm text-slate-500">Reception status: {sale.payment_status ?? 'pending'}</p>
-          </div>
-        </section>
+      <div className={billBoxClassName}>
+        <div className="grid grid-cols-[7rem_1fr_6rem_1fr] border-b border-black">
+          <div className={billHeaderCellClassName}>Bill no:</div>
+          <div className={billCellClassName}>{sale.bill_no}</div>
+          <div className={billHeaderCellClassName}>Issued at:</div>
+          <div className={billCellClassName}>{formatDate(sale.created_at)}</div>
+        </div>
+        <div className="grid grid-cols-[7rem_1fr_6rem_1fr] border-b border-black">
+          <div className={billHeaderCellClassName}>Patient ID:</div>
+          <div className={billCellClassName}>{sale.patient ?? 'N/A'}</div>
+          <div className={billHeaderCellClassName}>Patient name:</div>
+          <div className={billCellClassName}>{saleCustomerLabel(sale)}</div>
+        </div>
+        <div className="grid grid-cols-[7rem_1fr_6rem_1fr] border-b border-black">
+          <div className={billHeaderCellClassName}>Type:</div>
+          <div className={billCellClassName}>{sale.customer_type_label} customer</div>
+          <div className={billHeaderCellClassName}>Account:</div>
+          <div className={billCellClassName}>{printedBy}</div>
+        </div>
+        <div className="grid grid-cols-[7rem_1fr_6rem_1fr] border-b border-black">
+          <div className={billHeaderCellClassName}>Status:</div>
+          <div className={billCellClassName}>{sale.payment_status ?? 'pending'}</div>
+          <div className={billHeaderCellClassName}>Phone:</div>
+          <div className={billCellClassName}>{setting.phone || 'Phone not set'}</div>
+        </div>
+        <div className="grid grid-cols-[7rem_1fr_6rem_1fr]">
+          <div className={billHeaderCellClassName}>Address:</div>
+          <div className={billCellClassName}>{setting.address || 'Address not set'}</div>
+          <div className={billHeaderCellClassName}>Payment:</div>
+          <div className={billCellClassName}>CASH</div>
+        </div>
+      </div>
 
-        <section className="mt-6 overflow-hidden rounded-2xl border border-slate-200">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-950 text-white">
-              <tr>
-                <th className="px-4 py-3 font-medium">Medicine</th>
-                <th className="px-4 py-3 font-medium">Generic</th>
-                <th className="px-4 py-3 font-medium text-right">Qty</th>
-                <th className="px-4 py-3 font-medium text-right">Unit</th>
-                <th className="px-4 py-3 font-medium text-right">Subtotal</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {sale.items.map((item) => (
-                <tr key={item.id}>
-                  <td className="px-4 py-3 font-medium text-slate-900">{item.medicine_name}</td>
-                  <td className="px-4 py-3 text-slate-600">{item.generic_name || '-'}</td>
-                  <td className="px-4 py-3 text-right text-slate-600">{item.quantity}</td>
-                  <td className="px-4 py-3 text-right text-slate-600">{formatMoneyAfn(item.unit_price)}</td>
-                  <td className="px-4 py-3 text-right font-medium text-slate-900">{formatMoneyAfn(item.total_price)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+      <table className="mt-3 w-full border-collapse border border-black text-left text-[11px]">
+        <thead>
+          <tr className="bg-zinc-200">
+            <th className="border border-black px-2 py-1 font-bold">Medicine</th>
+            <th className="border border-black px-2 py-1 font-bold">Generic</th>
+            <th className="border border-black px-2 py-1 text-right font-bold">Qty</th>
+            <th className="border border-black px-2 py-1 text-right font-bold">Unit</th>
+            <th className="border border-black px-2 py-1 text-right font-bold">Subtotal</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sale.items.map((item) => (
+            <tr key={item.id}>
+              <td className="border border-black px-2 py-1 font-medium">{item.medicine_name}</td>
+              <td className="border border-black px-2 py-1">{item.generic_name || '-'}</td>
+              <td className="border border-black px-2 py-1 text-right">{item.quantity}</td>
+              <td className="border border-black px-2 py-1 text-right">{formatMoneyAfn(item.unit_price)}</td>
+              <td className="border border-black px-2 py-1 text-right font-medium">{formatMoneyAfn(item.total_price)}</td>
+            </tr>
+          ))}
+          <tr className="bg-zinc-100 font-bold">
+            <td className="border border-black px-2 py-1" colSpan={4}>Grand total</td>
+            <td className="border border-black px-2 py-1 text-right">{formatMoneyAfn(sale.total_amount)}</td>
+          </tr>
+        </tbody>
+      </table>
 
-        <footer className="mt-6 flex items-end justify-between gap-6">
-          <div className="text-sm text-slate-500">
-            <p>Printed by {printedBy}</p>
-            <p className="mt-1">Thank you for visiting {setting.pharmacy_name}.</p>
-          </div>
-          <div className="rounded-2xl bg-emerald-50 px-5 py-4 text-right">
-            <p className="text-xs uppercase tracking-[0.2em] text-emerald-700">Grand total</p>
-            <p className="mt-2 text-3xl font-semibold text-emerald-950">{formatMoneyAfn(sale.total_amount)}</p>
-          </div>
-        </footer>
-      </article>
-    </div>
+      <BillReceiptNote receivedFrom={printedBy} amount={formatMoney(sale.total_amount)} />
+
+      <footer className="mt-4 flex items-end justify-between gap-6 text-sm">
+        <p>Thank you for visiting {setting.pharmacy_name}.</p>
+        <BillSignature />
+      </footer>
+    </section>
   )
 }

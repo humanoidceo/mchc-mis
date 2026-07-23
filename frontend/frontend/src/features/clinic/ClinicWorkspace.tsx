@@ -1,5 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import type { FormEvent, UIEvent } from 'react'
+import type { FormEvent, ReactNode, UIEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../../api/client'
@@ -8,14 +9,28 @@ import type { ClinicalDocument, DashboardStats, DocumentType, DocumentTypeDefini
 import { useAuth } from '../auth/useAuth'
 import { FamilyPlanningOrderSection } from '../familyPlanning/FamilyPlanningOrderSection'
 import { PharmacyMedicineStockSection } from '../pharmacy/PharmacyMedicineStockSection'
+import { PrivateDocumentsSection } from './PrivateDocumentsSection'
 import { PrintDocument, PrintPaymentBill } from './PrintDocument'
 
-type View = 'dashboard' | 'patients' | 'payments' | 'expenses' | 'salaries' | 'documents' | 'family-planning' | 'ultrasound-reports' | 'stock'
+type View = 'dashboard' | 'patients' | 'payments' | 'reception-report' | 'expenses' | 'salaries' | 'documents' | 'private-documents' | 'family-planning' | 'ultrasound-reports' | 'stock'
 type PatientSearchOption = Pick<Patient, 'id' | 'registration_number' | 'first_name' | 'last_name' | 'age'>
 type MedicineSearchOption = Pick<Medicine, 'id' | 'name' | 'unit' | 'current_stock'>
 type LabTestSearchOption = Pick<LabTest, 'id' | 'name' | 'display_name' | 'category' | 'is_panel' | 'component_count'>
 type PrescriptionItem = { medicine: number; medicine_name: string; quantity: string; instructions: string }
 type LabOrderItem = { test: number; test_name: string }
+type ReceptionReportDepartmentSummary = {
+  department: string
+  patient_count: number
+  amount: string
+}
+type ReceptionReportSummary = {
+  from: string
+  to: string
+  patient_count: number
+  departments: ReceptionReportDepartmentSummary[]
+  total_amount: string
+  generated_at: string
+}
 type GynecologyUltrasoundFormState = {
   patient_status: 'new' | 'follow_up'
   report_type: 'obstetric' | 'pelvic'
@@ -42,6 +57,7 @@ type GynecologyUltrasoundFormState = {
   recommendation: string
   notes: string
 }
+type AgeUnit = 'month' | 'year'
 
 const emptyStats: DashboardStats = {
   period: 'daily',
@@ -82,8 +98,40 @@ const dashboardPeriodOptions: Array<{ value: DashboardStats['period']; label: st
   { value: 'weekly', label: 'Weekly' },
   { value: 'monthly', label: 'Monthly' },
   { value: 'annual', label: 'Annual' },
+  { value: 'custom', label: 'Custom' },
 ]
 const afghanMonthOptions = ['Hamal', 'Sawr', 'Jawza', 'Saratan', 'Asad', 'Sonbola', 'Mizan', 'Aqrab', 'Qaws', 'Jadi', 'Dalwa', 'Hut']
+
+function todayDateInputValue(): string {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function buildDashboardQuery(period: DashboardStats['period'], fromDate: string, toDate: string): string {
+  const params = new URLSearchParams({ period })
+  if (period === 'custom') {
+    params.set('from', fromDate)
+    params.set('to', toDate)
+  }
+  return params.toString()
+}
+
+function buildPaymentsQuery(page: number, search: string, fromDate: string, toDate: string): string {
+  const params = new URLSearchParams({ page: String(page) })
+  if (search.trim()) {
+    params.set('q', search.trim())
+  }
+  if (fromDate) {
+    params.set('from', fromDate)
+  }
+  if (toDate) {
+    params.set('to', toDate)
+  }
+  return params.toString()
+}
 
 function parseAmount(value: string): number {
   const parsed = Number(value)
@@ -104,6 +152,61 @@ function formatStatMoney(value: string | number): string {
 
 function formatAfn(value: string | number): string {
   return `${formatStatMoney(value)} AFN`
+}
+
+function formatDariDate(value: string): string {
+  return new Intl.DateTimeFormat('fa-AF-u-ca-gregory', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  }).format(new Date(value))
+}
+
+function formatDariDateFromInput(value: string): string {
+  return formatDariDate(`${value}T00:00:00`)
+}
+
+function formatDariDateTime(value: string): string {
+  return new Intl.DateTimeFormat('fa-AF-u-ca-gregory', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value))
+}
+
+function formatDariNumber(value: number): string {
+  return new Intl.NumberFormat('fa-AF').format(value)
+}
+
+function formatDariMoney(value: string | number): string {
+  return `${new Intl.NumberFormat('fa-AF', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Number(value || 0))} افغانی`
+}
+
+function formatAgeWithUnit(age: number | null, ageUnit: AgeUnit | undefined): string {
+  if (age === null) return ''
+  return `${age} ${ageUnit === 'month' ? 'month' : 'year'}${age === 1 ? '' : 's'}`
+}
+
+const receptionDepartmentDariLabels: Record<string, string> = {
+  'Maternal care': 'مراقبت مادر',
+  'Child care': 'مراقبت طفل',
+  'General health': 'صحت عمومی',
+  'Gynecology': 'نسایی ولادی',
+  'Emergency': 'عاجل',
+  'Laboratory': 'لابراتوار',
+  'Ultrasound': 'التراسوند',
+  'Vaccination': 'واکسیناسیون',
+  'Malnutrition': 'سوء تغذی',
+}
+
+function formatReceptionDepartmentLabel(department: string): string {
+  const dariLabel = receptionDepartmentDariLabels[department]
+  return dariLabel ? `${department} (${dariLabel})` : department
 }
 
 function calculateAfghanistanSalaryTax(monthlyTaxableSalary: number): number {
@@ -157,12 +260,12 @@ function flattenValidationDetails(value: unknown, prefix = ''): string[] {
   return prefix ? [`${prefix}: ${String(value)}`] : [String(value)]
 }
 
-function describeApiError(caught: unknown): string {
+function describeApiError(caught: unknown, fallback = 'Unable to save reception bill.'): string {
   if (caught instanceof ApiError) {
     const details = flattenValidationDetails(caught.details).join(' ')
     return details || caught.message
   }
-  return 'Unable to save reception bill.'
+  return fallback
 }
 
 function labTestOptionLabel(test: LabTestSearchOption): string {
@@ -171,6 +274,51 @@ function labTestOptionLabel(test: LabTestSearchOption): string {
     return `${label} (${test.component_count} analytes)`
   }
   return test.category ? `${label} - ${test.category}` : label
+}
+
+function PrintPreviewModal({
+  title,
+  subtitle,
+  printLabel,
+  onClose,
+  children,
+}: {
+  title: string
+  subtitle: string
+  printLabel: string
+  onClose: () => void
+  children: ReactNode
+}) {
+  useEffect(() => {
+    document.body.classList.add('print-preview-open')
+    return () => {
+      document.body.classList.remove('print-preview-open')
+    }
+  }, [])
+
+  return createPortal(
+    <div className="print-preview-modal fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6 backdrop-blur-sm">
+      <button className="print-preview-backdrop absolute inset-0 cursor-default" aria-label="Close preview" onClick={onClose} />
+      <section className="print-preview-panel relative z-10 flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-white/70 bg-white shadow-2xl shadow-slate-950/25">
+        <header className="no-print flex flex-wrap items-center justify-between gap-3 border-b border-sky-100 bg-white px-5 py-4">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-950">{title}</h2>
+            <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button className={buttonClassName} onClick={() => window.print()}>{printLabel}</button>
+            <button className={ghostButtonClassName} onClick={onClose}>Close</button>
+          </div>
+        </header>
+        <div className="print-preview-scroll overflow-auto bg-slate-100 p-4">
+          <div className="print-preview-sheet mx-auto w-fit bg-white shadow-lg shadow-slate-300/60">
+            {children}
+          </div>
+        </div>
+      </section>
+    </div>,
+    document.body,
+  )
 }
 
 export function ClinicWorkspace({ view }: { view: View }) {
@@ -190,6 +338,8 @@ export function ClinicWorkspace({ view }: { view: View }) {
   const [paymentsPage, setPaymentsPage] = useState(1)
   const [documentsPage, setDocumentsPage] = useState(1)
   const [paymentsSearch, setPaymentsSearch] = useState('')
+  const [paymentsFromDate, setPaymentsFromDate] = useState('')
+  const [paymentsToDate, setPaymentsToDate] = useState('')
   const [documentsSearch, setDocumentsSearch] = useState('')
   const [documentsTypeFilter, setDocumentsTypeFilter] = useState<'all' | 'prescription' | 'lab_order'>('all')
   const [medicinesPage, setMedicinesPage] = useState(1)
@@ -206,7 +356,7 @@ export function ClinicWorkspace({ view }: { view: View }) {
 
   useEffect(() => {
     setPaymentsPage(1)
-  }, [paymentsSearch])
+  }, [paymentsSearch, paymentsFromDate, paymentsToDate])
 
   const loadData = useCallback(async function loadData() {
     setError('')
@@ -224,11 +374,7 @@ export function ClinicWorkspace({ view }: { view: View }) {
       }
 
       if (view === 'payments') {
-        const params = new URLSearchParams({ page: String(paymentsPage) })
-        if (paymentsSearch.trim()) {
-          params.set('q', paymentsSearch.trim())
-        }
-        const paymentResponse = await apiFetch<PaginatedResponse<Payment>>(`/payments/?${params.toString()}`)
+        const paymentResponse = await apiFetch<PaginatedResponse<Payment>>(`/payments/?${buildPaymentsQuery(paymentsPage, paymentsSearch, paymentsFromDate, paymentsToDate)}`)
         setPayments(paymentResponse.results)
         setPaymentsCount(paymentResponse.count)
         return
@@ -273,7 +419,7 @@ export function ClinicWorkspace({ view }: { view: View }) {
     } catch {
       setError('Unable to load clinic data.')
     }
-  }, [deferredDocumentsSearch, documentsPage, documentsTypeFilter, medicinesPage, patientsPage, paymentsPage, paymentsSearch, usesDoctorDocumentView, view])
+  }, [deferredDocumentsSearch, documentsPage, documentsTypeFilter, medicinesPage, patientsPage, paymentsFromDate, paymentsPage, paymentsSearch, paymentsToDate, usesDoctorDocumentView, view])
 
   useEffect(() => {
     void loadData()
@@ -287,6 +433,10 @@ export function ClinicWorkspace({ view }: { view: View }) {
         <Payments
           paymentsSearch={paymentsSearch}
           onPaymentsSearchChange={setPaymentsSearch}
+          paymentsFromDate={paymentsFromDate}
+          onPaymentsFromDateChange={setPaymentsFromDate}
+          paymentsToDate={paymentsToDate}
+          onPaymentsToDateChange={setPaymentsToDate}
           payments={payments}
           totalCount={paymentsCount}
           page={paymentsPage}
@@ -304,11 +454,17 @@ export function ClinicWorkspace({ view }: { view: View }) {
         />
       )
     }
+    if (view === 'reception-report') {
+      return <ReceptionReport />
+    }
     if (view === 'expenses') {
       return <ExpensesSection />
     }
     if (view === 'salaries') {
       return <SalariesSection />
+    }
+    if (view === 'private-documents') {
+      return <PrivateDocumentsSection />
     }
     if (view === 'stock' && user?.profile?.role === 'super_admin') {
       return <PharmacyMedicineStockSection />
@@ -390,22 +546,24 @@ export function ClinicWorkspace({ view }: { view: View }) {
       {error ? <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
       {content}
       {selectedDocument ? (
-        <div className="space-y-3">
-          <div className="no-print flex gap-2">
-            <button className={buttonClassName} onClick={() => window.print()}>Print selected document</button>
-            <button className={ghostButtonClassName} onClick={() => setSelectedDocument(null)}>Close preview</button>
-          </div>
+        <PrintPreviewModal
+          title="Document preview"
+          subtitle={selectedDocument.document_type_label}
+          printLabel="Print selected document"
+          onClose={() => setSelectedDocument(null)}
+        >
           <PrintDocument document={selectedDocument} />
-        </div>
+        </PrintPreviewModal>
       ) : null}
       {selectedPayment ? (
-        <div className="space-y-3">
-          <div className="no-print flex gap-2">
-            <button className={buttonClassName} onClick={() => window.print()}>Print bill</button>
-            <button className={ghostButtonClassName} onClick={() => setSelectedPayment(null)}>Close preview</button>
-          </div>
+        <PrintPreviewModal
+          title="Bill preview"
+          subtitle={selectedPayment.patient_full_name || selectedPayment.patient_name}
+          printLabel="Print bill"
+          onClose={() => setSelectedPayment(null)}
+        >
           <PrintPaymentBill payment={selectedPayment} printedBy={printedBy} />
-        </div>
+        </PrintPreviewModal>
       ) : null}
     </div>
   )
@@ -413,7 +571,9 @@ export function ClinicWorkspace({ view }: { view: View }) {
 
 function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
   const navigate = useNavigate()
-  const [period, setPeriod] = useState<DashboardStats['period']>('daily')
+  const [period, setPeriod] = useState<DashboardStats['period']>(stats.period || 'daily')
+  const [fromDate, setFromDate] = useState(todayDateInputValue())
+  const [toDate, setToDate] = useState(todayDateInputValue())
   const [report, setReport] = useState(stats)
   const [error, setError] = useState('')
   const isDoctorDashboard = role === 'doctor' || role === 'gynecologist'
@@ -427,15 +587,23 @@ function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
   const printTitle = role === 'gynecologist' ? 'Gynecologist Dashboard Report' : isDoctorDashboard ? 'Doctor Dashboard Report' : 'Reception Dashboard Report'
 
   useEffect(() => {
+    setReport(stats)
+    setPeriod(stats.period || 'daily')
+  }, [stats])
+
+  useEffect(() => {
     let ignore = false
 
     async function loadReport() {
+      if (period === 'custom' && (!fromDate || !toDate)) {
+        return
+      }
       setError('')
       try {
-        const data = await apiFetch<DashboardStats>(`/dashboard/?period=${period}`)
+        const data = await apiFetch<DashboardStats>(`/dashboard/?${buildDashboardQuery(period, fromDate, toDate)}`)
         if (!ignore) setReport(data)
-      } catch {
-        if (!ignore) setError('Unable to load dashboard report.')
+      } catch (caught) {
+        if (!ignore) setError(describeApiError(caught, 'Unable to load dashboard report.'))
       }
     }
 
@@ -443,12 +611,12 @@ function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
     return () => {
       ignore = true
     }
-  }, [period])
+  }, [period, fromDate, toDate])
 
   const maxDepartmentAmount = Math.max(1, ...report.departments.map((department) => Number(department.amount || 0)))
   const maxDepartmentPatients = Math.max(1, ...report.departments.map((department) => department.patients))
   const paymentCards = [
-    { label: isDoctorDashboard ? 'Patients seen' : 'Patients came', value: report.patients, tone: 'border-sky-100 bg-sky-50 text-sky-700' },
+    ...(isDoctorDashboard ? [{ label: 'Patients seen', value: report.patients ?? 0, tone: 'border-sky-100 bg-sky-50 text-sky-700' }] : []),
     { label: 'Full paid', value: report.full_paid, tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
     { label: 'Free', value: report.free, tone: 'border-rose-100 bg-rose-50 text-rose-700' },
     { label: 'Discounted', value: report.discounted, tone: 'border-violet-100 bg-violet-50 text-violet-700' },
@@ -479,6 +647,18 @@ function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
               {dashboardPeriodOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
+          {period === 'custom' ? (
+            <>
+              <label className="flex-1 text-sm font-medium text-zinc-700">
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">From</span>
+                <input className={`${inputClassName} w-full`} type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
+              </label>
+              <label className="flex-1 text-sm font-medium text-zinc-700">
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">To</span>
+                <input className={`${inputClassName} w-full`} type="date" value={toDate} min={fromDate || undefined} onChange={(event) => setToDate(event.target.value)} />
+              </label>
+            </>
+          ) : null}
           <button
             className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white shadow-sm shadow-slate-200 transition hover:bg-slate-800"
             onClick={() => window.print()}
@@ -545,12 +725,12 @@ function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-semibold text-slate-950">Patient trend</p>
           <p className="text-xs font-medium text-zinc-500">
-            {report.period === 'weekly' ? 'Daily trend for this week' : report.period === 'monthly' ? 'Daily trend for this month' : report.period === 'annual' ? 'Monthly trend for this year' : 'Select weekly, monthly, or annual'}
+            {report.period === 'weekly' ? 'Daily trend for this week' : report.period === 'monthly' ? 'Daily trend for this month' : report.period === 'annual' ? 'Monthly trend for this year' : report.period === 'custom' ? 'Patient trend is not shown for custom periods' : 'Select weekly, monthly, annual, or custom'}
           </p>
         </div>
-        {report.period === 'daily' ? (
+        {report.period === 'daily' || report.period === 'custom' ? (
           <div className="mt-4 rounded border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500">
-            Change the period to weekly, monthly, or annual to view the patient trend graph.
+            {report.period === 'custom' ? 'Choose daily, weekly, monthly, or annual to view the patient trend graph.' : 'Change the period to weekly, monthly, or annual to view the patient trend graph.'}
           </div>
         ) : (
           <PatientTrendChart data={report.patient_trend} />
@@ -652,6 +832,159 @@ function PatientTrendChart({ data }: { data: Array<{ label: string; value: numbe
   )
 }
 
+function ReceptionReport() {
+  const [fromDate, setFromDate] = useState(todayDateInputValue())
+  const [toDate, setToDate] = useState(todayDateInputValue())
+  const [report, setReport] = useState<ReceptionReportSummary | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const loadReport = useCallback(async (currentFrom = fromDate, currentTo = toDate) => {
+    setLoading(true)
+    setError('')
+    try {
+      const params = new URLSearchParams({
+        from: currentFrom,
+        to: currentTo,
+      })
+      const response = await apiFetch<ReceptionReportSummary>(`/payments/reception-report/?${params.toString()}`)
+      setReport(response)
+    } catch (caught) {
+      setError(describeApiError(caught, 'Unable to load reception report.'))
+    } finally {
+      setLoading(false)
+    }
+  }, [fromDate, toDate])
+
+  useEffect(() => {
+    void loadReport(fromDate, toDate)
+  }, [fromDate, loadReport, toDate])
+
+  return (
+    <div className="space-y-5">
+      <section className="no-print flex flex-wrap items-end justify-between gap-4">
+        <SectionHeader title="Reception report" subtitle="Choose a date range and print a formal Dari A4 reception report." />
+        <form
+          className="flex w-full max-w-3xl flex-wrap items-end justify-end gap-3 rounded-2xl border border-sky-100 bg-white px-4 py-3 shadow-sm shadow-sky-100/70"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void loadReport()
+          }}
+        >
+          <label className="block w-full sm:w-52">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">From</span>
+            <input className={inputClassName} type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
+          </label>
+          <label className="block w-full sm:w-52">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">To</span>
+            <input className={inputClassName} type="date" value={toDate} min={fromDate || undefined} onChange={(event) => setToDate(event.target.value)} />
+          </label>
+          <button className={ghostButtonClassName} type="submit" disabled={loading}>{loading ? 'Loading...' : 'Generate report'}</button>
+          <button className={buttonClassName} type="button" onClick={() => window.print()} disabled={!report}>Print report</button>
+        </form>
+      </section>
+
+      {error ? <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+
+      <section className="print-area">
+        <article dir="rtl" lang="fa-AF" className="a4-report mx-auto max-w-3xl rounded-md border border-zinc-200 bg-white p-8 text-right text-zinc-950">
+          <header className="border-b border-zinc-200 pb-5">
+            <div className="flex items-center justify-center gap-4 text-center">
+              <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-20 w-20 rounded-2xl border border-sky-100 object-cover shadow-sm shadow-sky-100/70" />
+              <div>
+                <p className="text-sm font-semibold text-sky-700">Mother and Child Health Support Center</p>
+                <p className="mt-1 text-base font-semibold text-slate-800">مرکز حمایه صحت طفل و مادر</p>
+                <h1 className="mt-2 text-3xl font-bold text-slate-950">گزارش پذیرش</h1>
+              </div>
+            </div>
+          </header>
+
+          <div className="mt-6 grid gap-3 text-sm text-slate-700 sm:grid-cols-2">
+            <p><strong>بخش مربوطه:</strong> پذیرش کلینیک</p>
+            <p><strong>تاریخ ترتیب گزارش:</strong> {report ? formatDariDateTime(report.generated_at) : formatDariDateTime(new Date().toISOString())}</p>
+            <p><strong>از تاریخ:</strong> {formatDariDateFromInput(fromDate)}</p>
+            <p><strong>الی تاریخ:</strong> {formatDariDateFromInput(toDate)}</p>
+          </div>
+
+          <section className="mt-8 rounded-2xl border border-sky-100 bg-sky-50/70 p-6">
+            <p className="text-lg leading-9 text-slate-900">
+              این گزارش رسمی پذیرش کلینیک بوده و نشان می‌دهد که در فاصله زمانی از تاریخ{' '}
+              <strong>{formatDariDateFromInput(fromDate)}</strong>{' '}
+              الی{' '}
+              <strong>{formatDariDateFromInput(toDate)}</strong>
+              ، به تعداد{' '}
+              <strong className="text-sky-800">{formatDariNumber(report?.patient_count ?? 0)}</strong>{' '}
+              مریض به این بخش مراجعه نموده‌اند.
+            </p>
+          </section>
+
+          <section className="mt-8 grid gap-4 sm:grid-cols-[1.1fr_0.9fr]">
+            <div className="rounded-2xl border border-zinc-200 bg-white p-5">
+              <p className="text-sm font-semibold text-zinc-700">خلاصه گزارش</p>
+              <p className="mt-4 text-5xl font-bold text-slate-950">{formatDariNumber(report?.patient_count ?? 0)}</p>
+              <p className="mt-2 text-sm text-zinc-500">تعداد مجموعی مریضان مراجعه کننده در محدوده فوق الذکر</p>
+            </div>
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-5 text-sm leading-7 text-slate-700">
+              <p><strong>مجموع عمومی پول:</strong> {formatDariMoney(report?.total_amount ?? 0)}</p>
+              <p className="mt-3">این متن جهت استفاده رسمی بخش پذیرش ترتیب گردیده است.</p>
+              <p className="mt-3">در صورت نیاز، این گزارش می‌تواند ضمیمه اسناد اداری یا راپورهای داخلی کلینیک گردد.</p>
+            </div>
+          </section>
+
+          <section className="mt-8 rounded-2xl border border-zinc-200 bg-white p-5">
+            <div className="flex items-center justify-between gap-3 border-b border-zinc-200 pb-3">
+              <h2 className="text-lg font-semibold text-slate-950">تفکیک مراجعین و عواید به اساس دیپارتمنت</h2>
+              <span className="text-sm text-zinc-500">واحد پول: افغانی</span>
+            </div>
+            <div className="mt-4 overflow-hidden rounded-xl border border-zinc-200">
+              <table className="min-w-full text-sm">
+                <thead className="bg-sky-50 text-slate-800">
+                  <tr>
+                    <th className="px-4 py-3 text-right font-semibold">دیپارتمنت</th>
+                    <th className="px-4 py-3 text-right font-semibold">تعداد مریض</th>
+                    <th className="px-4 py-3 text-right font-semibold">مقدار پول</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report?.departments.length ? report.departments.map((department) => (
+                    <tr key={department.department} className="border-t border-zinc-100">
+                      <td className="px-4 py-3 font-medium text-slate-900">{formatReceptionDepartmentLabel(department.department)}</td>
+                      <td className="px-4 py-3 text-slate-700">{formatDariNumber(department.patient_count)}</td>
+                      <td className="px-4 py-3 text-slate-700">{formatDariMoney(department.amount)}</td>
+                    </tr>
+                  )) : (
+                    <tr>
+                      <td colSpan={3} className="px-4 py-6 text-center text-zinc-500">در این محدوده زمانی هیچ معلوماتی برای نمایش موجود نیست.</td>
+                    </tr>
+                  )}
+                </tbody>
+                <tfoot className="bg-zinc-50">
+                  <tr className="border-t border-zinc-200">
+                    <td className="px-4 py-3 font-semibold text-slate-950">مجموع عمومی</td>
+                    <td className="px-4 py-3 font-semibold text-slate-950">{formatDariNumber(report?.patient_count ?? 0)}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-950">{formatDariMoney(report?.total_amount ?? 0)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </section>
+
+          <div className="mt-14 grid gap-8 pt-8 text-sm sm:grid-cols-2">
+            <div>
+              <p className="font-medium text-slate-700">امضای مسئول پذیرش</p>
+              <div className="mt-8 border-b border-zinc-400" />
+            </div>
+            <div>
+              <p className="font-medium text-slate-700">تایید مدیریت</p>
+              <div className="mt-8 border-b border-zinc-400" />
+            </div>
+          </div>
+        </article>
+      </section>
+    </div>
+  )
+}
+
 function Patients({
   patients,
   totalCount,
@@ -734,6 +1067,10 @@ function Patients({
 function Payments({
   paymentsSearch,
   onPaymentsSearchChange,
+  paymentsFromDate,
+  onPaymentsFromDateChange,
+  paymentsToDate,
+  onPaymentsToDateChange,
   payments,
   totalCount,
   page,
@@ -744,6 +1081,10 @@ function Payments({
 }: {
   paymentsSearch: string
   onPaymentsSearchChange: (value: string) => void
+  paymentsFromDate: string
+  onPaymentsFromDateChange: (value: string) => void
+  paymentsToDate: string
+  onPaymentsToDateChange: (value: string) => void
   payments: Payment[]
   totalCount: number
   page: number
@@ -754,6 +1095,7 @@ function Payments({
 }) {
   const [form, setForm] = useState({
     patient_name: '',
+    age_unit: 'year' as AgeUnit,
     age: '',
     department: departmentOptions[0],
     doctor_fee: '',
@@ -769,6 +1111,7 @@ function Payments({
   const [patientError, setPatientError] = useState('')
   const [patientForm, setPatientForm] = useState({
     patient_name: '',
+    age_unit: 'year' as AgeUnit,
     age: '',
     department: departmentOptions[0],
     doctor_fee: '',
@@ -874,6 +1217,7 @@ function Payments({
             first_name: form.patient_name,
             last_name: '',
             age: Number(form.age),
+            age_unit: form.age_unit,
             gender: 'other',
             date_of_birth: null,
             phone: '',
@@ -885,6 +1229,7 @@ function Payments({
             department: form.department,
             doctor_name: '',
             patient_age: Number(form.age),
+            patient_age_unit: form.age_unit,
             doctor_fee: formatMoney(doctorFee),
             payment_type: effectivePaymentType,
             discount_percentage: effectivePaymentType === 'discount' ? form.discount_percentage || '0' : '0',
@@ -892,7 +1237,7 @@ function Payments({
           },
         }),
       })
-      setForm({ patient_name: '', age: '', department: departmentOptions[0], doctor_fee: '', payment_type: 'full', discount_percentage: '', notes: '' })
+      setForm({ patient_name: '', age_unit: 'year', age: '', department: departmentOptions[0], doctor_fee: '', payment_type: 'full', discount_percentage: '', notes: '' })
       onCreated(payment)
     } catch (caught) {
       setFormError(describeApiError(caught))
@@ -912,6 +1257,7 @@ function Payments({
     setPatientError('')
     setPatientForm({
       patient_name: '',
+      age_unit: 'year',
       age: '',
       department: departmentOptions[0],
       doctor_fee: '',
@@ -927,6 +1273,7 @@ function Payments({
     setEditingPaymentId(payment.id)
     setPatientForm({
       patient_name: payment.patient_full_name || payment.patient_name,
+      age_unit: payment.patient_age_unit || 'year',
       age: payment.patient_age === null ? '' : String(payment.patient_age),
       department: payment.department || departmentOptions[0],
       doctor_fee: payment.doctor_fee,
@@ -948,6 +1295,7 @@ function Payments({
           first_name: patientForm.patient_name,
           last_name: '',
           age: patientForm.age === '' ? null : Number(patientForm.age),
+          age_unit: patientForm.age_unit,
         }),
       })
       await apiFetch<Payment>(`/payments/${editingPaymentId}/`, {
@@ -956,6 +1304,7 @@ function Payments({
           service: `${patientForm.department} consultation`,
           department: patientForm.department,
           patient_age: patientForm.age === '' ? null : Number(patientForm.age),
+          patient_age_unit: patientForm.age_unit,
           doctor_fee: formatMoney(editDoctorFee),
           payment_type: effectiveEditPaymentType,
           discount_percentage: effectiveEditPaymentType === 'discount' ? patientForm.discount_percentage || '0' : '0',
@@ -993,6 +1342,12 @@ function Payments({
         <form onSubmit={submit} className="grid gap-3 md:grid-cols-4">
           {formError ? <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 md:col-span-4">{formError}</div> : null}
           <Field label="Patient name"><input className={inputClassName} value={form.patient_name} onChange={(e) => setForm({ ...form, patient_name: e.target.value })} required /></Field>
+          <Field label="Age unit">
+            <select className={inputClassName} value={form.age_unit} onChange={(e) => setForm({ ...form, age_unit: e.target.value as AgeUnit })}>
+              <option value="month">Month</option>
+              <option value="year">Year</option>
+            </select>
+          </Field>
           <Field label="Age"><input className={inputClassName} type="number" min="0" value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} required /></Field>
           <Field label="Department">
             <select
@@ -1041,27 +1396,61 @@ function Payments({
             <p className="text-sm font-semibold text-slate-950">Bills and payments</p>
             <p className="text-sm text-zinc-500">Search by patient, registration number, department, payment type, status, or notes.</p>
           </div>
-          <div className="w-full max-w-md">
-            <Field label="Search bills">
-              <input
-                className={inputClassName}
-                value={paymentsSearch}
-                onChange={(event) => onPaymentsSearchChange(event.target.value)}
-                placeholder="Search patient, department, payment type, status"
-              />
-            </Field>
+          <div className="w-full max-w-4xl rounded-2xl border border-sky-100 bg-[linear-gradient(135deg,rgba(240,249,255,0.95),rgba(255,255,255,0.98)_48%,rgba(236,254,255,0.95))] p-3 shadow-sm shadow-sky-100/80">
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1.5fr)_minmax(0,0.8fr)_minmax(0,0.8fr)]">
+              <label className="block">
+                <span className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-700">
+                  <span className="inline-flex h-2 w-2 rounded-full bg-sky-500" />
+                  Search bills
+                </span>
+                <input
+                  className="h-11 w-full rounded-xl border border-white/80 bg-white/95 px-4 text-sm text-slate-800 shadow-[0_10px_30px_rgba(186,230,253,0.25)] outline-none transition placeholder:text-slate-400 focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+                  value={paymentsSearch}
+                  onChange={(event) => onPaymentsSearchChange(event.target.value)}
+                  placeholder="Search patient, department, payment type, status"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-700">
+                  <span className="inline-flex h-2 w-2 rounded-full bg-cyan-500" />
+                  From
+                </span>
+                <input
+                  className="h-11 w-full rounded-xl border border-white/80 bg-white/95 px-4 text-sm text-slate-800 shadow-[0_10px_30px_rgba(186,230,253,0.25)] outline-none transition focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100"
+                  type="date"
+                  value={paymentsFromDate}
+                  onChange={(event) => onPaymentsFromDateChange(event.target.value)}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-pink-700">
+                  <span className="inline-flex h-2 w-2 rounded-full bg-pink-500" />
+                  To
+                </span>
+                <input
+                  className="h-11 w-full rounded-xl border border-white/80 bg-white/95 px-4 text-sm text-slate-800 shadow-[0_10px_30px_rgba(251,207,232,0.22)] outline-none transition focus:border-pink-300 focus:ring-4 focus:ring-pink-100"
+                  type="date"
+                  value={paymentsToDate}
+                  min={paymentsFromDate || undefined}
+                  onChange={(event) => onPaymentsToDateChange(event.target.value)}
+                />
+              </label>
+            </div>
           </div>
         </div>
         <div className="overflow-auto">
           <table className="w-full text-left text-sm">
-            <thead><tr className="border-b border-zinc-200"><th className="py-2">Patient</th><th>Age</th><th>Department</th><th>Fee</th><th>Payment</th><th>Amount after discount</th><th>Status</th><th></th></tr></thead>
+            <thead><tr className="border-b border-zinc-200"><th className="py-2">No.</th><th>Patient ID</th><th>Patient</th><th>Age</th><th>Department</th><th>Fee</th><th>Payment</th><th>Amount after discount</th><th>Status</th><th></th></tr></thead>
             <tbody>
-              {filteredPayments.map((payment) => {
+              {filteredPayments.map((payment, index) => {
                 const canEdit = isEditableReceptionPayment(payment)
+                const rowNumber = (page - 1) * 10 + index + 1
                 return (
                   <tr key={payment.id} className="border-b border-zinc-100">
+                    <td className="py-2 font-medium text-slate-700">{rowNumber}</td>
+                    <td>{payment.patient}</td>
                     <td className="py-2">{payment.patient_full_name || payment.patient_name}</td>
-                    <td>{payment.patient_age ?? ''}</td>
+                    <td>{formatAgeWithUnit(payment.patient_age, payment.patient_age_unit)}</td>
                     <td>{payment.department || payment.service}</td>
                     <td>{payment.doctor_fee}</td>
                     <td>{payment.payment_type === 'free' ? 'Free' : payment.payment_type === 'discount' ? `${payment.discount_percentage}% discount` : 'Full payment'}</td>
@@ -1078,7 +1467,7 @@ function Payments({
               })}
               {!filteredPayments.length ? (
                 <tr>
-                  <td className="py-4 text-center text-zinc-500" colSpan={8}>{paymentsSearch.trim() ? 'No bills match this search.' : 'No bills found.'}</td>
+                  <td className="py-4 text-center text-zinc-500" colSpan={10}>{paymentsSearch.trim() ? 'No bills match this search.' : 'No bills found.'}</td>
                 </tr>
               ) : null}
             </tbody>
@@ -1099,6 +1488,12 @@ function Payments({
             <form onSubmit={submitPatientUpdate} className="grid gap-3 rounded border border-sky-100 bg-sky-50/50 p-4 md:grid-cols-4">
               {patientError ? <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 md:col-span-4">{patientError}</div> : null}
               <Field label="Patient name"><input className={inputClassName} value={patientForm.patient_name} onChange={(event) => setPatientForm((current) => ({ ...current, patient_name: event.target.value }))} required /></Field>
+              <Field label="Age unit">
+                <select className={inputClassName} value={patientForm.age_unit} onChange={(event) => setPatientForm((current) => ({ ...current, age_unit: event.target.value as AgeUnit }))}>
+                  <option value="month">Month</option>
+                  <option value="year">Year</option>
+                </select>
+              </Field>
               <Field label="Age"><input className={inputClassName} type="number" min="0" value={patientForm.age} onChange={(event) => setPatientForm((current) => ({ ...current, age: event.target.value }))} required /></Field>
               <Field label="Department">
                 <select

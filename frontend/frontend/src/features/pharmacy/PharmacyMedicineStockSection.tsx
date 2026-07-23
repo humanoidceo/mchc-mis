@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
-import { ApiError, apiFetch } from '../../api/client'
+import { ApiError, apiDownload, apiFetch } from '../../api/client'
 import { buttonClassName, Field, ghostButtonClassName, inputClassName, PaginationControls, Panel, SectionHeader } from '../../components/ui'
 import type { PaginatedResponse, PharmacyMedicine, PharmacySetting } from '../../types/domain'
 
@@ -152,6 +152,7 @@ function MedicineManager({
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     if (editingId === null) {
@@ -273,6 +274,26 @@ function MedicineManager({
     }
   }
 
+  async function exportMedicineStock() {
+    setError('')
+    setExporting(true)
+    try {
+      const { blob, filename } = await apiDownload('/pharmacy/medicines/export-xlsx/')
+      const downloadUrl = window.URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = downloadUrl
+      anchor.download = filename || 'medicine-stock.xlsx'
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.URL.revokeObjectURL(downloadUrl)
+    } catch (caught) {
+      setError(describeApiError(caught, 'Unable to export medicine stock.'))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
       <Panel>
@@ -281,10 +302,17 @@ function MedicineManager({
             title={familyPlanningOnly ? 'Family Planning Stock' : rutfOnly ? 'Malnutrition stock' : expiredOnly ? 'Expired medicines' : upcomingExpiredOnly ? 'Upcoming expired medicines' : 'Medicine stock'}
             subtitle={familyPlanningOnly ? 'Track family planning products with expiry control. Pagination is limited to 10 items per page.' : rutfOnly ? 'Manage the RUTF batches used for malnutrition orders. Approval deducts from the earliest expiry stock first.' : expiredOnly ? 'Review expired medicines, update their details, or remove them from stock. Pagination is limited to 10 items per page.' : upcomingExpiredOnly ? 'Review medicines that will expire within the coming 6 months, then edit or remove them before they become unusable. Pagination is limited to 10 items per page.' : 'Maintain accurate pricing, profit margin, and current quantity for each item.'}
           />
-          <label className="w-full max-w-sm">
-            <span className="sr-only">Search medicines</span>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} className={inputClassName} placeholder={familyPlanningOnly ? 'Search family planning stock' : rutfOnly ? 'Search malnutrition stock' : expiredOnly ? 'Search expired medicines' : upcomingExpiredOnly ? 'Search upcoming expired medicines' : 'Search by medicine or generic name'} />
-          </label>
+          <div className="flex w-full max-w-2xl flex-col gap-3 sm:flex-row sm:items-end sm:justify-end">
+            {!familyPlanningOnly && !rutfOnly && !expiredOnly && !upcomingExpiredOnly ? (
+              <button className={buttonClassName} type="button" onClick={() => void exportMedicineStock()} disabled={exporting}>
+                {exporting ? 'Exporting...' : 'Export as excel'}
+              </button>
+            ) : null}
+            <label className="w-full sm:max-w-sm">
+              <span className="sr-only">Search medicines</span>
+              <input value={query} onChange={(event) => setQuery(event.target.value)} className={inputClassName} placeholder={familyPlanningOnly ? 'Search family planning stock' : rutfOnly ? 'Search malnutrition stock' : expiredOnly ? 'Search expired medicines' : upcomingExpiredOnly ? 'Search upcoming expired medicines' : 'Search by medicine or generic name'} />
+            </label>
+          </div>
         </div>
 
         <div className="mt-5 overflow-x-auto">

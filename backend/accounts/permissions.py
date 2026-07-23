@@ -40,6 +40,7 @@ class PermissionDefinition:
 
 PERMISSION_DEFINITIONS = (
     PermissionDefinition('users.manage', 'Manage users and permissions', 'Administration', (Role.SUPER_ADMIN,)),
+    PermissionDefinition('database.backup', 'Download database backups', 'Administration', (Role.SUPER_ADMIN, Role.RECEPTIONIST)),
     PermissionDefinition('employees.manage', 'Manage employee records', 'Administration', (Role.SUPER_ADMIN, Role.RECEPTIONIST)),
     PermissionDefinition('expenses.manage', 'Manage clinic expenses', 'Administration', (Role.SUPER_ADMIN, Role.RECEPTIONIST)),
     PermissionDefinition('website.content.manage', 'Edit website pages, logo, and pictures', 'Website', (Role.SUPER_ADMIN, Role.WEBSITE_CONTENT_EDITOR)),
@@ -47,13 +48,14 @@ PERMISSION_DEFINITIONS = (
     PermissionDefinition('patients.register', 'Register patients', 'Reception', (Role.SUPER_ADMIN, Role.RECEPTIONIST)),
     PermissionDefinition('payments.view', 'View payments', 'Finance', (Role.SUPER_ADMIN, Role.RECEPTIONIST)),
     PermissionDefinition('payments.approve', 'Approve pending payments', 'Finance', (Role.SUPER_ADMIN, Role.RECEPTIONIST)),
+    PermissionDefinition('private_documents.manage', 'Manage private documents', 'Administration', (Role.SUPER_ADMIN, Role.RECEPTIONIST)),
     PermissionDefinition('documents.prescription.create', 'Create and print prescriptions', 'Doctor', (Role.SUPER_ADMIN, Role.DOCTOR, Role.GYNECOLOGIST, Role.MIDWIFE)),
     PermissionDefinition('documents.lab_order.create', 'Create and print lab orders', 'Doctor', (Role.SUPER_ADMIN, Role.DOCTOR, Role.GYNECOLOGIST, Role.MIDWIFE)),
     PermissionDefinition('documents.lab_bill.create', 'Create and print lab bills', 'Laboratory', (Role.SUPER_ADMIN, Role.LABORATORY)),
     PermissionDefinition('documents.medicine_bill.create', 'Create and print medicine bills', 'Pharmacy', (Role.SUPER_ADMIN, Role.PHARMACIST)),
     PermissionDefinition('stock.manage', 'Manage medicine stock', 'Pharmacy', (Role.SUPER_ADMIN, Role.PHARMACIST)),
     PermissionDefinition('documents.ultrasound.create', 'Create and print ultrasound reports', 'Women health', (Role.SUPER_ADMIN, Role.MIDWIFE, Role.GYNECOLOGIST)),
-    PermissionDefinition('documents.family_planning.create', 'Create and manage family planning orders', 'Women health', (Role.SUPER_ADMIN, Role.MIDWIFE, Role.GYNECOLOGIST)),
+    PermissionDefinition('documents.family_planning.create', 'Create and manage family planning orders', 'Women health', (Role.SUPER_ADMIN, Role.MIDWIFE, Role.GYNECOLOGIST, Role.PHARMACIST)),
     PermissionDefinition('documents.vaccination.create', 'Create and print vaccination papers', 'Vaccination', (Role.SUPER_ADMIN, Role.VACCINATOR)),
     PermissionDefinition('documents.rutf.create', 'Create and print RUTF papers', 'Malnutrition', (Role.SUPER_ADMIN, Role.MALNUTRITION)),
 )

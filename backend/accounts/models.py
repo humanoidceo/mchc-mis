@@ -2,6 +2,7 @@ from django.conf import settings
 from django.db import models
 
 from .permissions import ROLE_CHOICES, Role, default_permissions_for_role
+from shared.soft_delete import SoftDeleteModel
 
 
 def employee_image_upload_path(instance, filename: str) -> str:
@@ -13,6 +14,15 @@ class StaffProfile(models.Model):
     role = models.CharField(max_length=32, choices=ROLE_CHOICES)
     phone = models.CharField(max_length=32, blank=True)
     allowed_permissions = models.JSONField(default=list, blank=True)
+    trash_retention_days = models.PositiveIntegerField(default=30)
+    deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='deleted_staff_profiles',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -32,7 +42,7 @@ class StaffProfile(models.Model):
         super().save(*args, **kwargs)
 
 
-class Employee(models.Model):
+class Employee(SoftDeleteModel):
     first_name = models.CharField(max_length=80)
     last_name = models.CharField(max_length=80)
     position = models.CharField(max_length=120)

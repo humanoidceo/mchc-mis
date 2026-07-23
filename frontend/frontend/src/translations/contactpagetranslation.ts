@@ -7,7 +7,7 @@ export const contactPageTranslation: Localized<ContactPageTranslation> = {
     clinicCardTitle: 'Clinic information',
     messageCardTitle: 'Send a message',
     fields: [
-      { label: 'Name', value: 'Mother and Child Health Care Center (MCHC)' },
+      { label: 'Name', value: 'Mother and Child Health Support Center (MCHC)' },
       { label: 'Operating organization', value: 'AFZENDA' },
       { label: 'Location', value: 'District 17, Kabul City, Afghanistan' },
       { label: 'Activity type', value: 'Non-profit, community-based health and humanitarian services' },
@@ -21,11 +21,11 @@ export const contactPageTranslation: Localized<ContactPageTranslation> = {
   },
   fa: {
     eyebrow: 'تماس با ما',
-    title: 'با مرکز صحی حمایت طفل و مادر در تماس شوید',
+    title: 'با مرکز حمایه صحت طفل و مادر در تماس شوید',
     clinicCardTitle: 'معلومات مرکز',
     messageCardTitle: 'ارسال پیام',
     fields: [
-      { label: 'نام', value: 'مرکز صحی حمایت طفل و مادر (MCHC)' },
+      { label: 'نام', value: 'مرکز حمایه صحت طفل و مادر (MCHC)' },
       { label: 'نهاد مسئول', value: 'AFZENDA' },
       { label: 'موقعیت', value: 'ناحیه ۱۷، شهر کابل، افغانستان' },
       { label: 'نوعیت فعالیت', value: 'خدمات صحی و بشردوستانه غیرانتفاعی و جامعه‌محور' },

@@ -38,7 +38,7 @@ class StaffProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StaffProfile
-        fields = ('role', 'role_label', 'phone', 'allowed_permissions')
+        fields = ('role', 'role_label', 'phone', 'allowed_permissions', 'trash_retention_days')
 
 
 class CurrentUserSerializer(serializers.ModelSerializer):

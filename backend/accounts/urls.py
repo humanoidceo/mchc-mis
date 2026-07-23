@@ -1,7 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from .views import EmployeeViewSet, MchcTokenObtainPairView, MchcTokenRefreshView, UserViewSet, account_settings, logout, me, permission_catalog, username_availability
+from .views import EmployeeViewSet, MchcTokenObtainPairView, MchcTokenRefreshView, UserViewSet, account_settings, logout, me, permission_catalog, trash_delete, trash_items, trash_restore, trash_settings, username_availability
 
 router = DefaultRouter()
 router.register('users', UserViewSet, basename='users')
@@ -14,6 +14,10 @@ urlpatterns = [
     path('me/', me, name='me'),
     path('account/', account_settings, name='account_settings'),
     path('account/username-availability/', username_availability, name='username_availability'),
+    path('trash/settings/', trash_settings, name='trash_settings'),
+    path('trash/items/', trash_items, name='trash_items'),
+    path('trash/restore/', trash_restore, name='trash_restore'),
+    path('trash/delete/', trash_delete, name='trash_delete'),
     path('permissions/', permission_catalog, name='permission_catalog'),
     path('', include(router.urls)),
 ]

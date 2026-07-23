@@ -12,7 +12,7 @@ def lab_test_label(test: LabTest | None, fallback: str = '') -> str:
 
 
 def resolve_lab_test_reference(test_id: int | None, test_name: str) -> LabTest | None:
-    if isinstance(test_id, int):
+    if isinstance(test_id, int) and test_id > 0:
         test = LabTest.objects.select_related('parent_panel').filter(pk=test_id).first()
         if test is not None:
             return test
@@ -27,10 +27,10 @@ def resolve_lab_test_reference(test_id: int | None, test_name: str) -> LabTest |
     return None
 
 
-def build_ordered_item_snapshot(test: LabTest | None, test_name: str, instructions: str, cost: Decimal):
+def build_ordered_item_snapshot(test: LabTest | None, test_id: int | None, test_name: str, instructions: str, cost: Decimal):
     label = lab_test_label(test, fallback=test_name) or test_name
     return {
-        'test': test.id if test else None,
+        'test': test.id if test else test_id,
         'test_name': label,
         'full_name': test.name if test else label,
         'category': test.category if test else '',
@@ -41,11 +41,11 @@ def build_ordered_item_snapshot(test: LabTest | None, test_name: str, instructio
     }
 
 
-def build_result_item_snapshot(test: LabTest | None, test_name: str, instructions: str, result: str = ''):
+def build_result_item_snapshot(test: LabTest | None, test_id: int | None, test_name: str, instructions: str, result: str = ''):
     panel = test.parent_panel if test else None
     label = lab_test_label(test, fallback=test_name) or test_name
     return {
-        'test': test.id if test else None,
+        'test': test.id if test else test_id,
         'test_name': label,
         'full_name': test.name if test else label,
         'panel_name': lab_test_label(panel) if panel else '',
@@ -59,14 +59,14 @@ def build_result_item_snapshot(test: LabTest | None, test_name: str, instruction
 
 def expand_lab_test_selection(test_id: int | None, test_name: str, instructions: str, cost: Decimal):
     test = resolve_lab_test_reference(test_id, test_name)
-    ordered_item = build_ordered_item_snapshot(test, test_name, instructions, cost)
+    ordered_item = build_ordered_item_snapshot(test, test_id, test_name, instructions, cost)
 
     if test is not None and test.is_panel:
         components = list(test.components.filter(is_active=True).order_by('sort_order', 'name'))
         if components:
-            return ordered_item, [build_result_item_snapshot(component, component.name, instructions) for component in components]
+            return ordered_item, [build_result_item_snapshot(component, component.id, component.name, instructions) for component in components]
 
-    return ordered_item, [build_result_item_snapshot(test, test_name, instructions)]
+    return ordered_item, [build_result_item_snapshot(test, test_id, test_name, instructions)]
 
 
 def enrich_ordered_item(item):
@@ -172,10 +172,18 @@ class LaboratoryOrderSerializer(serializers.Serializer):
 
 
 class LaboratoryBillItemSerializer(serializers.Serializer):
-    test = serializers.IntegerField()
+    test = serializers.IntegerField(allow_null=True, required=False)
     test_name = serializers.CharField()
     instructions = serializers.CharField(allow_blank=True, required=False)
     cost = serializers.DecimalField(max_digits=10, decimal_places=2)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        test = attrs.get('test')
+        test_name = str(attrs.get('test_name') or '').strip()
+        if test is None and not test_name:
+            raise serializers.ValidationError({'test_name': 'Type the laboratory test name.'})
+        return attrs
 
 
 class LaboratoryResultItemSerializer(serializers.Serializer):

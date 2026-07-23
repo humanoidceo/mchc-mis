@@ -15,13 +15,16 @@ import type {
   SearchResponse,
 } from '../../types/domain'
 import { useAuth } from '../auth/useAuth'
+import { BillReceiptNote, BillSignature, BillTitle, billBoxClassName, billCellClassName, billHeaderCellClassName, billPaperClassName } from '../clinic/PrintDocument'
 
 type View = 'dashboard' | 'billing'
+type LabTestOption = LabTest & { is_other_option?: boolean }
 type BillRow = {
   test: string
   test_label: string
   cost: string
   instructions: string
+  is_other?: boolean
 }
 type ResultRow = {
   test: number
@@ -88,6 +91,22 @@ const dashboardPeriodOptions: Array<{ value: LaboratoryDashboardStats['period'];
   { value: 'annual', label: 'Annual' },
 ]
 
+const otherLabTestOption: LabTestOption = {
+  id: -1,
+  name: 'other',
+  display_name: 'Other',
+  category: '',
+  is_panel: false,
+  component_count: 0,
+  parent_panel: null,
+  sort_order: 0,
+  normal_range_from: '',
+  normal_range_to: '',
+  unit: '',
+  is_active: true,
+  is_other_option: true,
+}
+
 function formatMoney(value: string | number): string {
   return Number(value || 0).toFixed(2)
 }
@@ -100,12 +119,22 @@ function formatDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }
 
-function labTestOptionLabel(test: Pick<LabTest, 'name' | 'display_name' | 'category' | 'is_panel' | 'component_count'>): string {
+function labTestOptionLabel(test: LabTestOption): string {
   const label = test.display_name || test.name
+  if (test.is_other_option) {
+    return 'Other - type test name manually'
+  }
   if (test.is_panel) {
     return `${label} (${test.component_count} analytes)`
   }
   return test.category ? `${label} - ${test.category}` : label
+}
+
+function nextCustomSeedFromRows(rows: BillRow[]): number {
+  const negativeIds = rows
+    .map((row) => Number(row.test))
+    .filter((value) => Number.isInteger(value) && value < 0)
+  return negativeIds.length ? Math.min(...negativeIds) - 1 : -1
 }
 
 function getBillOrderedItems(bill: LaboratoryBill): Array<Record<string, unknown>> {
@@ -403,6 +432,7 @@ function LaboratoryBilling({
   const [editingResultsBillId, setEditingResultsBillId] = useState<number | null>(null)
   const [resultRows, setResultRows] = useState<ResultRow[]>([])
   const [savingResults, setSavingResults] = useState(false)
+  const [customTestSeed, setCustomTestSeed] = useState(-1)
 
   async function loadBills(currentPage = page, search = deferredFilterText) {
     const response = await apiFetch<PaginatedResponse<LaboratoryBill>>(`/laboratory/bills/?page=${currentPage}&q=${encodeURIComponent(search)}`)
@@ -426,6 +456,7 @@ function LaboratoryBilling({
   function resetBillingForm() {
     setEditingBillId(null)
     setEditingLabOrderDocumentId(null)
+    setCustomTestSeed(-1)
     setCustomerType('internal')
     setCustomerName('')
     setSelectedPatient(null)
@@ -441,15 +472,19 @@ function LaboratoryBilling({
     try {
       const order = await apiFetch<LaboratoryOrder>(`/laboratory/patients/${patient.id}/latest-order/`)
       setLatestOrder(order)
-      setRows(order.items.map((item) => ({
+      const nextRows = order.items.map((item) => ({
         test: item.test ? String(item.test) : '',
         test_label: item.test_name,
         cost: '',
         instructions: item.instructions,
-      })))
+        is_other: item.test === null && Boolean(item.test_name?.trim()),
+      }))
+      setRows(nextRows)
+      setCustomTestSeed(nextCustomSeedFromRows(nextRows))
     } catch (caught) {
       setLatestOrder(null)
       setRows([{ test: '', test_label: '', cost: '', instructions: '' }])
+      setCustomTestSeed(-1)
       setError(describeApiError(caught, 'Unable to load the latest lab order for this patient.'))
     } finally {
       setLoadingOrder(false)
@@ -463,9 +498,9 @@ function LaboratoryBilling({
     setNotice('')
     try {
       const items = rows
-        .filter((row) => row.test && Number(row.cost) > 0)
+        .filter((row) => row.test_label.trim() && Number(row.cost) > 0 && (row.is_other ? row.test_label.trim() : row.test))
         .map((row) => ({
-          test: Number(row.test),
+          test: row.test ? Number(row.test) : null,
           test_name: row.test_label,
           instructions: row.instructions,
           cost: row.cost,
@@ -505,12 +540,15 @@ function LaboratoryBilling({
     setEditingBillId(bill.id)
     setEditingLabOrderDocumentId(bill.lab_order_document_id)
     setCustomerType(bill.customer_type)
-    setRows(getBillOrderedItems(bill).map((item) => ({
-      test: item.test ? String(item.test) : '',
+    const nextRows = getBillOrderedItems(bill).map((item) => ({
+      test: item.test !== null && item.test !== undefined ? String(item.test) : '',
       test_label: String(item.test_name ?? item.full_name ?? ''),
       cost: String(item.cost ?? ''),
       instructions: String(item.instructions ?? ''),
-    })))
+      is_other: typeof item.test === 'number' && Number(item.test) <= 0,
+    }))
+    setRows(nextRows)
+    setCustomTestSeed(nextCustomSeedFromRows(nextRows))
 
     if (bill.customer_type === 'external') {
       const payload = bill.payload as Record<string, unknown>
@@ -658,18 +696,42 @@ function LaboratoryBilling({
           <div className="space-y-3">
             {rows.map((row, index) => (
               <div key={index} className="grid gap-3 rounded border border-sky-100 bg-slate-50 p-4 md:grid-cols-[1fr_140px_1fr_auto]">
-                <SearchCombo<LabTest>
+                <SearchCombo<LabTestOption>
                   label={`Lab test ${index + 1}`}
                   placeholder="Search lab tests"
                   searchPath="/lab-tests/search/"
                   valueText={row.test_label}
+                  extraOptions={[otherLabTestOption]}
                   renderOption={labTestOptionLabel}
                   onSelect={(test) => {
                     const nextRows = [...rows]
-                    nextRows[index] = { ...row, test: String(test.id), test_label: test.display_name || test.name }
+                    if (test.is_other_option) {
+                      const nextCustomTestId = customTestSeed
+                      setCustomTestSeed((current) => current - 1)
+                      nextRows[index] = { ...row, test: String(nextCustomTestId), test_label: '', is_other: true }
+                    } else {
+                      nextRows[index] = { ...row, test: String(test.id), test_label: test.display_name || test.name, is_other: false }
+                    }
                     setRows(nextRows)
                   }}
                 />
+                {row.is_other ? (
+                  <div className="md:col-span-4">
+                    <Field label="Manual test name">
+                      <input
+                        className={inputClassName}
+                        value={row.test_label}
+                        onChange={(event) => {
+                          const nextRows = [...rows]
+                          nextRows[index] = { ...row, test_label: event.target.value }
+                          setRows(nextRows)
+                        }}
+                        placeholder="Type the laboratory test name"
+                        required
+                      />
+                    </Field>
+                  </div>
+                ) : null}
                 <Field label="Cost">
                   <input
                     className={inputClassName}
@@ -801,6 +863,7 @@ function SearchCombo<T extends { id: number }>({
   placeholder,
   searchPath,
   valueText,
+  extraOptions,
   renderOption,
   onSelect,
 }: {
@@ -808,6 +871,7 @@ function SearchCombo<T extends { id: number }>({
   placeholder: string
   searchPath: string
   valueText?: string
+  extraOptions?: T[]
   renderOption: (item: T) => string
   onSelect: (item: T) => void
 }) {
@@ -822,12 +886,16 @@ function SearchCombo<T extends { id: number }>({
     setLoading(true)
     try {
       const response = await apiFetch<SearchResponse<T>>(`${searchPath}?q=${encodeURIComponent(search)}&offset=${offset}`)
-      setItems((current) => replace ? response.results : [...current, ...response.results])
+      setItems((current) => {
+        const baseResults = replace ? response.results : [...current, ...response.results]
+        if (!replace || !extraOptions?.length) return baseResults
+        return [...extraOptions, ...baseResults]
+      })
       setNextOffset(response.next_offset)
     } finally {
       setLoading(false)
     }
-  }, [query, searchPath])
+  }, [extraOptions, query, searchPath])
 
   useEffect(() => {
     setQuery(valueText ?? '')
@@ -908,46 +976,55 @@ function PrintLaboratoryBill({ bill, printedBy }: { bill: LaboratoryBill; printe
   const items = Array.isArray(payload.ordered_items) ? payload.ordered_items as Array<Record<string, unknown>> : []
 
   return (
-    <section className="print-area a4-report rounded-md border border-zinc-200 bg-white p-6 text-zinc-950">
-      <header className="flex items-center gap-4 border-b border-zinc-200 pb-4">
-        <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-16 w-16 rounded object-cover" />
-        <div>
-          <p className="text-sm font-medium text-sky-600">AFZENDA</p>
-          <h2 className="text-xl font-semibold">Mother and Child Health Care Center</h2>
-          <p className="text-sm text-zinc-600">Laboratory bill</p>
-        </div>
-      </header>
+    <section className={billPaperClassName}>
+      <BillTitle title="Mother and Child Health Support Center" subtitle="Laboratory bill" />
 
-      <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
-        <p><strong>Date:</strong> {formatDate(document.created_at)}</p>
-        <p><strong>Reception status:</strong> {bill.payment_status ?? 'pending'}</p>
-        <p><strong>Patient:</strong> {billCustomerLabel(bill)}</p>
-        <p><strong>Customer type:</strong> {bill.customer_type_label}</p>
+      <div className={billBoxClassName}>
+        <div className="grid grid-cols-[7rem_1fr_8rem_1fr] border-b border-black">
+          <div className={billHeaderCellClassName}>Date:</div>
+          <div className={billCellClassName}>{formatDate(document.created_at)}</div>
+          <div className={billHeaderCellClassName}>Reception status:</div>
+          <div className={billCellClassName}>{bill.payment_status ?? 'pending'}</div>
+        </div>
+        <div className="grid grid-cols-[7rem_1fr_8rem_1fr]">
+          <div className={billHeaderCellClassName}>Patient ID:</div>
+          <div className={billCellClassName}>{bill.patient}</div>
+          <div className={billHeaderCellClassName}>Patient name:</div>
+          <div className={billCellClassName}>{billCustomerLabel(bill)}</div>
+        </div>
+        <div className="grid grid-cols-[7rem_1fr_8rem_1fr] border-t border-black">
+          <div className={billHeaderCellClassName}>Customer type:</div>
+          <div className={billCellClassName}>{bill.customer_type_label}</div>
+          <div className={billHeaderCellClassName}>Account:</div>
+          <div className={billCellClassName}>{printedBy}</div>
+        </div>
       </div>
 
-      <table className="mt-6 w-full border-collapse text-sm">
+      <table className="mt-3 w-full border-collapse border border-black text-left text-[11px]">
         <thead>
-          <tr className="border-b border-zinc-300 text-left">
-            <th className="py-2">Test</th>
-            <th className="py-2">Details</th>
-            <th className="py-2 text-right">Cost</th>
+          <tr className="bg-zinc-200">
+            <th className="border border-black px-2 py-1 font-bold">Test</th>
+            <th className="border border-black px-2 py-1 font-bold">Details</th>
+            <th className="border border-black px-2 py-1 text-right font-bold">Cost</th>
           </tr>
         </thead>
         <tbody>
           {items.map((item, index) => (
-            <tr key={index} className="border-b border-zinc-100">
-              <td className="py-2">{String(item.test_name ?? item.test ?? 'Test')}</td>
-              <td className="py-2">{String(item.instructions ?? '')}</td>
-              <td className="py-2 text-right">{String(item.cost ?? '')}</td>
+            <tr key={index}>
+              <td className="border border-black px-2 py-1 font-medium">{String(item.test_name ?? item.test ?? 'Test')}</td>
+              <td className="border border-black px-2 py-1">{String(item.instructions ?? '')}</td>
+              <td className="border border-black px-2 py-1 text-right">{String(item.cost ?? '')}</td>
             </tr>
           ))}
+          <tr className="bg-zinc-100 font-bold">
+            <td className="border border-black px-2 py-1" colSpan={2}>Total cost</td>
+            <td className="border border-black px-2 py-1 text-right">{bill.total_amount}</td>
+          </tr>
         </tbody>
       </table>
 
-      <div className="mt-6 flex justify-between border-t border-zinc-200 pt-4 text-sm">
-        <span>Total cost: {bill.total_amount}</span>
-        <span>Printed by: {printedBy}</span>
-      </div>
+      <BillReceiptNote receivedFrom={printedBy} amount={bill.total_amount} />
+      <BillSignature />
     </section>
   )
 }
@@ -961,7 +1038,7 @@ function PrintLaboratoryResult({ bill, printedBy }: { bill: LaboratoryBill; prin
         <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-16 w-16 rounded object-cover" />
         <div>
           <p className="text-sm font-medium text-sky-600">AFZENDA</p>
-          <h2 className="text-xl font-semibold">Mother and Child Health Care Center</h2>
+          <h2 className="text-xl font-semibold">Mother and Child Health Support Center</h2>
           <p className="text-sm text-zinc-600">Laboratory result report</p>
         </div>
       </header>

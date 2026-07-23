@@ -27,12 +27,30 @@ textarea {
     margin: 0;
   }
 
+  html,
+  body,
+  #root {
+    width: 210mm !important;
+    min-height: 0 !important;
+    height: auto !important;
+    overflow: hidden !important;
+    background: #fff !important;
+  }
+
   body * {
     visibility: hidden;
   }
 
+  body.print-preview-open #root,
+  .no-print,
+  .print-preview-backdrop {
+    display: none !important;
+  }
+
   .print-area,
-  .print-area * {
+  .print-area *,
+  body.print-preview-open .print-preview-modal,
+  body.print-preview-open .print-preview-modal * {
     visibility: visible;
   }
 
@@ -43,12 +61,58 @@ textarea {
     background: #fff;
   }
 
+  .print-preview-modal {
+    position: fixed !important;
+    inset: 0 !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: 0 !important;
+    background: #fff !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    transform: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .print-preview-panel,
+  .print-preview-scroll,
+  .print-preview-sheet {
+    position: static !important;
+    inset: auto !important;
+    display: block !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: 0 !important;
+    background: #fff !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    transform: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .print-preview-modal .print-area {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    margin: 0 !important;
+  }
+
+  .print-preview-backdrop {
+    display: none !important;
+  }
+
   .half-a4-bill {
     box-sizing: border-box;
     width: 210mm;
     min-height: 148.5mm;
     max-height: 148.5mm;
     overflow: hidden;
+    page-break-after: avoid;
+    break-after: avoid;
     border: 0 !important;
     border-radius: 0 !important;
     padding: 10mm !important;

@@ -22,7 +22,8 @@ from .serializers import (
     PermissionDefinitionSerializer,
     UserWriteSerializer,
 )
-from .models import Employee
+from .models import Employee, StaffProfile
+from .trash import cleanup_expired_trash, list_trash_items, permanently_delete_trash_item, restore_trash_item, soft_delete_instance
 
 User = get_user_model()
 
@@ -212,6 +213,18 @@ class UserViewSet(viewsets.ModelViewSet):
     permission_classes = (HasMchcPermission,)
     permission_code = 'users.manage'
 
+    def get_queryset(self):
+        cleanup_expired_trash()
+        return (
+            super()
+            .get_queryset()
+            .filter(is_active=True)
+            .filter(models.Q(staff_profile__deleted_at__isnull=True) | models.Q(staff_profile__isnull=True))
+        )
+
+    def perform_destroy(self, instance):
+        soft_delete_instance(instance, self.request.user)
+
 
 class EmployeeViewSet(viewsets.ModelViewSet):
     queryset = Employee.objects.select_related('created_by').order_by('-created_at', 'last_name', 'first_name')
@@ -221,6 +234,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     parser_classes = (JSONParser, FormParser, MultiPartParser)
 
     def get_queryset(self):
+        cleanup_expired_trash()
         queryset = super().get_queryset()
         search = self.request.query_params.get('q', '').strip()
         if search:
@@ -236,6 +250,9 @@ class EmployeeViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+    def perform_destroy(self, instance):
+        soft_delete_instance(instance, self.request.user)
 
     @action(detail=False, methods=['get'])
     def search(self, request):
@@ -281,3 +298,74 @@ def permission_catalog(request):
         return Response({'detail': 'Missing permission: users.manage'}, status=status.HTTP_403_FORBIDDEN)
     serializer = PermissionDefinitionSerializer(PERMISSION_DEFINITIONS, many=True)
     return Response({'permissions': serializer.data, 'roles': [{'code': code, 'label': label} for code, label in ROLE_CHOICES]})
+
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAuthenticated])
+def trash_settings(request):
+    cleanup_expired_trash()
+    profile, _created = StaffProfile.objects.get_or_create(user=request.user, defaults={'role': 'receptionist'})
+
+    if request.method == 'PATCH':
+        try:
+            retention_days = int(request.data.get('trash_retention_days'))
+        except (TypeError, ValueError):
+            return Response({'trash_retention_days': 'Enter a valid number of days.'}, status=status.HTTP_400_BAD_REQUEST)
+        if retention_days < 1 or retention_days > 3650:
+            return Response({'trash_retention_days': 'Retention days must be between 1 and 3650.'}, status=status.HTTP_400_BAD_REQUEST)
+        profile.trash_retention_days = retention_days
+        profile.save(update_fields=['trash_retention_days', 'updated_at'])
+
+    return Response({'trash_retention_days': profile.trash_retention_days})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def trash_items(request):
+    try:
+        page = max(1, int(request.query_params.get('page', '1')))
+    except ValueError:
+        page = 1
+    query = (request.query_params.get('q') or '').strip()
+    model_key = (request.query_params.get('model') or '').strip()
+    data = list_trash_items(request.user, page=page, page_size=10, query=query, model_key=model_key)
+    return Response({
+        'count': data['count'],
+        'next': None,
+        'previous': None,
+        'results': data['results'],
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def trash_restore(request):
+    entries = request.data.get('entries')
+    if not isinstance(entries, list) or not entries:
+        return Response({'entries': 'Select at least one trash item.'}, status=status.HTTP_400_BAD_REQUEST)
+    for entry in entries:
+        if not isinstance(entry, dict):
+            return Response({'entries': 'Each entry must be an object.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            record_id = int(entry.get('id'))
+        except (TypeError, ValueError):
+            return Response({'entries': 'Each entry must include a valid id.'}, status=status.HTTP_400_BAD_REQUEST)
+        restore_trash_item(str(entry.get('model') or '').strip(), record_id, request.user)
+    return Response({'detail': 'Trash items restored.'})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def trash_delete(request):
+    entries = request.data.get('entries')
+    if not isinstance(entries, list) or not entries:
+        return Response({'entries': 'Select at least one trash item.'}, status=status.HTTP_400_BAD_REQUEST)
+    for entry in entries:
+        if not isinstance(entry, dict):
+            return Response({'entries': 'Each entry must be an object.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            record_id = int(entry.get('id'))
+        except (TypeError, ValueError):
+            return Response({'entries': 'Each entry must include a valid id.'}, status=status.HTTP_400_BAD_REQUEST)
+        permanently_delete_trash_item(str(entry.get('model') or '').strip(), record_id, request.user)
+    return Response({'detail': 'Trash items permanently deleted.'})

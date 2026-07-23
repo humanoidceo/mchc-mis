@@ -5,13 +5,14 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.db.models import Sum
 from rest_framework import serializers
 
-from .models import ClinicalDocument, Expense, LabTest, Medicine, MedicineStockMovement, Patient, Payment, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, WebsitePageContent, WebsiteSettings
+from .models import ClinicalDocument, Expense, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, WebsitePageContent, WebsiteSettings
 from .salary_rules import AFGHAN_MONTHS, calculate_afghanistan_salary_tax, current_afghan_date
 
 
 MONEY_QUANT = Decimal('0.01')
 MAX_WEBSITE_IMAGE_SIZE = 8 * 1024 * 1024
 ALLOWED_WEBSITE_IMAGE_EXTENSIONS = {'.avif', '.gif', '.heic', '.jpeg', '.jpg', '.png', '.webp'}
+ALLOWED_PRIVATE_DOCUMENT_EXTENSIONS = {'.docx', '.pdf', '.png', '.jpg', '.jpeg'}
 FREE_PAYMENT_DEPARTMENTS = {'vaccination', 'malnutrition'}
 
 
@@ -31,6 +32,19 @@ def validate_website_image_file(file):
     return file
 
 
+def validate_private_document_file(file, *, max_size_mb: Decimal):
+    extension = Path(file.name).suffix.lower()
+    if extension not in ALLOWED_PRIVATE_DOCUMENT_EXTENSIONS:
+        raise serializers.ValidationError('Supported file types: DOCX, PDF, PNG, JPG, and JPEG.')
+    if max_size_mb <= 0:
+        raise serializers.ValidationError('Maximum file size must be greater than zero.')
+
+    max_size_bytes = int((max_size_mb * Decimal('1024') * Decimal('1024')).quantize(Decimal('1')))
+    if file.size > max_size_bytes:
+        raise serializers.ValidationError(f'File size must be {max_size_mb} MB or smaller.')
+    return file
+
+
 def media_or_fallback_url(request, file, fallback: str) -> str:
     if file:
         url = file.url
@@ -42,6 +56,22 @@ def is_free_payment_department(department: str | None) -> bool:
     return (department or '').strip().lower() in FREE_PAYMENT_DEPARTMENTS
 
 
+def normalize_age_unit(value: str | None, default: str) -> str:
+    age_unit = str(value or default).strip().lower()
+    return age_unit if age_unit in {Patient.AgeUnit.MONTH, Patient.AgeUnit.YEAR} else default
+
+
+def validate_age_and_unit(age_value: int | None, age_unit: str, *, age_field: str, unit_field: str) -> None:
+    if age_value is None:
+        return
+    if age_value < 0:
+        raise serializers.ValidationError({age_field: 'Age cannot be negative.'})
+    if age_unit == Patient.AgeUnit.MONTH and age_value >= 12:
+        raise serializers.ValidationError({age_field: 'Month age must be less than 12.'})
+    if age_unit == Patient.AgeUnit.YEAR and age_value == 0:
+        raise serializers.ValidationError({unit_field: 'Use Month for patients younger than one year.'})
+
+
 class PatientSerializer(serializers.ModelSerializer):
     registered_by_name = serializers.CharField(source='registered_by.get_full_name', read_only=True)
 
@@ -49,6 +79,14 @@ class PatientSerializer(serializers.ModelSerializer):
         model = Patient
         fields = '__all__'
         read_only_fields = ('registration_number', 'registered_by', 'created_at', 'updated_at')
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        age = attrs.get('age', getattr(self.instance, 'age', None))
+        age_unit = normalize_age_unit(attrs.get('age_unit', getattr(self.instance, 'age_unit', Patient.AgeUnit.YEAR)), Patient.AgeUnit.YEAR)
+        validate_age_and_unit(age, age_unit, age_field='age', unit_field='age_unit')
+        attrs['age_unit'] = age_unit
+        return attrs
 
 
 class PaymentSerializer(serializers.ModelSerializer):
@@ -72,9 +110,16 @@ class PaymentSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         attrs = super().validate(attrs)
         department = attrs.get('department', getattr(self.instance, 'department', ''))
+        patient_age = attrs.get('patient_age', getattr(self.instance, 'patient_age', None))
+        patient_age_unit = normalize_age_unit(
+            attrs.get('patient_age_unit', getattr(self.instance, 'patient_age_unit', Patient.AgeUnit.YEAR)),
+            Patient.AgeUnit.YEAR,
+        )
         doctor_fee = attrs.get('doctor_fee', getattr(self.instance, 'doctor_fee', Decimal('0'))) or Decimal('0')
         payment_type = attrs.get('payment_type', getattr(self.instance, 'payment_type', Payment.PaymentType.FULL))
         discount_percentage = attrs.get('discount_percentage', getattr(self.instance, 'discount_percentage', Decimal('0'))) or Decimal('0')
+
+        validate_age_and_unit(patient_age, patient_age_unit, age_field='patient_age', unit_field='patient_age_unit')
 
         if is_free_payment_department(department):
             doctor_fee = Decimal('0')
@@ -103,6 +148,7 @@ class PaymentSerializer(serializers.ModelSerializer):
         attrs['discount_percentage'] = money(discount_percentage)
         attrs['discount_amount'] = money(discount_amount)
         attrs['amount'] = money(amount)
+        attrs['patient_age_unit'] = patient_age_unit
         if not attrs.get('service') and attrs.get('department'):
             attrs['service'] = f"{attrs['department']} consultation"
         return attrs
@@ -500,3 +546,62 @@ class WebsiteSettingsSerializer(serializers.ModelSerializer):
 
     def get_updated_by_name(self, obj) -> str:
         return obj.updated_by.get_full_name() if obj.updated_by else ''
+
+
+class PrivateDocumentSerializer(serializers.ModelSerializer):
+    uploaded_by_name = serializers.CharField(source='uploaded_by.get_full_name', read_only=True)
+    file_url = serializers.SerializerMethodField()
+    file_name = serializers.SerializerMethodField()
+    file_extension = serializers.SerializerMethodField()
+    file_size_bytes = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PrivateDocument
+        fields = (
+            'id',
+            'title',
+            'category',
+            'file',
+            'file_url',
+            'file_name',
+            'file_extension',
+            'file_size_bytes',
+            'max_size_mb',
+            'uploaded_by',
+            'uploaded_by_name',
+            'created_at',
+            'updated_at',
+        )
+        read_only_fields = ('uploaded_by', 'created_at', 'updated_at')
+
+    def get_file_url(self, obj) -> str:
+        request = self.context.get('request')
+        if not obj.file:
+            return ''
+        url = obj.file.url
+        return request.build_absolute_uri(url) if request else url
+
+    def get_file_name(self, obj) -> str:
+        return Path(obj.file.name).name if obj.file else ''
+
+    def get_file_extension(self, obj) -> str:
+        return Path(obj.file.name).suffix.lower().lstrip('.') if obj.file else ''
+
+    def get_file_size_bytes(self, obj) -> int:
+        return int(obj.file.size) if obj.file else 0
+
+    def validate_max_size_mb(self, value):
+        value = money(value)
+        if value <= 0:
+            raise serializers.ValidationError('Maximum file size must be greater than zero.')
+        return value
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        max_size_mb = attrs.get('max_size_mb', getattr(self.instance, 'max_size_mb', Decimal('1')))
+        file = attrs.get('file')
+        if file is not None:
+            validate_private_document_file(file, max_size_mb=max_size_mb)
+        elif self.instance is None:
+            raise serializers.ValidationError({'file': 'Upload a file.'})
+        return attrs

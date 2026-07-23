@@ -2,7 +2,7 @@ import type { CommonTranslation, Localized } from './types'
 
 export const commonTranslation: Localized<CommonTranslation> = {
   en: {
-    brandSubtitle: 'Mother & Child Health Care',
+    brandSubtitle: 'Mother and Child Health Support Center',
     staffLogin: 'Staff login',
     languageLabel: 'Language',
     nav: {
@@ -17,7 +17,7 @@ export const commonTranslation: Localized<CommonTranslation> = {
     slogan: 'Health of mother and child; foundation of a healthy society.',
   },
   fa: {
-    brandSubtitle: 'مرکز صحی حمایت طفل و مادر',
+    brandSubtitle: 'مرکز حمایه صحت طفل و مادر',
     staffLogin: 'ورود کارمندان',
     languageLabel: 'زبان',
     nav: {
@@ -28,7 +28,7 @@ export const commonTranslation: Localized<CommonTranslation> = {
       services: 'خدمات',
       contact: 'تماس با ما',
     },
-    footer: 'مرکز صحی حمایت طفل و مادر تحت چتر AFZENDA؛ خدمات صحی غیرانتفاعی و جامعه‌محور.',
+    footer: 'مرکز حمایه صحت طفل و مادر تحت چتر AFZENDA؛ خدمات صحی غیرانتفاعی و جامعه‌محور.',
     slogan: 'سلامت مادر و طفل؛ بنیاد جامعه سالم.',
   },
   ps: {

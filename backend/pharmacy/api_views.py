@@ -1,11 +1,15 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
+from io import BytesIO
+from xml.sax.saxutils import escape
+from zipfile import ZIP_DEFLATED, ZipFile
 
+from django.http import HttpResponse
 from django.db import transaction
 from django.db.models import Count, Prefetch, Q, Sum
 from django.db.models.functions import TruncDate, TruncMonth
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
+from django.utils.dateparse import parse_date, parse_datetime
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -13,7 +17,10 @@ from rest_framework.response import Response
 
 from accounts.access import user_has_permission
 from accounts.permissions import Role
+from accounts.trash import cleanup_expired_trash, soft_delete_instance
 from clinic.models import ClinicalDocument, Patient, Payment
+from clinic.serializers import ClinicalDocumentSerializer
+from config.pagination import StandardResultsSetPagination
 
 from .models import Medicine, PharmacySetting, Sale, SaleItem, money, sync_medicine_profit_percentages
 from .serializers import (
@@ -55,15 +62,21 @@ class PharmacyBaseViewSet(viewsets.GenericViewSet):
     permission_classes = (IsAuthenticated,)
 
     def check_permissions(self, request):
+        cleanup_expired_trash()
         super().check_permissions(request)
         if not is_pharmacy_user(request.user):
             self.permission_denied(request, message="Only pharmacist accounts can access pharmacy APIs.")
 
 
+class PharmacyFamilyPlanningOrderPagination(StandardResultsSetPagination):
+    page_size = 5
+    max_page_size = 5
+
+
 def next_patient_registration_number() -> str:
     numeric_registration_numbers = [
         int(registration_number)
-        for registration_number in Patient.objects.select_for_update().values_list("registration_number", flat=True)
+        for registration_number in Patient.all_objects.select_for_update().values_list("registration_number", flat=True)
         if registration_number.isdigit()
     ]
     return str(max(numeric_registration_numbers, default=0) + 1)
@@ -99,6 +112,66 @@ def match_family_planning_medicine(pharmacist, medicine_id: int):
     )
 
 
+def family_planning_items_from_payload(payload) -> list[tuple[int, int]]:
+    if not isinstance(payload, dict):
+        raise serializers.ValidationError({"payload": "Invalid family planning payload."})
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        raise serializers.ValidationError({"payload": "No family planning items were found in this order."})
+
+    normalized_items: list[tuple[int, int]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            raise serializers.ValidationError({"payload": "Invalid family planning order item."})
+        medicine_id = item.get("medicine")
+        try:
+            quantity = int(item.get("quantity") or 0)
+        except (TypeError, ValueError):
+            quantity = 0
+        if not isinstance(medicine_id, int) or quantity <= 0:
+            raise serializers.ValidationError({"payload": "Each family planning item must include a valid medicine and quantity."})
+        normalized_items.append((medicine_id, quantity))
+    return normalized_items
+
+
+def lock_family_planning_medicines(pharmacist, item_rows: list[tuple[int, int]]) -> dict[int, Medicine]:
+    medicine_ids = [medicine_id for medicine_id, _quantity in item_rows]
+    medicines = {
+        medicine.id: medicine
+        for medicine in Medicine.objects.select_for_update().filter(
+            pharmacist=pharmacist,
+            pk__in=medicine_ids,
+            generic_name__iexact="Family Planning",
+        )
+    }
+    for medicine_id, _quantity in item_rows:
+        if medicine_id not in medicines:
+            raise serializers.ValidationError({"medicine": f"Family planning stock item #{medicine_id} was not found."})
+    return medicines
+
+
+def restore_family_planning_stock(pharmacist, payload) -> None:
+    item_rows = family_planning_items_from_payload(payload)
+    medicines = lock_family_planning_medicines(pharmacist, item_rows)
+    for medicine_id, quantity in item_rows:
+        medicine = medicines[medicine_id]
+        medicine.quantity += quantity
+        medicine.save(update_fields=["quantity", "sell_price", "updated_at"])
+
+
+def deduct_family_planning_stock(pharmacist, payload) -> None:
+    item_rows = family_planning_items_from_payload(payload)
+    medicines = lock_family_planning_medicines(pharmacist, item_rows)
+    for medicine_id, quantity in item_rows:
+        medicine = medicines[medicine_id]
+        if quantity > medicine.quantity:
+            raise serializers.ValidationError({"medicine": f"Only {medicine.quantity} available for {medicine.name}."})
+    for medicine_id, quantity in item_rows:
+        medicine = medicines[medicine_id]
+        medicine.quantity -= quantity
+        medicine.save(update_fields=["quantity", "sell_price", "updated_at"])
+
+
 def latest_prescription_for_patient(patient_id: int):
     return (
         ClinicalDocument.objects.filter(
@@ -121,6 +194,29 @@ def dashboard_period_start(period: str):
         start = now - timedelta(days=now.weekday())
         return start.replace(hour=0, minute=0, second=0, microsecond=0), "Weekly"
     return now.replace(hour=0, minute=0, second=0, microsecond=0), "Daily"
+
+
+def resolve_dashboard_period(period: str, from_date_raw: str, to_date_raw: str):
+    if period == "custom":
+        start_date = parse_date(from_date_raw)
+        end_date = parse_date(to_date_raw)
+        errors: dict[str, str] = {}
+        if start_date is None:
+            errors["from"] = "Select a valid from date."
+        if end_date is None:
+            errors["to"] = "Select a valid to date."
+        if errors:
+            raise serializers.ValidationError(errors)
+        if end_date < start_date:
+            raise serializers.ValidationError({"to": "To date must be on or after from date."})
+
+        current_timezone = timezone.get_current_timezone()
+        start_at = timezone.make_aware(datetime.combine(start_date, datetime.min.time()), current_timezone)
+        end_at = timezone.make_aware(datetime.combine(end_date + timedelta(days=1), datetime.min.time()), current_timezone)
+        return start_at, end_at, f"Custom ({start_date.isoformat()} to {end_date.isoformat()})"
+
+    start_at, period_label = dashboard_period_start(period)
+    return start_at, None, period_label
 
 
 def build_patient_trend(period: str, sales_queryset):
@@ -201,18 +297,178 @@ def sale_item_cost_price(item, default_profit_percentage: Decimal):
     return money(item.unit_price / divisor)
 
 
+def summarize_sales(sales_queryset, default_profit_percentage: Decimal):
+    internal_amount = Decimal("0.00")
+    external_amount = Decimal("0.00")
+    total_billed = Decimal("0.00")
+    sold_quantity = Decimal("0.00")
+    sold_medicines_price = Decimal("0.00")
+
+    for sale in sales_queryset:
+        sale_total = sale.total_amount
+        total_billed += sale_total
+        if sale.customer_type == Sale.CustomerType.INTERNAL:
+            internal_amount += sale_total
+        else:
+            external_amount += sale_total
+        for item in sale.items.all():
+            sold_quantity += item.quantity
+            sold_medicines_price += money(sale_item_cost_price(item, default_profit_percentage) * item.quantity)
+
+    sold_medicines_price = money(sold_medicines_price)
+    sold_medicines_profit = money(total_billed - sold_medicines_price)
+    return {
+        "internal_amount": money(internal_amount),
+        "external_amount": money(external_amount),
+        "total_billed": money(total_billed),
+        "sold_quantity": sold_quantity,
+        "sold_medicines_price": sold_medicines_price,
+        "sold_medicines_profit": sold_medicines_profit,
+    }
+
+
+def summarize_inventory(medicines_queryset):
+    available_medicines_count = 0
+    stock_units = Decimal("0.00")
+    inventory_value_cost = Decimal("0.00")
+    inventory_value_sale = Decimal("0.00")
+
+    for medicine in medicines_queryset:
+        if medicine.quantity > 0:
+            available_medicines_count += 1
+            stock_units += medicine.quantity
+            inventory_value_cost += medicine.buy_price * medicine.quantity
+            inventory_value_sale += medicine.sell_price * medicine.quantity
+
+    return {
+        "available_medicines_count": available_medicines_count,
+        "stock_units": stock_units,
+        "inventory_value_cost": money(inventory_value_cost),
+        "inventory_value_sale": money(inventory_value_sale),
+    }
+
+
+def build_inline_string_cell(cell_reference: str, value: str, style_index: int | None = None) -> str:
+    style_attribute = f' s="{style_index}"' if style_index is not None else ""
+    return (
+        f'<c r="{cell_reference}" t="inlineStr"{style_attribute}>'
+        f"<is><t>{escape(value)}</t></is>"
+        "</c>"
+    )
+
+
+def build_number_cell(cell_reference: str, value: Decimal | int | float, style_index: int | None = None) -> str:
+    style_attribute = f' s="{style_index}"' if style_index is not None else ""
+    if isinstance(value, Decimal):
+        numeric_value = format(value, "f")
+    else:
+        numeric_value = str(value)
+    return f'<c r="{cell_reference}"{style_attribute}><v>{numeric_value}</v></c>'
+
+
+def build_xlsx_workbook(worksheet_name: str, rows: list[list[object]]) -> bytes:
+    safe_sheet_name = "".join(character for character in worksheet_name if character not in '\\/*?:[]')[:31] or "Sheet1"
+    sheet_rows: list[str] = []
+
+    for row_index, row in enumerate(rows, start=1):
+        cells: list[str] = []
+        for column_index, value in enumerate(row, start=1):
+            cell_reference = f"{chr(64 + column_index)}{row_index}"
+            style_index = 1 if row_index == 1 else None
+            if isinstance(value, (Decimal, int, float)) and not isinstance(value, bool):
+                cells.append(build_number_cell(cell_reference, value, style_index))
+            else:
+                cells.append(build_inline_string_cell(cell_reference, "" if value is None else str(value), style_index))
+        sheet_rows.append(f'<row r="{row_index}">{"".join(cells)}</row>')
+
+    sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        "<sheetData>"
+        f'{"".join(sheet_rows)}'
+        "</sheetData>"
+        "</worksheet>"
+    )
+    workbook_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        "<sheets>"
+        f'<sheet name="{escape(safe_sheet_name)}" sheetId="1" r:id="rId1"/>'
+        "</sheets>"
+        "</workbook>"
+    )
+    workbook_rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+        "</Relationships>"
+    )
+    styles_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<fonts count="2">'
+        '<font><sz val="11"/><name val="Calibri"/><family val="2"/></font>'
+        '<font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font>'
+        "</fonts>"
+        '<fills count="2">'
+        '<fill><patternFill patternType="none"/></fill>'
+        '<fill><patternFill patternType="gray125"/></fill>'
+        "</fills>"
+        '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+        '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+        '<cellXfs count="2">'
+        '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+        '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+        "</cellXfs>"
+        '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+        "</styleSheet>"
+    )
+    root_rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+        "</Relationships>"
+    )
+    content_types_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+        "</Types>"
+    )
+
+    buffer = BytesIO()
+    with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as workbook_archive:
+        workbook_archive.writestr("[Content_Types].xml", content_types_xml)
+        workbook_archive.writestr("_rels/.rels", root_rels_xml)
+        workbook_archive.writestr("xl/workbook.xml", workbook_xml)
+        workbook_archive.writestr("xl/_rels/workbook.xml.rels", workbook_rels_xml)
+        workbook_archive.writestr("xl/styles.xml", styles_xml)
+        workbook_archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+    return buffer.getvalue()
+
+
 class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
     serializer_class = PharmacyDashboardSerializer
 
     def list(self, request, *args, **kwargs):
         period = request.query_params.get("period", "monthly")
-        if period not in {"daily", "weekly", "monthly", "annual"}:
+        if period not in {"daily", "weekly", "monthly", "annual", "custom"}:
             period = "monthly"
         try:
             recent_page = max(1, int(request.query_params.get("recent_page", "1")))
         except ValueError:
             recent_page = 1
-        start_at, period_label = dashboard_period_start(period)
+        start_at, end_at, period_label = resolve_dashboard_period(
+            period,
+            request.query_params.get("from", "").strip(),
+            request.query_params.get("to", "").strip(),
+        )
 
         medicines = Medicine.objects.filter(pharmacist=request.user)
         setting, _ = PharmacySetting.objects.get_or_create(pharmacist=request.user)
@@ -227,28 +483,14 @@ class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
         low_stock_count = low_stock_queryset.count()
         low_stock_items = list(low_stock_queryset[:6])
         recent_sales = list(sales.order_by("-created_at")[(recent_page - 1) * page_size:recent_page * page_size])
-        inventory_value = Decimal("0.00")
-        for medicine in medicines:
-            inventory_value += medicine.buy_price * medicine.quantity
+        inventory_summary = summarize_inventory(medicines)
 
         period_sales = sales.filter(created_at__gte=start_at)
+        if end_at is not None:
+            period_sales = period_sales.filter(created_at__lt=end_at)
         internal_patients = period_sales.filter(customer_type=Sale.CustomerType.INTERNAL).aggregate(total=Count("patient", distinct=True))["total"] or 0
         external_patients = period_sales.filter(customer_type=Sale.CustomerType.EXTERNAL).aggregate(total=Count("patient", distinct=True))["total"] or 0
-        internal_amount = Decimal("0.00")
-        external_amount = Decimal("0.00")
-        total_billed = Decimal("0.00")
-        sold_medicines_price = Decimal("0.00")
-        for sale in period_sales:
-            sale_total = sale.total_amount
-            total_billed += sale_total
-            if sale.customer_type == Sale.CustomerType.INTERNAL:
-                internal_amount += sale_total
-            else:
-                external_amount += sale_total
-            for item in sale.items.all():
-                sold_medicines_price += money(sale_item_cost_price(item, setting.default_profit_percentage) * item.quantity)
-        sold_medicines_price = money(sold_medicines_price)
-        sold_medicines_profit = money(total_billed - sold_medicines_price)
+        sales_summary = summarize_sales(period_sales, setting.default_profit_percentage)
         family_planning_items_dispensed = 0
         family_planning_orders = ClinicalDocument.objects.filter(
             document_type=ClinicalDocument.DocumentType.FAMILY_PLANNING,
@@ -265,6 +507,8 @@ class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
                 dispensed_at = timezone.make_aware(dispensed_at, timezone.get_current_timezone())
             dispensed_at = timezone.localtime(dispensed_at)
             if dispensed_at < start_at:
+                continue
+            if end_at is not None and dispensed_at >= end_at:
                 continue
             items = payload.get("items")
             for item in items if isinstance(items, list) else []:
@@ -289,13 +533,16 @@ class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
                 "period": period,
                 "period_label": period_label,
                 "medicines_count": medicines.count(),
-                "medicines_registered_count": medicines.filter(created_at__gte=start_at).count(),
+                "medicines_registered_count": medicines.filter(
+                    created_at__gte=start_at,
+                    **({"created_at__lt": end_at} if end_at is not None else {}),
+                ).count(),
                 "low_stock_count": low_stock_count,
                 "sales_count": period_sales.count(),
                 "internal_patients": internal_patients,
-                "internal_amount": internal_amount,
+                "internal_amount": sales_summary["internal_amount"],
                 "external_patients": external_patients,
-                "external_amount": external_amount,
+                "external_amount": sales_summary["external_amount"],
                 "full_paid": full_paid,
                 "full_paid_amount": full_paid_amount,
                 "discounted": discounted,
@@ -306,12 +553,12 @@ class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
                 "pending_reception_amount": pending_reception_amount,
                 "approved_reception_payments": approved_reception_payments,
                 "approved_reception_amount": approved_reception_amount,
-                "stock_units": medicines.aggregate(total=Sum("quantity"))["total"] or 0,
-                "inventory_value": inventory_value,
-                "total_billed": total_billed,
-                "sold_medicines_total": total_billed,
-                "sold_medicines_profit": sold_medicines_profit,
-                "sold_medicines_price": sold_medicines_price,
+                "stock_units": inventory_summary["stock_units"],
+                "inventory_value": inventory_summary["inventory_value_cost"],
+                "total_billed": sales_summary["total_billed"],
+                "sold_medicines_total": sales_summary["total_billed"],
+                "sold_medicines_profit": sales_summary["sold_medicines_profit"],
+                "sold_medicines_price": sales_summary["sold_medicines_price"],
                 "family_planning_items_dispensed": family_planning_items_dispensed,
                 "patient_trend": patient_trend,
                 "recent_sales_count": recent_sales_count,
@@ -320,6 +567,56 @@ class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
             }
         )
         return Response(serializer.data)
+
+    @action(detail=False, methods=["get"], url_path="report")
+    def report(self, request):
+        from_date_raw = request.query_params.get("from", "").strip()
+        to_date_raw = request.query_params.get("to", "").strip()
+        from_date = parse_date(from_date_raw)
+        to_date = parse_date(to_date_raw)
+        errors: dict[str, str] = {}
+
+        if from_date is None:
+            errors["from"] = "Select a valid from date."
+        if to_date is None:
+            errors["to"] = "Select a valid to date."
+        if errors:
+            raise serializers.ValidationError(errors)
+        if to_date < from_date:
+            raise serializers.ValidationError({"to": "To date must be on or after from date."})
+
+        medicines = Medicine.objects.filter(pharmacist=request.user)
+        setting, _ = PharmacySetting.objects.get_or_create(pharmacist=request.user)
+        sales = (
+            Sale.objects.filter(
+                pharmacist=request.user,
+                created_at__date__gte=from_date,
+                created_at__date__lte=to_date,
+            )
+            .select_related("patient", "payment", "prescription_document")
+            .prefetch_related(Prefetch("items", queryset=SaleItem.objects.select_related("medicine").order_by("id")))
+            .order_by("-created_at")
+        )
+
+        inventory_summary = summarize_inventory(medicines)
+        sales_summary = summarize_sales(sales, setting.default_profit_percentage)
+
+        return Response(
+            {
+                "from": from_date.isoformat(),
+                "to": to_date.isoformat(),
+                "sales_count": sales.count(),
+                "sold_quantity": str(sales_summary["sold_quantity"]),
+                "sold_amount": str(sales_summary["total_billed"]),
+                "sold_cost_amount": str(sales_summary["sold_medicines_price"]),
+                "sold_profit_amount": str(sales_summary["sold_medicines_profit"]),
+                "available_medicines_count": inventory_summary["available_medicines_count"],
+                "stock_units": str(inventory_summary["stock_units"]),
+                "stock_value_cost": str(inventory_summary["inventory_value_cost"]),
+                "stock_value_sale": str(inventory_summary["inventory_value_sale"]),
+                "generated_at": timezone.localtime(timezone.now()).isoformat(),
+            }
+        )
 
 
 class PharmacySettingViewSet(PharmacyBaseViewSet):
@@ -387,6 +684,71 @@ class PharmacyMedicineViewSet(PharmacyBaseViewSet, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(pharmacist=self.request.user)
+
+    def perform_destroy(self, instance):
+        soft_delete_instance(instance, self.request.user)
+
+    @action(detail=False, methods=["get"], url_path="export-xlsx")
+    def export_xlsx(self, request):
+        medicines = (
+            Medicine.objects
+            .filter(pharmacist=request.user, quantity__gt=0)
+            .order_by("name")
+        )
+        rows: list[list[object]] = [[
+            "Medicine",
+            "Generic name",
+            "Dosage form",
+            "Strength",
+            "Quantity",
+            "Buy price",
+            "Sell price",
+            "Profit percentage",
+            "Total price without profit",
+            "Total price with profit",
+        ]]
+        total_without_profit = Decimal("0.00")
+        total_with_profit = Decimal("0.00")
+
+        for medicine in medicines:
+            medicine_total_without_profit = money(medicine.buy_price * medicine.quantity)
+            medicine_total_with_profit = money(medicine.sell_price * medicine.quantity)
+            total_without_profit += medicine_total_without_profit
+            total_with_profit += medicine_total_with_profit
+            rows.append([
+                medicine.name,
+                medicine.generic_name,
+                medicine.dosage_form,
+                medicine.strength,
+                medicine.quantity,
+                medicine.buy_price,
+                medicine.sell_price,
+                medicine.profit_percentage,
+                medicine_total_without_profit,
+                medicine_total_with_profit,
+            ])
+
+        rows.append([
+            "Grand total",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            money(total_without_profit),
+            money(total_with_profit),
+        ])
+
+        workbook = build_xlsx_workbook("Medicine Stock", rows)
+        today = timezone.localdate().isoformat()
+        response = HttpResponse(
+            workbook,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = f'attachment; filename="medicine-stock-{today}.xlsx"'
+        return response
 
     @action(detail=False, methods=["get"])
     def search(self, request):
@@ -497,10 +859,6 @@ class PharmacySaleViewSet(
         if self.action in {"create", "update", "partial_update"}:
             return PharmacySaleCreateSerializer
         return PharmacySaleSerializer
-
-    def _guard_sale_editable(self, sale: Sale):
-        if sale.payment is not None and sale.payment.status != Payment.Status.PENDING:
-            raise serializers.ValidationError({"payment": "Only pharmacy bills with pending reception payment can be edited."})
 
     def _resolve_sale_customer(self, serializer, request, existing_sale: Sale | None = None):
         customer_type = serializer.validated_data["customer_type"]
@@ -624,6 +982,7 @@ class PharmacySaleViewSet(
                 department="Pharmacy",
                 doctor_name="",
                 patient_age=patient.age,
+                patient_age_unit=patient.age_unit,
                 doctor_fee=sale.total_amount,
                 payment_type=Payment.PaymentType.FULL,
                 discount_percentage=Decimal("0.00"),
@@ -641,7 +1000,6 @@ class PharmacySaleViewSet(
 
     def update(self, request, *args, **kwargs):
         sale = self.get_object()
-        self._guard_sale_editable(sale)
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -684,10 +1042,11 @@ class PharmacySaleViewSet(
 
             payment.patient = patient
             payment.patient_age = patient.age
+            payment.patient_age_unit = patient.age_unit
             payment.doctor_fee = sale.total_amount
             payment.amount = sale.total_amount
             payment.notes = f"Pharmacy {customer_type} bill {sale.bill_no}"
-            payment.save(update_fields=["patient", "patient_age", "doctor_fee", "amount", "notes", "updated_at"])
+            payment.save(update_fields=["patient", "patient_age", "patient_age_unit", "doctor_fee", "amount", "notes", "updated_at"])
 
             sale.patient = patient
             sale.prescription_document = prescription
@@ -700,15 +1059,7 @@ class PharmacySaleViewSet(
     def destroy(self, request, *args, **kwargs):
         sale = self.get_object()
         with transaction.atomic():
-            for item in sale.items.select_related("medicine").all():
-                medicine = Medicine.objects.select_for_update().filter(pk=item.medicine_id, pharmacist=request.user).first()
-                if medicine is not None:
-                    medicine.quantity += item.quantity
-                    medicine.save(update_fields=["quantity", "sell_price", "updated_at"])
-            payment = sale.payment
-            sale.delete()
-            if payment is not None:
-                payment.delete()
+            soft_delete_instance(sale, request.user)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -800,8 +1151,16 @@ class PharmacyRutfOrderViewSet(PharmacyBaseViewSet, mixins.ListModelMixin, mixin
         return Response(serializer.data)
 
 
-class PharmacyFamilyPlanningOrderViewSet(PharmacyBaseViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin):
+class PharmacyFamilyPlanningOrderViewSet(
+    PharmacyBaseViewSet,
+    mixins.CreateModelMixin,
+    mixins.DestroyModelMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+):
     serializer_class = PharmacyFamilyPlanningOrderSerializer
+    pagination_class = PharmacyFamilyPlanningOrderPagination
 
     def get_queryset(self):
         queryset = (
@@ -868,6 +1227,67 @@ class PharmacyFamilyPlanningOrderViewSet(PharmacyBaseViewSet, mixins.ListModelMi
         serializer = self.get_serializer(self.serialize_order(document))
         return Response(serializer.data)
 
+    def create(self, request, *args, **kwargs):
+        payload = request.data.get("payload") if isinstance(request.data, dict) else None
+        document_data = {
+            "patient": request.data.get("patient"),
+            "document_type": ClinicalDocument.DocumentType.FAMILY_PLANNING,
+            "title": request.data.get("title") or "Family planning order",
+            "total_amount": "0",
+            "payload": payload,
+        }
+        serializer = ClinicalDocumentSerializer(data=document_data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        document = serializer.save(created_by=request.user)
+        return Response(self.get_serializer(self.serialize_order(document)).data, status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        document = self.get_object()
+        with transaction.atomic():
+            locked_document = ClinicalDocument.objects.select_for_update().select_related("patient", "created_by").get(pk=document.pk)
+            existing_payload = dict(locked_document.payload or {})
+            was_dispensed = existing_payload.get("pharmacy_status") == "dispensed"
+            if was_dispensed:
+                restore_family_planning_stock(request.user, existing_payload)
+
+            pharmacy_payload = {
+                key: value
+                for key, value in existing_payload.items()
+                if str(key).startswith("pharmacy_")
+            }
+            new_payload = request.data.get("payload") if isinstance(request.data, dict) else None
+            if isinstance(new_payload, dict):
+                merged_payload = {**new_payload, **pharmacy_payload}
+            else:
+                merged_payload = {**existing_payload}
+
+            serializer = ClinicalDocumentSerializer(
+                locked_document,
+                data={
+                    "patient": request.data.get("patient", locked_document.patient_id),
+                    "document_type": ClinicalDocument.DocumentType.FAMILY_PLANNING,
+                    "title": request.data.get("title") or locked_document.title,
+                    "total_amount": "0",
+                    "payload": merged_payload,
+                },
+                partial=True,
+                context={"request": request},
+            )
+            serializer.is_valid(raise_exception=True)
+            updated_document = serializer.save()
+
+            if was_dispensed:
+                deduct_family_planning_stock(request.user, updated_document.payload)
+
+        return Response(self.get_serializer(self.serialize_order(updated_document)).data)
+
+    def destroy(self, request, *args, **kwargs):
+        document = self.get_object()
+        with transaction.atomic():
+            locked_document = ClinicalDocument.objects.select_for_update().get(pk=document.pk)
+            soft_delete_instance(locked_document, request.user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     @action(detail=True, methods=["post"])
     def dispense(self, request, pk=None):
         document = self.get_object()
@@ -877,34 +1297,7 @@ class PharmacyFamilyPlanningOrderViewSet(PharmacyBaseViewSet, mixins.ListModelMi
             if payload.get("pharmacy_status") == "dispensed":
                 serializer = self.get_serializer(self.serialize_order(locked_document))
                 return Response(serializer.data)
-
-            items = payload.get("items")
-            if not isinstance(items, list) or not items:
-                raise serializers.ValidationError({"payload": "No family planning items were found in this order."})
-
-            medicines_to_update = []
-            for item in items:
-                if not isinstance(item, dict):
-                    raise serializers.ValidationError({"payload": "Invalid family planning order item."})
-                medicine_id = item.get("medicine")
-                try:
-                    quantity = int(item.get("quantity") or 0)
-                except (TypeError, ValueError):
-                    quantity = 0
-                if not isinstance(medicine_id, int) or quantity <= 0:
-                    raise serializers.ValidationError({"payload": "Each family planning item must include a valid medicine and quantity."})
-
-                medicine = match_family_planning_medicine(request.user, medicine_id)
-                if medicine is None:
-                    raise serializers.ValidationError({"medicine": f"Family planning stock item #{medicine_id} was not found."})
-                medicine = Medicine.objects.select_for_update().get(pk=medicine.pk)
-                if quantity > medicine.quantity:
-                    raise serializers.ValidationError({"medicine": f"Only {medicine.quantity} available for {medicine.name}."})
-                medicines_to_update.append((medicine, quantity))
-
-            for medicine, quantity in medicines_to_update:
-                medicine.quantity -= quantity
-                medicine.save(update_fields=["quantity", "sell_price", "updated_at"])
+            deduct_family_planning_stock(request.user, payload)
 
             payload["pharmacy_status"] = "dispensed"
             payload["pharmacy_dispensed_at"] = timezone.now().isoformat()

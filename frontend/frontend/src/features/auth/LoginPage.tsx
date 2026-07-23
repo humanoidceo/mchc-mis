@@ -7,7 +7,7 @@ import { useAuth } from './useAuth'
 
 const text = {
   signIn: 'Sign in',
-  brandSubtitle: 'Mother and Child Health Care Center',
+  brandSubtitle: 'Mother and Child Health Support Center',
   email: 'Email',
   password: 'Password',
   login: 'Login',

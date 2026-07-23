@@ -4,12 +4,14 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     ClinicalDocumentViewSet,
     DashboardViewSet,
+    database_backup,
     ExpenseViewSet,
     LabTestViewSet,
     MedicineStockMovementViewSet,
     MedicineViewSet,
     PatientViewSet,
     PaymentViewSet,
+    PrivateDocumentViewSet,
     SalaryAdvanceViewSet,
     SalaryPaymentViewSet,
     WebsitePageContentViewSet,
@@ -31,6 +33,7 @@ router.register('expenses', ExpenseViewSet, basename='expenses')
 router.register('salary-advances', SalaryAdvanceViewSet, basename='salary-advances')
 router.register('salaries', SalaryPaymentViewSet, basename='salaries')
 router.register('documents', ClinicalDocumentViewSet, basename='documents')
+router.register('private-documents', PrivateDocumentViewSet, basename='private-documents')
 router.register('lab-tests', LabTestViewSet, basename='lab-tests')
 router.register('medicines', MedicineViewSet, basename='medicines')
 router.register('stock-movements', MedicineStockMovementViewSet, basename='stock-movements')
@@ -38,6 +41,12 @@ router.register('website-content', WebsitePageContentViewSet, basename='website-
 router.register('website-settings', WebsiteSettingsViewSet, basename='website-settings')
 
 urlpatterns = [
+    path('database/backup/', database_backup, name='database-backup'),
+    path(
+        'payments/reception-report/',
+        PaymentViewSet.as_view({'get': 'reception_report'}),
+        name='payments-reception-report',
+    ),
     path(
         'malnutrition/dashboard/',
         MalnutritionDashboardViewSet.as_view({'get': 'list'}),

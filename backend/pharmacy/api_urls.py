@@ -21,6 +21,11 @@ router.register("sales", PharmacySaleViewSet, basename="pharmacy-sales")
 
 urlpatterns = [
     path(
+        "medicines/export-xlsx/",
+        PharmacyMedicineViewSet.as_view({"get": "export_xlsx"}),
+        name="pharmacy-medicine-export-xlsx",
+    ),
+    path(
         "settings/",
         PharmacySettingViewSet.as_view(
             {

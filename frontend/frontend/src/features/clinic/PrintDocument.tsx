@@ -1,5 +1,10 @@
 import type { ClinicalDocument, Payment } from '../../types/domain'
 
+function formatPaymentAge(age: number | null, ageUnit: Payment['patient_age_unit'] | undefined): string {
+  if (age === null) return 'N/A'
+  return `${age} ${ageUnit === 'month' ? 'month' : 'year'}${age === 1 ? '' : 's'}`
+}
+
 function asLineItems(payload: Record<string, unknown>) {
   const items = payload.items
   return Array.isArray(items) ? items : []
@@ -40,6 +45,45 @@ function documentRowDetails(row: Record<string, unknown>): string {
   return details.filter(Boolean).join(' | ')
 }
 
+export const billPaperClassName = 'print-area half-a4-bill bg-white p-4 font-sans text-[11px] leading-tight text-black shadow-none'
+export const billBoxClassName = 'border border-black'
+export const billCellClassName = 'border-r border-black px-2 py-1 last:border-r-0'
+export const billHeaderCellClassName = 'border-r border-black bg-zinc-200 px-2 py-1 text-left font-bold last:border-r-0'
+
+export function BillTitle({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <header className="relative min-h-20 pb-3 text-center">
+      <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="absolute left-2 top-0 h-16 w-16 object-cover" />
+      <div className="px-20 pt-2">
+        <h2 className="text-2xl font-black uppercase tracking-wide">{title}</h2>
+        <p className="mt-2 text-lg font-black">{subtitle}</p>
+      </div>
+    </header>
+  )
+}
+
+export function BillReceiptNote({ receivedFrom, amount }: { receivedFrom: string; amount: string }) {
+  return (
+    <div className="mt-4 text-center text-sm font-bold leading-7 text-black">
+      <p>Received with thanks from <strong>{receivedFrom}</strong> a sum of Afghani <strong>{amount}</strong></p>
+      <div dir="rtl">
+        <p>پول پرداخت‌شده قابل بازپرداخت نیست.</p>
+        <p>ورکړې شوې پیسې بېرته نه ورکول کېږي.</p>
+      </div>
+    </div>
+  )
+}
+
+export function BillSignature() {
+  return (
+    <div className="mt-5 flex justify-end text-sm">
+      <div className="min-w-44 border border-zinc-300 px-3 py-5 text-right font-bold text-zinc-700">
+        <p>Auth Sign</p>
+      </div>
+    </div>
+  )
+}
+
 export function PrintDocument({ document }: { document: ClinicalDocument }) {
   if (isFamilyPlanningRecord(document)) {
     return (
@@ -48,7 +92,7 @@ export function PrintDocument({ document }: { document: ClinicalDocument }) {
           <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-16 w-16 rounded object-cover" />
           <div>
             <p className="text-sm font-medium text-sky-600">AFZENDA</p>
-            <h2 className="text-xl font-semibold">Mother and Child Health Care Center</h2>
+            <h2 className="text-xl font-semibold">Mother and Child Health Support Center</h2>
             <p className="text-sm text-zinc-600">Family planning issue note</p>
           </div>
         </header>
@@ -86,7 +130,7 @@ export function PrintDocument({ document }: { document: ClinicalDocument }) {
           <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-16 w-16 rounded object-cover" />
           <div>
             <p className="text-sm font-medium text-sky-600">AFZENDA</p>
-            <h2 className="text-xl font-semibold">Mother and Child Health Care Center</h2>
+            <h2 className="text-xl font-semibold">Mother and Child Health Support Center</h2>
             <p className="text-sm text-zinc-600">Malnutrition assessment and RUTF order</p>
           </div>
         </header>
@@ -137,7 +181,7 @@ export function PrintDocument({ document }: { document: ClinicalDocument }) {
           <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-16 w-16 rounded object-cover" />
           <div>
             <p className="text-sm font-medium text-sky-600">AFZENDA</p>
-            <h2 className="text-xl font-semibold">Mother and Child Health Care Center</h2>
+            <h2 className="text-xl font-semibold">Mother and Child Health Support Center</h2>
             <p className="text-sm text-zinc-600">Delivery record</p>
           </div>
         </header>
@@ -216,7 +260,7 @@ export function PrintDocument({ document }: { document: ClinicalDocument }) {
           <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-16 w-16 rounded object-cover" />
           <div>
             <p className="text-sm font-medium text-sky-600">AFZENDA</p>
-            <h2 className="text-xl font-semibold">Mother and Child Health Care Center</h2>
+            <h2 className="text-xl font-semibold">Mother and Child Health Support Center</h2>
             <p className="text-sm text-zinc-600">Gynecology ultrasound report</p>
           </div>
         </header>
@@ -311,7 +355,7 @@ export function PrintDocument({ document }: { document: ClinicalDocument }) {
           <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-16 w-16 rounded object-cover" />
           <div>
             <p className="text-sm font-medium text-sky-600">AFZENDA</p>
-            <h2 className="text-xl font-semibold">Mother and Child Health Care Center</h2>
+            <h2 className="text-xl font-semibold">Mother and Child Health Support Center</h2>
             <p className="text-sm text-zinc-600">Maternal care record</p>
           </div>
         </header>
@@ -373,6 +417,71 @@ export function PrintDocument({ document }: { document: ClinicalDocument }) {
   const showCosts = !['prescription', 'vaccination'].includes(document.document_type)
   const patientStatus = typeof document.payload.patient_status === 'string' ? document.payload.patient_status : ''
   const patientStatusLabel = patientStatus === 'follow_up' ? 'Follow-up' : patientStatus === 'new' ? 'New' : ''
+  const isBillDocument = document.document_type === 'lab_bill' || document.document_type === 'medicine_bill'
+
+  if (isBillDocument) {
+    return (
+      <section className={billPaperClassName}>
+        <BillTitle title="Mother and Child Health Support Center" subtitle={document.document_type_label} />
+
+        <div className={billBoxClassName}>
+          <div className="grid grid-cols-[7rem_1fr_7rem_1fr] border-b border-black">
+            <div className={billHeaderCellClassName}>Document:</div>
+            <div className={billCellClassName}>{document.document_type_label}</div>
+            <div className={billHeaderCellClassName}>Date:</div>
+            <div className={billCellClassName}>{new Date(document.created_at).toLocaleString()}</div>
+          </div>
+          <div className="grid grid-cols-[7rem_1fr_7rem_1fr] border-b border-black">
+            <div className={billHeaderCellClassName}>Patient ID:</div>
+            <div className={billCellClassName}>{document.patient}</div>
+            <div className={billHeaderCellClassName}>Patient name:</div>
+            <div className={billCellClassName}>{document.patient_name}</div>
+          </div>
+          <div className="grid grid-cols-[7rem_1fr_7rem_1fr] border-b border-black">
+            <div className={billHeaderCellClassName}>Prepared by:</div>
+            <div className={billCellClassName}>{document.created_by_name || 'MCHC staff'}</div>
+            <div className={billHeaderCellClassName}>Title:</div>
+            <div className={billCellClassName}>{document.title}</div>
+          </div>
+        </div>
+
+        {lines.length ? (
+          <table className="mt-3 w-full border-collapse border border-black text-left text-[11px]">
+            <thead>
+              <tr className="bg-zinc-200">
+                <th className="border border-black px-2 py-1 font-bold">Item</th>
+                <th className="border border-black px-2 py-1 font-bold">Details</th>
+                <th className="border border-black px-2 py-1 text-right font-bold">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map((item, index) => {
+                const row = item as Record<string, unknown>
+                return (
+                  <tr key={index}>
+                    <td className="border border-black px-2 py-1 font-medium">{String(row.name ?? row.test_name ?? row.test ?? row.medicine_name ?? row.medicine ?? row.vaccine ?? 'Item')}</td>
+                    <td className="border border-black px-2 py-1">{documentRowDetails(row)}</td>
+                    <td className="border border-black px-2 py-1 text-right">{String(row.cost ?? row.amount ?? '')}</td>
+                  </tr>
+                )
+              })}
+              <tr className="bg-zinc-100 font-bold">
+                <td className="border border-black px-2 py-1" colSpan={2}>Total cost</td>
+                <td className="border border-black px-2 py-1 text-right">{document.total_amount}</td>
+              </tr>
+            </tbody>
+          </table>
+        ) : (
+          <pre className="mt-3 whitespace-pre-wrap border border-black bg-zinc-50 p-3 text-[11px]">
+            {JSON.stringify(document.payload, null, 2)}
+          </pre>
+        )}
+
+        <BillReceiptNote receivedFrom={document.created_by_name || 'MCHC staff'} amount={document.total_amount} />
+        <BillSignature />
+      </section>
+    )
+  }
 
   return (
     <section className={`print-area rounded-md border border-zinc-200 bg-white p-6 text-zinc-950 ${halfA4 ? 'half-a4-bill' : ''}`}>
@@ -380,7 +489,7 @@ export function PrintDocument({ document }: { document: ClinicalDocument }) {
         {showLogo ? <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-14 w-14 rounded object-cover" /> : null}
         <div>
           <p className="text-sm font-medium text-sky-600">AFZENDA</p>
-          <h2 className="text-xl font-semibold">Mother and Child Health Care Center</h2>
+          <h2 className="text-xl font-semibold">Mother and Child Health Support Center</h2>
           <p className="text-sm text-zinc-600">{halfA4 ? document.document_type_label : 'Health of mother and child; foundation of a healthy society'}</p>
         </div>
       </header>
@@ -438,63 +547,67 @@ export function PrintPaymentBill({ payment, printedBy }: { payment: Payment; pri
   const isDiscount = payment.payment_type === 'discount'
 
   return (
-    <section className="print-area half-a4-bill rounded-md border border-zinc-200 bg-white p-6 text-zinc-950">
-      <header className="flex items-center gap-4 border-b border-zinc-200 pb-4">
-        <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="h-16 w-16 rounded object-cover" />
-        <div>
-          <p className="text-sm font-medium text-sky-600">AFZENDA</p>
-          <h2 className="text-xl font-semibold">Mother and Child Health Care Center</h2>
-          <p className="text-sm text-zinc-600">Reception bill</p>
-        </div>
-      </header>
+    <section className={billPaperClassName}>
+      <BillTitle title="Mother and Child Health Support Center" subtitle="Reception bill" />
 
-      <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
-        <p><strong>Date and time:</strong> {createdAt}</p>
-        <p><strong>Bill status:</strong> {payment.status}</p>
-        <p><strong>Patient:</strong> {patientName}</p>
-        <p><strong>Age:</strong> {payment.patient_age ?? 'N/A'}</p>
-        <p><strong>Department:</strong> {payment.department || payment.service}</p>
+      <div className={billBoxClassName}>
+        <div className="grid grid-cols-[8rem_1fr_7rem_1fr] border-b border-black">
+          <div className={billHeaderCellClassName}>Date and time:</div>
+          <div className={billCellClassName}>{createdAt}</div>
+          <div className={billHeaderCellClassName}>Bill status:</div>
+          <div className={billCellClassName}>{payment.status}</div>
+        </div>
+        <div className="grid grid-cols-[8rem_1fr_7rem_1fr] border-b border-black">
+          <div className={billHeaderCellClassName}>Patient ID:</div>
+          <div className={billCellClassName}>{payment.patient}</div>
+          <div className={billHeaderCellClassName}>Patient name:</div>
+          <div className={billCellClassName}>{patientName}</div>
+        </div>
+        <div className="grid grid-cols-[8rem_1fr_7rem_1fr] border-b border-black">
+          <div className={billHeaderCellClassName}>Age:</div>
+          <div className={billCellClassName}>{formatPaymentAge(payment.patient_age, payment.patient_age_unit)}</div>
+          <div className={billHeaderCellClassName}>Department:</div>
+          <div className={billCellClassName}>{payment.department || payment.service}</div>
+        </div>
+        <div className="grid grid-cols-[8rem_1fr_7rem_1fr]">
+          <div className={billHeaderCellClassName}>Payment type:</div>
+          <div className={billCellClassName}>{isFree ? 'Free' : isDiscount ? 'Discount percentage' : 'Full payment'}</div>
+          <div className={billHeaderCellClassName}>Account:</div>
+          <div className={billCellClassName}>{printedBy}</div>
+        </div>
       </div>
 
-      <table className="mt-6 w-full border-collapse text-sm">
+      <table className="mt-3 w-full border-collapse border border-black text-left text-[11px]">
+        <thead>
+          <tr className="bg-zinc-200">
+            <th className="border border-black px-2 py-1 font-bold">Service</th>
+            <th className="border border-black px-2 py-1 font-bold">Payment type</th>
+            <th className="border border-black px-2 py-1 text-right font-bold">Amount</th>
+            <th className="border border-black px-2 py-1 text-right font-bold">Discount</th>
+            <th className="border border-black px-2 py-1 text-right font-bold">Net amount</th>
+          </tr>
+        </thead>
         <tbody>
-          <tr className="border-b border-zinc-100">
-            <td className="py-2 font-medium">Amount of doctor fees</td>
-            <td className="py-2 text-right">{payment.doctor_fee}</td>
+          <tr>
+            <td className="border border-black px-2 py-1">{payment.service || payment.department || 'Reception bill'}</td>
+            <td className="border border-black px-2 py-1">{isFree ? 'Free' : isDiscount ? 'Discount percentage' : 'Full payment'}</td>
+            <td className="border border-black px-2 py-1 text-right">{payment.doctor_fee}</td>
+            <td className="border border-black px-2 py-1 text-right">{isDiscount ? `${payment.discount_percentage}% (${payment.discount_amount})` : isFree ? payment.doctor_fee : '0'}</td>
+            <td className="border border-black px-2 py-1 text-right font-bold">{isFree ? 'Free' : payment.amount}</td>
           </tr>
-          <tr className="border-b border-zinc-100">
-            <td className="py-2 font-medium">Payment type</td>
-            <td className="py-2 text-right">{isFree ? 'Free' : isDiscount ? 'Discount percentage' : 'Full payment'}</td>
-          </tr>
-          {isDiscount ? (
-            <tr className="border-b border-zinc-100">
-              <td className="py-2 font-medium">Discount</td>
-              <td className="py-2 text-right">{payment.discount_percentage}% ({payment.discount_amount})</td>
-            </tr>
-          ) : null}
-          {isFree ? (
-            <tr className="border-b border-zinc-100">
-              <td className="py-2 font-medium">Amount to pay</td>
-              <td className="py-2 text-right font-semibold">Free</td>
-            </tr>
-          ) : null}
-          <tr className="border-b border-zinc-200">
-            <td className="py-2 text-lg font-semibold">{isDiscount ? 'Amount after discount' : 'Final amount'}</td>
-            <td className="py-2 text-right text-lg font-semibold">{isFree ? 'Free' : payment.amount}</td>
+          <tr className="bg-zinc-100 font-bold">
+            <td className="border border-black px-2 py-1" colSpan={2}>Final amount</td>
+            <td className="border border-black px-2 py-1 text-right">{payment.doctor_fee}</td>
+            <td className="border border-black px-2 py-1 text-right">{isDiscount || isFree ? payment.discount_amount : '0'}</td>
+            <td className="border border-black px-2 py-1 text-right">{isFree ? 'Free' : payment.amount}</td>
           </tr>
         </tbody>
       </table>
 
-      {payment.notes ? <p className="mt-4 text-sm"><strong>Notes:</strong> {payment.notes}</p> : null}
+      {payment.notes ? <p className="mt-3 text-sm"><strong>Notes:</strong> {payment.notes}</p> : null}
 
-      <div className="mt-8 border-t border-zinc-200 pt-4 text-sm">
-        <span><strong>Printed by:</strong> {printedBy}</span>
-      </div>
-
-      <div className="mt-6 border-t border-zinc-200 pt-3 text-center text-sm font-semibold leading-7 text-zinc-800" dir="rtl">
-        <p>پول پرداخت‌شده قابل بازپرداخت نیست.</p>
-        <p>ورکړې شوې پیسې بېرته نه ورکول کېږي.</p>
-      </div>
+      <BillReceiptNote receivedFrom={printedBy} amount={isFree ? '0' : payment.amount} />
+      <BillSignature />
     </section>
   )
 }

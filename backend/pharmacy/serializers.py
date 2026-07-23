@@ -111,7 +111,7 @@ class PharmacySaleSerializer(serializers.ModelSerializer):
 
 class PharmacySaleCreateItemSerializer(serializers.Serializer):
     medicine = serializers.IntegerField()
-    quantity = serializers.DecimalField(max_digits=10, decimal_places=2)
+    quantity = serializers.DecimalField(max_digits=10, decimal_places=1)
 
 
 class PharmacySaleCreateSerializer(serializers.Serializer):
@@ -146,7 +146,7 @@ class PharmacySaleCreateSerializer(serializers.Serializer):
 
 
 class PharmacyDashboardSerializer(serializers.Serializer):
-    period = serializers.ChoiceField(choices=(("daily", "Daily"), ("weekly", "Weekly"), ("monthly", "Monthly"), ("annual", "Annual")))
+    period = serializers.ChoiceField(choices=(("daily", "Daily"), ("weekly", "Weekly"), ("monthly", "Monthly"), ("annual", "Annual"), ("custom", "Custom")))
     period_label = serializers.CharField()
     medicines_count = serializers.IntegerField()
     medicines_registered_count = serializers.IntegerField()
@@ -166,7 +166,7 @@ class PharmacyDashboardSerializer(serializers.Serializer):
     pending_reception_amount = serializers.DecimalField(max_digits=14, decimal_places=2)
     approved_reception_payments = serializers.IntegerField()
     approved_reception_amount = serializers.DecimalField(max_digits=14, decimal_places=2)
-    stock_units = serializers.IntegerField()
+    stock_units = serializers.DecimalField(max_digits=14, decimal_places=2)
     inventory_value = serializers.DecimalField(max_digits=14, decimal_places=2)
     total_billed = serializers.DecimalField(max_digits=14, decimal_places=2)
     sold_medicines_total = serializers.DecimalField(max_digits=14, decimal_places=2)

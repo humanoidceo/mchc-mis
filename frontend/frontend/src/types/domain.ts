@@ -27,6 +27,7 @@ export type UserProfile = {
   role_label: string
   phone: string
   allowed_permissions: string[]
+  trash_retention_days: number
 }
 
 export type User = {
@@ -73,6 +74,7 @@ export type Patient = {
   first_name: string
   last_name: string
   age: number | null
+  age_unit: 'month' | 'year'
   gender: 'female' | 'male' | 'other'
   date_of_birth: string | null
   phone: string
@@ -90,6 +92,7 @@ export type Payment = {
   department: string
   doctor_name: string
   patient_age: number | null
+  patient_age_unit: 'month' | 'year'
   doctor_fee: string
   payment_type: 'full' | 'free' | 'discount'
   discount_percentage: string
@@ -127,6 +130,30 @@ export type ClinicalDocument = {
   total_amount: string
   created_at: string
   created_by_name: string
+}
+
+export type PrivateDocument = {
+  id: number
+  title: string
+  category: string
+  file: string
+  file_url: string
+  file_name: string
+  file_extension: string
+  file_size_bytes: number
+  max_size_mb: string
+  uploaded_by: number
+  uploaded_by_name: string
+  created_at: string
+  updated_at: string
+}
+
+export type TrashItem = {
+  model: string
+  model_label: string
+  id: number
+  title: string
+  deleted_at: string
 }
 
 export type LaboratoryPatientSearchOption = {
@@ -304,7 +331,7 @@ export type ExpenseCategoryOption = {
 }
 
 export type DashboardStats = {
-  period: 'daily' | 'weekly' | 'monthly' | 'annual'
+  period: 'daily' | 'weekly' | 'monthly' | 'annual' | 'custom'
   period_label: string
   patients: number
   full_paid: number
@@ -478,7 +505,7 @@ export type PharmacySale = {
 }
 
 export type PharmacyDashboardStats = {
-  period: 'daily' | 'weekly' | 'monthly' | 'annual'
+  period: 'daily' | 'weekly' | 'monthly' | 'annual' | 'custom'
   period_label: string
   medicines_count: number
   medicines_registered_count: number
@@ -498,7 +525,7 @@ export type PharmacyDashboardStats = {
   pending_reception_amount: string
   approved_reception_payments: number
   approved_reception_amount: string
-  stock_units: number
+  stock_units: string
   inventory_value: string
   total_billed: string
   sold_medicines_total: string

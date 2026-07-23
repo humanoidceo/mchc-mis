@@ -1,23 +1,32 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
+from collections import defaultdict
+import os
+from pathlib import Path
+import subprocess
+import tempfile
 
+from django.conf import settings
+from django.http import FileResponse
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from django.db import transaction
 from django.db.models import Count, F, Q, Sum
 from django.db.models.functions import TruncDate, TruncMonth
-from rest_framework import status, viewsets
-from rest_framework.decorators import action
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from accounts.access import get_user_permissions, user_has_permission
+from accounts.trash import cleanup_expired_trash, soft_delete_instance
 from accounts.models import Employee
 from accounts.permissions import Role
 from config.pagination import StandardResultsSetPagination
 from pharmacy.models import Medicine as PharmacyMedicine
 from .expense_categories import EXPENSE_CATEGORIES
-from .models import ClinicalDocument, Expense, LabTest, Medicine, MedicineStockMovement, Patient, Payment, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, WebsitePageContent, WebsiteSettings
+from .models import ClinicalDocument, Expense, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, WebsitePageContent, WebsiteSettings
 from .salary_rules import AFGHAN_MONTHS, current_afghan_date, money
 from .serializers import (
     ClinicalDocumentSerializer,
@@ -27,6 +36,7 @@ from .serializers import (
     MedicineStockMovementSerializer,
     PatientSerializer,
     PaymentSerializer,
+    PrivateDocumentSerializer,
     SalaryAdvanceSerializer,
     SalaryPaymentSerializer,
     WebsitePageContentSerializer,
@@ -46,6 +56,108 @@ DOCUMENT_CREATE_PERMISSIONS = {
 }
 
 
+class DeleteAfterClose:
+    def __init__(self, path: str):
+        self.path = path
+        self.file = open(path, 'rb')
+
+    def read(self, *args, **kwargs):
+        return self.file.read(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self.file, name)
+
+    def close(self):
+        try:
+            self.file.close()
+        finally:
+            try:
+                os.unlink(self.path)
+            except FileNotFoundError:
+                pass
+
+
+def can_download_database_backup(user) -> bool:
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_superuser or user_has_permission(user, 'database.backup'):
+        return True
+    profile = getattr(user, 'staff_profile', None)
+    return bool(profile and profile.role in {Role.SUPER_ADMIN, Role.RECEPTIONIST})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def database_backup(request):
+    if not can_download_database_backup(request.user):
+        return Response({'detail': 'Missing permission: database.backup'}, status=status.HTTP_403_FORBIDDEN)
+
+    database = settings.DATABASES['default']
+    if database.get('ENGINE') != 'django.db.backends.mysql':
+        return Response({'detail': 'Database backup is available only for MySQL.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    database_name = str(database.get('NAME') or '')
+    database_user = str(database.get('USER') or '')
+    database_password = str(database.get('PASSWORD') or '')
+    database_host = str(database.get('HOST') or '127.0.0.1')
+    database_port = str(database.get('PORT') or '3306')
+    if not database_name or not database_user:
+        return Response({'detail': 'Database backup configuration is incomplete.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    timestamp = timezone.localtime(timezone.now()).strftime('%Y%m%d-%H%M%S')
+    filename = f'mchc-mis-db-backup-{timestamp}.sql'
+    temporary_file = tempfile.NamedTemporaryFile(delete=False, suffix='.sql')
+    temporary_path = temporary_file.name
+
+    command = [
+        'mysqldump',
+        '--single-transaction',
+        '--quick',
+        '--routines',
+        '--triggers',
+        '--events',
+        '--default-character-set=utf8mb4',
+        '--host',
+        database_host,
+        '--port',
+        database_port,
+        '--user',
+        database_user,
+        database_name,
+    ]
+    environment = os.environ.copy()
+    if database_password:
+        environment['MYSQL_PWD'] = database_password
+
+    try:
+        with temporary_file:
+            completed = subprocess.run(
+                command,
+                stdout=temporary_file,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=environment,
+                timeout=300,
+                check=False,
+            )
+        if completed.returncode != 0:
+            try:
+                os.unlink(temporary_path)
+            except FileNotFoundError:
+                pass
+            return Response({'detail': 'Unable to create database backup.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    except (OSError, subprocess.TimeoutExpired):
+        try:
+            os.unlink(temporary_path)
+        except FileNotFoundError:
+            pass
+        return Response({'detail': 'Unable to create database backup.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    response = FileResponse(DeleteAfterClose(temporary_path), as_attachment=True, filename=filename, content_type='application/sql')
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
 def dashboard_period_start(period: str):
     now = timezone.localtime(timezone.now())
     if period == 'annual':
@@ -56,6 +168,29 @@ def dashboard_period_start(period: str):
         start = now - timedelta(days=now.weekday())
         return start.replace(hour=0, minute=0, second=0, microsecond=0), 'Weekly'
     return now.replace(hour=0, minute=0, second=0, microsecond=0), 'Daily'
+
+
+def resolve_dashboard_period(period: str, from_date_raw: str, to_date_raw: str):
+    if period == 'custom':
+        start_date = parse_date(from_date_raw)
+        end_date = parse_date(to_date_raw)
+        errors: dict[str, str] = {}
+        if start_date is None:
+            errors['from'] = 'Select a valid from date.'
+        if end_date is None:
+            errors['to'] = 'Select a valid to date.'
+        if errors:
+            raise serializers.ValidationError(errors)
+        if end_date < start_date:
+            raise serializers.ValidationError({'to': 'To date must be on or after from date.'})
+
+        current_timezone = timezone.get_current_timezone()
+        start_at = timezone.make_aware(datetime.combine(start_date, datetime.min.time()), current_timezone)
+        end_at = timezone.make_aware(datetime.combine(end_date + timedelta(days=1), datetime.min.time()), current_timezone)
+        return start_at, end_at, f'Custom ({start_date.isoformat()} to {end_date.isoformat()})'
+
+    start_at, period_label = dashboard_period_start(period)
+    return start_at, None, period_label
 
 
 def build_patient_trend(period: str, patients_queryset, *, distinct_patient_field: str | None = None):
@@ -121,7 +256,7 @@ def build_patient_trend(period: str, patients_queryset, *, distinct_patient_fiel
 def next_patient_registration_number() -> str:
     numeric_registration_numbers = [
         int(registration_number)
-        for registration_number in Patient.objects.select_for_update().values_list('registration_number', flat=True)
+        for registration_number in Patient.all_objects.select_for_update().values_list('registration_number', flat=True)
         if registration_number.isdigit()
     ]
     return str(max(numeric_registration_numbers, default=0) + 1)
@@ -161,6 +296,7 @@ class PermissionedModelViewSet(viewsets.ModelViewSet):
         return self.permission_map.get(self.action) or self.permission_map.get('*')
 
     def check_permissions(self, request):
+        cleanup_expired_trash()
         super().check_permissions(request)
         code = self.get_required_permission()
         if code and not user_has_permission(request.user, code):
@@ -186,6 +322,9 @@ class PatientViewSet(PermissionedModelViewSet):
                 registration_number=next_patient_registration_number(),
             )
 
+    def perform_destroy(self, instance):
+        soft_delete_instance(instance, self.request.user)
+
     @action(detail=False, methods=['get'])
     def search(self, request):
         return search_response(self.get_queryset(), self.get_serializer_class(), request, ('registration_number', 'first_name', 'last_name'))
@@ -208,6 +347,8 @@ class PaymentViewSet(PermissionedModelViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         search = self.request.query_params.get('q', '').strip()
+        from_date_raw = self.request.query_params.get('from', '').strip()
+        to_date_raw = self.request.query_params.get('to', '').strip()
         if search:
             queryset = queryset.filter(
                 Q(patient__registration_number__icontains=search)
@@ -219,7 +360,81 @@ class PaymentViewSet(PermissionedModelViewSet):
                 | Q(status__icontains=search)
                 | Q(notes__icontains=search)
             )
+        from_date = parse_date(from_date_raw) if from_date_raw else None
+        to_date = parse_date(to_date_raw) if to_date_raw else None
+        if from_date and to_date and to_date < from_date:
+            return queryset.none()
+        if from_date is not None:
+            queryset = queryset.filter(created_at__date__gte=from_date)
+        if to_date is not None:
+            queryset = queryset.filter(created_at__date__lte=to_date)
         return queryset
+
+    @action(detail=False, methods=['get'], url_path='reception-report')
+    def reception_report(self, request):
+        from_date_raw = request.query_params.get('from', '').strip()
+        to_date_raw = request.query_params.get('to', '').strip()
+        from_date = parse_date(from_date_raw)
+        to_date = parse_date(to_date_raw)
+        errors: dict[str, str] = {}
+
+        if from_date is None:
+            errors['from'] = 'Select a valid from date.'
+        if to_date is None:
+            errors['to'] = 'Select a valid to date.'
+        if errors:
+            raise serializers.ValidationError(errors)
+        if to_date < from_date:
+            raise serializers.ValidationError({'to': 'To date must be on or after from date.'})
+
+        queryset = super().get_queryset().filter(
+            created_at__date__gte=from_date,
+            created_at__date__lte=to_date,
+        )
+        patient_count = queryset.values('patient_id').distinct().count()
+        department_buckets: dict[str, dict[str, object]] = defaultdict(lambda: {
+            'patient_ids': set(),
+            'amount': Decimal('0.00'),
+        })
+
+        for payment in queryset.values('patient_id', 'department', 'service', 'amount'):
+            department_name = (str(payment.get('department') or '').strip() or str(payment.get('service') or '').strip() or 'نامشخص')
+            department_buckets[department_name]['patient_ids'].add(payment['patient_id'])
+            department_buckets[department_name]['amount'] += payment['amount'] or Decimal('0.00')
+
+        department_rows = [
+            {
+                'department': department_name,
+                'patient_count': len(bucket['patient_ids']),
+                'amount': str(bucket['amount']),
+            }
+            for department_name, bucket in sorted(department_buckets.items(), key=lambda item: item[0])
+        ]
+        total_amount = queryset.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+
+        return Response({
+            'from': from_date.isoformat(),
+            'to': to_date.isoformat(),
+            'patient_count': patient_count,
+            'departments': department_rows,
+            'total_amount': str(total_amount),
+            'generated_at': timezone.localtime(timezone.now()).isoformat(),
+        })
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            'count': queryset.count(),
+            'next': None,
+            'previous': None,
+            'results': serializer.data,
+        })
 
     def _guard_external_department_edit(self, payment: Payment):
         if (payment.department or '').strip().lower() in {'laboratory', 'pharmacy'}:
@@ -237,7 +452,7 @@ class PaymentViewSet(PermissionedModelViewSet):
 
     def perform_destroy(self, instance):
         self._guard_external_department_edit(instance)
-        instance.delete()
+        soft_delete_instance(instance, self.request.user)
 
     @action(detail=False, methods=['post'], url_path='reception-bill')
     def reception_bill(self, request):
@@ -302,7 +517,7 @@ class ExpenseViewSet(PermissionedModelViewSet):
 
     def perform_destroy(self, instance):
         self._guard_salary_linked_expense(instance)
-        instance.delete()
+        soft_delete_instance(instance, self.request.user)
 
     @action(detail=False, methods=['get'])
     def categories(self, request):
@@ -467,7 +682,7 @@ class SalaryAdvanceViewSet(PermissionedModelViewSet):
         if instance.settlements.exists():
             self.permission_denied(self.request, message='This salary advance has already been used in salary settlement and cannot be deleted.')
         with transaction.atomic():
-            instance.delete()
+            soft_delete_instance(instance, self.request.user)
 
     @action(detail=False, methods=['get'])
     def summary(self, request):
@@ -566,7 +781,7 @@ class SalaryPaymentViewSet(PermissionedModelViewSet):
 
     def perform_destroy(self, instance):
         with transaction.atomic():
-            instance.delete()
+            soft_delete_instance(instance, self.request.user)
 
     @action(detail=False, methods=['get'])
     def months(self, request):
@@ -658,6 +873,9 @@ class ClinicalDocumentViewSet(PermissionedModelViewSet):
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
+    def perform_destroy(self, instance):
+        soft_delete_instance(instance, self.request.user)
+
     @action(detail=False, methods=['get'])
     def types(self, request):
         visible = [
@@ -733,6 +951,9 @@ class MedicineViewSet(PermissionedModelViewSet):
             }
         )
 
+    def perform_destroy(self, instance):
+        soft_delete_instance(instance, self.request.user)
+
 
 class LabTestViewSet(PermissionedModelViewSet):
     queryset = LabTest.objects.select_related('parent_panel').all()
@@ -792,10 +1013,13 @@ class DashboardViewSet(viewsets.ViewSet):
 
     def list(self, request):
         period = request.query_params.get('period', 'daily')
-        if period not in {'daily', 'weekly', 'monthly', 'annual'}:
+        if period not in {'daily', 'weekly', 'monthly', 'annual', 'custom'}:
             period = 'daily'
-
-        start_at, period_label = dashboard_period_start(period)
+        start_at, end_at, period_label = resolve_dashboard_period(
+            period,
+            request.query_params.get('from', '').strip(),
+            request.query_params.get('to', '').strip(),
+        )
         profile = getattr(request.user, 'staff_profile', None)
         role = getattr(profile, 'role', None)
 
@@ -803,7 +1027,10 @@ class DashboardViewSet(viewsets.ViewSet):
             doctor_documents = ClinicalDocument.objects.filter(
                 created_by=request.user,
                 created_at__gte=start_at,
-            ).filter(
+            )
+            if end_at is not None:
+                doctor_documents = doctor_documents.filter(created_at__lt=end_at)
+            doctor_documents = doctor_documents.filter(
                 Q(document_type__in={
                     ClinicalDocument.DocumentType.PRESCRIPTION,
                     ClinicalDocument.DocumentType.LAB_ORDER,
@@ -817,6 +1044,8 @@ class DashboardViewSet(viewsets.ViewSet):
                 patient_id__in=patient_ids,
                 created_at__gte=start_at,
             )
+            if end_at is not None:
+                doctor_payments = doctor_payments.filter(created_at__lt=end_at)
             patient_trend = build_patient_trend(
                 period,
                 doctor_documents,
@@ -851,6 +1080,10 @@ class DashboardViewSet(viewsets.ViewSet):
         patients = Patient.objects.filter(created_at__gte=start_at)
         payments = Payment.objects.filter(created_at__gte=start_at)
         expenses = Expense.objects.filter(created_at__gte=start_at)
+        if end_at is not None:
+            patients = patients.filter(created_at__lt=end_at)
+            payments = payments.filter(created_at__lt=end_at)
+            expenses = expenses.filter(created_at__lt=end_at)
         patient_trend = build_patient_trend(period, patients)
 
         pending_payments = payments.filter(status=Payment.Status.PENDING).count()
@@ -877,7 +1110,6 @@ class DashboardViewSet(viewsets.ViewSet):
             {
                 'period': period,
                 'period_label': period_label,
-                'patients': patients.count(),
                 'full_paid': payments.filter(payment_type=Payment.PaymentType.FULL).count(),
                 'free': payments.filter(payment_type=Payment.PaymentType.FREE).count(),
                 'discounted': payments.filter(payment_type=Payment.PaymentType.DISCOUNT).count(),
@@ -957,3 +1189,48 @@ class WebsiteSettingsViewSet(viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save(updated_by=request.user)
         return Response(serializer.data)
+
+
+class PrivateDocumentViewSet(PermissionedModelViewSet):
+    queryset = PrivateDocument.objects.select_related('uploaded_by')
+    serializer_class = PrivateDocumentSerializer
+    parser_classes = (JSONParser, FormParser, MultiPartParser)
+    permission_map = {'*': 'private_documents.manage'}
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        search = self.request.query_params.get('q', '').strip()
+        category = self.request.query_params.get('category', '').strip()
+        if search:
+            queryset = queryset.filter(
+                Q(title__icontains=search)
+                | Q(category__icontains=search)
+                | Q(file__icontains=search)
+            )
+        if category:
+            queryset = queryset.filter(category__iexact=category)
+        return queryset
+
+    def perform_create(self, serializer):
+        serializer.save(uploaded_by=self.request.user)
+
+    def perform_update(self, serializer):
+        serializer.save(uploaded_by=self.request.user)
+
+    def perform_destroy(self, instance):
+        soft_delete_instance(instance, self.request.user)
+
+    @action(detail=False, methods=['get'])
+    def categories(self, request):
+        queryset = self.get_queryset()
+        search = request.query_params.get('q', '').strip()
+        categories = sorted({category for category in queryset.values_list('category', flat=True) if category})
+        if search:
+            categories = [category for category in categories if search.lower() in category.lower()]
+        return Response({'results': [{'id': index + 1, 'name': category} for index, category in enumerate(categories)]})
+
+    @action(detail=True, methods=['get'])
+    def download(self, request, pk=None):
+        document = self.get_object()
+        response = FileResponse(document.file.open('rb'), as_attachment=True, filename=Path(document.file.name).name)
+        return response

@@ -5,6 +5,7 @@ from django.db import models
 from django.utils import timezone
 
 from clinic.models import ClinicalDocument, Patient, Payment
+from shared.soft_delete import SoftDeleteModel
 
 
 def money(value):
@@ -50,7 +51,7 @@ class PharmacySetting(models.Model):
         return f"{self.pharmacy_name} - {self.pharmacist}"
 
 
-class Medicine(models.Model):
+class Medicine(SoftDeleteModel):
     pharmacist = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -108,7 +109,7 @@ def sync_medicine_profit_percentages(pharmacist):
         medicine.save(update_fields=["profit_percentage", "sell_price", "updated_at"])
 
 
-class Sale(models.Model):
+class Sale(SoftDeleteModel):
     class CustomerType(models.TextChoices):
         INTERNAL = "internal", "Internal"
         EXTERNAL = "external", "External"
