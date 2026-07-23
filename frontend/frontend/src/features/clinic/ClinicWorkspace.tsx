@@ -1638,7 +1638,7 @@ function SearchCombo<T extends { id: number }>({
         />
       </Field>
       {open ? (
-        <div className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded border border-sky-100 bg-white shadow-lg shadow-sky-100" onScroll={handleScroll}>
+        <div className="absolute z-20 mt-1 max-h-44 w-full overflow-auto overscroll-contain rounded border border-sky-100 bg-white shadow-lg shadow-sky-100" onScroll={handleScroll}>
           {items.map((item) => (
             <button
               key={item.id}
