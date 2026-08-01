@@ -45,18 +45,22 @@ function documentRowDetails(row: Record<string, unknown>): string {
   return details.filter(Boolean).join(' | ')
 }
 
-export const billPaperClassName = 'print-area half-a4-bill bg-white p-4 font-sans text-[11px] leading-tight text-black shadow-none'
+export const billPaperClassName = 'print-area thermal-receipt w-[58mm] bg-white p-3 font-sans text-[11px] leading-tight text-black shadow-none'
 export const billBoxClassName = 'border border-black'
 export const billCellClassName = 'border-r border-black px-2 py-1 last:border-r-0'
 export const billHeaderCellClassName = 'border-r border-black bg-zinc-200 px-2 py-1 text-left font-bold last:border-r-0'
 
+export function formatReceiptAmount(value: string | number): string {
+  const amount = Number(value || 0)
+  return Number.isFinite(amount) ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(amount) : String(value)
+}
+
 export function BillTitle({ title, subtitle }: { title: string; subtitle: string }) {
   return (
-    <header className="relative min-h-20 pb-3 text-center">
-      <img src="/media/website/logo/mchc-logo.jpeg" alt="MCHC logo" className="absolute left-2 top-0 h-16 w-16 object-cover" />
-      <div className="px-20 pt-2">
-        <h2 className="text-2xl font-black uppercase tracking-wide">{title}</h2>
-        <p className="mt-2 text-lg font-black">{subtitle}</p>
+    <header className="min-h-16 pb-3 text-center">
+      <div className="pt-2">
+        <h2 className="text-[14px] font-black uppercase tracking-wide">{title}</h2>
+        <p className="mt-2 text-[9px] font-black">{subtitle}</p>
       </div>
     </header>
   )
@@ -65,11 +69,7 @@ export function BillTitle({ title, subtitle }: { title: string; subtitle: string
 export function BillReceiptNote({ receivedFrom, amount }: { receivedFrom: string; amount: string }) {
   return (
     <div className="mt-4 text-center text-sm font-bold leading-7 text-black">
-      <p>Received with thanks from <strong>{receivedFrom}</strong> a sum of Afghani <strong>{amount}</strong></p>
-      <div dir="rtl">
-        <p>پول پرداخت‌شده قابل بازپرداخت نیست.</p>
-        <p>ورکړې شوې پیسې بېرته نه ورکول کېږي.</p>
-      </div>
+      <p>Received with thanks from <strong>{receivedFrom}</strong> a sum of <strong>{amount} AFN</strong></p>
     </div>
   )
 }
@@ -550,63 +550,46 @@ export function PrintPaymentBill({ payment, printedBy }: { payment: Payment; pri
     <section className={billPaperClassName}>
       <BillTitle title="Mother and Child Health Support Center" subtitle="Reception bill" />
 
-      <div className={billBoxClassName}>
-        <div className="grid grid-cols-[8rem_1fr_7rem_1fr] border-b border-black">
-          <div className={billHeaderCellClassName}>Date and time:</div>
-          <div className={billCellClassName}>{createdAt}</div>
-          <div className={billHeaderCellClassName}>Bill status:</div>
-          <div className={billCellClassName}>{payment.status}</div>
-        </div>
-        <div className="grid grid-cols-[8rem_1fr_7rem_1fr] border-b border-black">
-          <div className={billHeaderCellClassName}>Patient ID:</div>
-          <div className={billCellClassName}>{payment.patient}</div>
-          <div className={billHeaderCellClassName}>Patient name:</div>
-          <div className={billCellClassName}>{patientName}</div>
-        </div>
-        <div className="grid grid-cols-[8rem_1fr_7rem_1fr] border-b border-black">
-          <div className={billHeaderCellClassName}>Age:</div>
-          <div className={billCellClassName}>{formatPaymentAge(payment.patient_age, payment.patient_age_unit)}</div>
-          <div className={billHeaderCellClassName}>Department:</div>
-          <div className={billCellClassName}>{payment.department || payment.service}</div>
-        </div>
-        <div className="grid grid-cols-[8rem_1fr_7rem_1fr]">
-          <div className={billHeaderCellClassName}>Payment type:</div>
-          <div className={billCellClassName}>{isFree ? 'Free' : isDiscount ? 'Discount percentage' : 'Full payment'}</div>
-          <div className={billHeaderCellClassName}>Account:</div>
-          <div className={billCellClassName}>{printedBy}</div>
-        </div>
+      <div className="receipt-meta">
+        <div className="receipt-meta-row"><span>Date</span><strong>{createdAt}</strong></div>
+        <div className="receipt-meta-row"><span>Status</span><strong>{payment.status}</strong></div>
+        <div className="receipt-meta-row"><span>Patient</span><strong>{patientName}</strong></div>
+        <div className="receipt-meta-row"><span>Patient ID</span><strong>{payment.patient}</strong></div>
+        <div className="receipt-meta-row"><span>Age</span><strong>{formatPaymentAge(payment.patient_age, payment.patient_age_unit)}</strong></div>
+        <div className="receipt-meta-row"><span>Department</span><strong>{payment.department || payment.service}</strong></div>
+        <div className="receipt-meta-row"><span>Payment</span><strong>{isFree ? 'Free' : isDiscount ? `Discount (${payment.discount_percentage}%)` : 'Full payment'}</strong></div>
       </div>
 
-      <table className="mt-3 w-full border-collapse border border-black text-left text-[11px]">
+      <table className="receipt-table">
         <thead>
-          <tr className="bg-zinc-200">
-            <th className="border border-black px-2 py-1 font-bold">Service</th>
-            <th className="border border-black px-2 py-1 font-bold">Payment type</th>
-            <th className="border border-black px-2 py-1 text-right font-bold">Amount</th>
-            <th className="border border-black px-2 py-1 text-right font-bold">Discount</th>
-            <th className="border border-black px-2 py-1 text-right font-bold">Net amount</th>
+          <tr>
+            <th>Service</th>
+            <th className="text-right">Fee</th>
+            <th className="text-right">Total</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td className="border border-black px-2 py-1">{payment.service || payment.department || 'Reception bill'}</td>
-            <td className="border border-black px-2 py-1">{isFree ? 'Free' : isDiscount ? 'Discount percentage' : 'Full payment'}</td>
-            <td className="border border-black px-2 py-1 text-right">{payment.doctor_fee}</td>
-            <td className="border border-black px-2 py-1 text-right">{isDiscount ? `${payment.discount_percentage}% (${payment.discount_amount})` : isFree ? payment.doctor_fee : '0'}</td>
-            <td className="border border-black px-2 py-1 text-right font-bold">{isFree ? 'Free' : payment.amount}</td>
+            <td>{payment.service || payment.department || 'Reception bill'}</td>
+            <td className="text-right">{formatReceiptAmount(payment.doctor_fee)} AFN</td>
+            <td className="text-right font-bold">{isFree ? 'Free' : `${formatReceiptAmount(payment.amount)} AFN`}</td>
           </tr>
-          <tr className="bg-zinc-100 font-bold">
-            <td className="border border-black px-2 py-1" colSpan={2}>Final amount</td>
-            <td className="border border-black px-2 py-1 text-right">{payment.doctor_fee}</td>
-            <td className="border border-black px-2 py-1 text-right">{isDiscount || isFree ? payment.discount_amount : '0'}</td>
-            <td className="border border-black px-2 py-1 text-right">{isFree ? 'Free' : payment.amount}</td>
+          {isDiscount || isFree ? (
+            <tr>
+              <td colSpan={2}>Discount</td>
+              <td className="text-right">{formatReceiptAmount(isFree ? payment.doctor_fee : payment.discount_amount)} AFN</td>
+            </tr>
+          ) : null}
+          <tr className="receipt-total-row">
+            <td colSpan={2}>Final amount</td>
+            <td className="text-right">{isFree ? 'Free' : `${formatReceiptAmount(payment.amount)} AFN`}</td>
           </tr>
         </tbody>
       </table>
 
       {payment.notes ? <p className="mt-3 text-sm"><strong>Notes:</strong> {payment.notes}</p> : null}
 
-      <BillReceiptNote receivedFrom={printedBy} amount={isFree ? '0' : payment.amount} />
+      <BillReceiptNote receivedFrom={printedBy} amount={isFree ? '0' : formatReceiptAmount(payment.amount)} />
       <BillSignature />
     </section>
   )

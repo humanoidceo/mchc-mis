@@ -15,7 +15,8 @@ import type {
   SearchResponse,
 } from '../../types/domain'
 import { useAuth } from '../auth/useAuth'
-import { BillReceiptNote, BillSignature, BillTitle, billBoxClassName, billCellClassName, billHeaderCellClassName, billPaperClassName } from '../clinic/PrintDocument'
+import { BillReceiptNote, BillSignature, BillTitle, billPaperClassName, formatReceiptAmount } from '../clinic/PrintDocument'
+import { PrintPreviewModal } from '../clinic/PrintPreviewModal'
 
 type View = 'dashboard' | 'billing'
 type LabTestOption = LabTest & { is_other_option?: boolean }
@@ -230,15 +231,16 @@ export function LaboratoryWorkspace({ view }: { view: View }) {
         />
       ) : null}
       {selectedBill ? (
-        <div className="space-y-3">
-          <div className="no-print flex gap-2">
-            <button className={buttonClassName} onClick={() => window.print()}>{common.print}</button>
-            <button className={ghostButtonClassName} onClick={() => setSelectedBill(null)}>{common.close}</button>
-          </div>
+        <PrintPreviewModal
+          title={selectedPrintMode === 'result' ? 'Laboratory result' : 'Laboratory bill'}
+          subtitle={selectedPrintMode === 'result' ? 'Review the laboratory result before printing.' : 'Review the bill before printing or closing the preview.'}
+          printLabel={selectedPrintMode === 'result' ? 'Print result' : 'Print bill'}
+          onClose={() => setSelectedBill(null)}
+        >
           {selectedPrintMode === 'result'
             ? <PrintLaboratoryResult bill={selectedBill} printedBy={printedBy} />
             : <PrintLaboratoryBill bill={selectedBill} printedBy={printedBy} />}
-        </div>
+        </PrintPreviewModal>
       ) : null}
     </div>
   )
@@ -979,51 +981,36 @@ function PrintLaboratoryBill({ bill, printedBy }: { bill: LaboratoryBill; printe
     <section className={billPaperClassName}>
       <BillTitle title="Mother and Child Health Support Center" subtitle="Laboratory bill" />
 
-      <div className={billBoxClassName}>
-        <div className="grid grid-cols-[7rem_1fr_8rem_1fr] border-b border-black">
-          <div className={billHeaderCellClassName}>Date:</div>
-          <div className={billCellClassName}>{formatDate(document.created_at)}</div>
-          <div className={billHeaderCellClassName}>Reception status:</div>
-          <div className={billCellClassName}>{bill.payment_status ?? 'pending'}</div>
-        </div>
-        <div className="grid grid-cols-[7rem_1fr_8rem_1fr]">
-          <div className={billHeaderCellClassName}>Patient ID:</div>
-          <div className={billCellClassName}>{bill.patient}</div>
-          <div className={billHeaderCellClassName}>Patient name:</div>
-          <div className={billCellClassName}>{billCustomerLabel(bill)}</div>
-        </div>
-        <div className="grid grid-cols-[7rem_1fr_8rem_1fr] border-t border-black">
-          <div className={billHeaderCellClassName}>Customer type:</div>
-          <div className={billCellClassName}>{bill.customer_type_label}</div>
-          <div className={billHeaderCellClassName}>Account:</div>
-          <div className={billCellClassName}>{printedBy}</div>
-        </div>
+      <div className="receipt-meta">
+        <div className="receipt-meta-row"><span>Date</span><strong>{formatDate(document.created_at)}</strong></div>
+        <div className="receipt-meta-row"><span>Reception</span><strong>{bill.payment_status ?? 'pending'}</strong></div>
+        <div className="receipt-meta-row"><span>Patient</span><strong>{billCustomerLabel(bill)}</strong></div>
+        <div className="receipt-meta-row"><span>Patient ID</span><strong>{bill.patient}</strong></div>
+        <div className="receipt-meta-row"><span>Customer type</span><strong>{bill.customer_type_label}</strong></div>
       </div>
 
-      <table className="mt-3 w-full border-collapse border border-black text-left text-[11px]">
+      <table className="receipt-table">
         <thead>
-          <tr className="bg-zinc-200">
-            <th className="border border-black px-2 py-1 font-bold">Test</th>
-            <th className="border border-black px-2 py-1 font-bold">Details</th>
-            <th className="border border-black px-2 py-1 text-right font-bold">Cost</th>
+          <tr>
+            <th>Test</th>
+            <th className="text-right">Cost</th>
           </tr>
         </thead>
         <tbody>
           {items.map((item, index) => (
             <tr key={index}>
-              <td className="border border-black px-2 py-1 font-medium">{String(item.test_name ?? item.test ?? 'Test')}</td>
-              <td className="border border-black px-2 py-1">{String(item.instructions ?? '')}</td>
-              <td className="border border-black px-2 py-1 text-right">{String(item.cost ?? '')}</td>
+              <td className="font-medium">{String(item.test_name ?? item.test ?? 'Test')}{item.instructions ? <span className="receipt-item-detail">{String(item.instructions)}</span> : null}</td>
+              <td className="text-right">{formatReceiptAmount(String(item.cost ?? ''))} AFN</td>
             </tr>
           ))}
-          <tr className="bg-zinc-100 font-bold">
-            <td className="border border-black px-2 py-1" colSpan={2}>Total cost</td>
-            <td className="border border-black px-2 py-1 text-right">{bill.total_amount}</td>
+          <tr className="receipt-total-row">
+            <td>Total cost</td>
+            <td className="text-right">{formatReceiptAmount(bill.total_amount)} AFN</td>
           </tr>
         </tbody>
       </table>
 
-      <BillReceiptNote receivedFrom={printedBy} amount={bill.total_amount} />
+      <BillReceiptNote receivedFrom={printedBy} amount={formatReceiptAmount(bill.total_amount)} />
       <BillSignature />
     </section>
   )

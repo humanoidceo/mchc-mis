@@ -7,9 +7,10 @@ User=root
 Group=www-data
 WorkingDirectory=/var/www/mchc-mis/backend
 Environment="DJANGO_SETTINGS_MODULE=config.settings"
-Environment="DJANGO_ALLOWED_HOSTS=195.35.20.176,srv1789397.hstgr.cloud,localhost,127.0.0.1"
+Environment="DJANGO_ALLOWED_HOSTS=mchc.site,www.mchc.site,93.127.134.130,localhost,127.0.0.1"
 Environment="DJANGO_DEBUG=false"
 Environment="DJANGO_SECRET_KEY=iHNjurXEFYdV4NP1BROrANQls6xYpGkIYp_PNgvkZapQR32AdX9DV6LDpUe_VRWmTRo"
+Environment="DB_PASSWORD=MchcDb_2026_SecurePass_7k2Qx9Lm"
 ExecStart=/var/www/mchc-mis/backend/venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8000 --workers 3 --timeout 60 --access-logfile -
 Restart=always
 RestartSec=3

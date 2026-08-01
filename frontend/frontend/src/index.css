@@ -14,6 +14,67 @@ body {
   margin: 0;
 }
 
+.thermal-receipt {
+  width: 58mm;
+}
+
+.receipt-meta {
+  border-top: 1px dashed #18181b;
+}
+
+.receipt-meta-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 1px dashed #a1a1aa;
+  padding: 0.3rem 0;
+  font-size: 0.7rem;
+}
+
+.receipt-meta-row span {
+  color: #52525b;
+}
+
+.receipt-meta-row strong {
+  max-width: 65%;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.receipt-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.75rem;
+  font-size: 0.7rem;
+}
+
+.receipt-table th,
+.receipt-table td {
+  border-bottom: 1px dashed #71717a;
+  padding: 0.35rem 0.2rem;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.receipt-table th {
+  border-top: 1px solid #18181b;
+  font-weight: 700;
+}
+
+.receipt-total-row td {
+  border-top: 1px solid #18181b;
+  border-bottom: 1px solid #18181b;
+  font-weight: 700;
+}
+
+.receipt-item-detail {
+  display: block;
+  margin-top: 0.1rem;
+  color: #52525b;
+  font-size: 0.62rem;
+  font-weight: 400;
+}
+
 button,
 input,
 select,
@@ -24,6 +85,11 @@ textarea {
 @media print {
   @page {
     size: A4 portrait;
+    margin: 0;
+  }
+
+  @page thermal-receipt {
+    size: 58mm auto;
     margin: 0;
   }
 
@@ -116,6 +182,101 @@ textarea {
     border: 0 !important;
     border-radius: 0 !important;
     padding: 10mm !important;
+  }
+
+  html:has(.thermal-receipt),
+  body:has(.thermal-receipt),
+  body:has(.thermal-receipt) #root {
+    width: 58mm !important;
+  }
+
+  .thermal-receipt {
+    page: thermal-receipt;
+    box-sizing: border-box;
+    width: 58mm !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    padding: 3mm !important;
+    font-size: 9px !important;
+    line-height: 1.25 !important;
+  }
+
+  .thermal-receipt header {
+    min-height: 0 !important;
+    padding-bottom: 2mm !important;
+  }
+
+  .thermal-receipt header > div {
+    padding: 0 !important;
+  }
+
+  .thermal-receipt header h2 {
+    font-size: 8px !important;
+    line-height: 1.15 !important;
+    letter-spacing: normal !important;
+  }
+
+  .thermal-receipt header p {
+    margin-top: 1mm !important;
+    font-size: 5px !important;
+  }
+
+  .thermal-receipt .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .thermal-receipt .grid > div,
+  .thermal-receipt table th,
+  .thermal-receipt table td {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    padding: 1.2mm !important;
+  }
+
+  .thermal-receipt table {
+    margin-top: 2mm !important;
+    font-size: 8px !important;
+  }
+
+  .thermal-receipt .receipt-meta-row {
+    gap: 2mm;
+    padding: 1.2mm 0;
+    font-size: 8px;
+  }
+
+  .thermal-receipt .receipt-table th,
+  .thermal-receipt .receipt-table td {
+    padding: 1.2mm 0.7mm !important;
+  }
+
+  .thermal-receipt .receipt-item-detail {
+    font-size: 7px;
+  }
+
+  .thermal-receipt .text-sm {
+    font-size: 9px !important;
+  }
+
+  .thermal-receipt .mt-3 {
+    margin-top: 2mm !important;
+  }
+
+  .thermal-receipt .mt-4,
+  .thermal-receipt .mt-5 {
+    margin-top: 3mm !important;
+  }
+
+  .thermal-receipt footer {
+    display: block !important;
+    margin-top: 3mm !important;
+    font-size: 9px !important;
+  }
+
+  .thermal-receipt footer > div {
+    margin-top: 3mm !important;
   }
 
   .a4-report {

@@ -17,7 +17,8 @@ import type {
   SearchResponse,
 } from '../../types/domain'
 import { useAuth } from '../auth/useAuth'
-import { BillReceiptNote, BillSignature, BillTitle, billBoxClassName, billCellClassName, billHeaderCellClassName, billPaperClassName, PrintDocument } from '../clinic/PrintDocument'
+import { BillReceiptNote, BillSignature, BillTitle, billPaperClassName, formatReceiptAmount, PrintDocument } from '../clinic/PrintDocument'
+import { PrintPreviewModal } from '../clinic/PrintPreviewModal'
 import { PharmacyMedicineStockSection } from './PharmacyMedicineStockSection'
 
 type View = 'dashboard' | 'report' | 'medicines' | 'family-planning-stock' | 'family-planning-orders' | 'expired-medicines' | 'upcoming-expired-medicines' | 'rutf-stock' | 'low-stock' | 'sales' | 'rutf-orders' | 'settings'
@@ -270,13 +271,14 @@ export function PharmacyWorkspace({ view }: { view: View }) {
       {view === 'rutf-orders' ? <RutfOrdersWorkspace onSelectOrder={setSelectedRutfOrder} /> : null}
       {view === 'settings' ? <PharmacySettingsPage setting={setting} onSaved={() => void loadData('settings')} /> : null}
       {selectedSale ? (
-        <div className="space-y-3">
-          <div className="no-print flex gap-2">
-            <button className={buttonClassName} onClick={() => window.print()}>Print bill</button>
-            <button className={ghostButtonClassName} onClick={() => setSelectedSale(null)}>Close preview</button>
-          </div>
+        <PrintPreviewModal
+          title="Pharmacy bill"
+          subtitle="Review the bill before printing or closing the preview."
+          printLabel="Print bill"
+          onClose={() => setSelectedSale(null)}
+        >
           <PrintPharmacyBill sale={selectedSale} setting={setting} printedBy={user?.first_name || user?.username || 'MCHC staff'} />
-        </div>
+        </PrintPreviewModal>
       ) : null}
       {selectedFamilyPlanningOrder ? (
         <div className="space-y-3">
@@ -1754,67 +1756,41 @@ function PrintPharmacyBill({
     <section className={billPaperClassName}>
       <BillTitle title={setting.pharmacy_name} subtitle="Pharmacy bill" />
 
-      <div className={billBoxClassName}>
-        <div className="grid grid-cols-[7rem_1fr_6rem_1fr] border-b border-black">
-          <div className={billHeaderCellClassName}>Bill no:</div>
-          <div className={billCellClassName}>{sale.bill_no}</div>
-          <div className={billHeaderCellClassName}>Issued at:</div>
-          <div className={billCellClassName}>{formatDate(sale.created_at)}</div>
-        </div>
-        <div className="grid grid-cols-[7rem_1fr_6rem_1fr] border-b border-black">
-          <div className={billHeaderCellClassName}>Patient ID:</div>
-          <div className={billCellClassName}>{sale.patient ?? 'N/A'}</div>
-          <div className={billHeaderCellClassName}>Patient name:</div>
-          <div className={billCellClassName}>{saleCustomerLabel(sale)}</div>
-        </div>
-        <div className="grid grid-cols-[7rem_1fr_6rem_1fr] border-b border-black">
-          <div className={billHeaderCellClassName}>Type:</div>
-          <div className={billCellClassName}>{sale.customer_type_label} customer</div>
-          <div className={billHeaderCellClassName}>Account:</div>
-          <div className={billCellClassName}>{printedBy}</div>
-        </div>
-        <div className="grid grid-cols-[7rem_1fr_6rem_1fr] border-b border-black">
-          <div className={billHeaderCellClassName}>Status:</div>
-          <div className={billCellClassName}>{sale.payment_status ?? 'pending'}</div>
-          <div className={billHeaderCellClassName}>Phone:</div>
-          <div className={billCellClassName}>{setting.phone || 'Phone not set'}</div>
-        </div>
-        <div className="grid grid-cols-[7rem_1fr_6rem_1fr]">
-          <div className={billHeaderCellClassName}>Address:</div>
-          <div className={billCellClassName}>{setting.address || 'Address not set'}</div>
-          <div className={billHeaderCellClassName}>Payment:</div>
-          <div className={billCellClassName}>CASH</div>
-        </div>
+      <div className="receipt-meta">
+        <div className="receipt-meta-row"><span>Bill no.</span><strong>{sale.bill_no}</strong></div>
+        <div className="receipt-meta-row"><span>Issued</span><strong>{formatDate(sale.created_at)}</strong></div>
+        <div className="receipt-meta-row"><span>Patient</span><strong>{saleCustomerLabel(sale)}</strong></div>
+        <div className="receipt-meta-row"><span>Patient ID</span><strong>{sale.patient ?? 'N/A'}</strong></div>
+        <div className="receipt-meta-row"><span>Type</span><strong>{sale.customer_type_label} customer</strong></div>
+        <div className="receipt-meta-row"><span>Status</span><strong>{sale.payment_status ?? 'pending'}</strong></div>
+        {setting.phone ? <div className="receipt-meta-row"><span>Phone</span><strong>{setting.phone}</strong></div> : null}
+        {setting.address ? <div className="receipt-meta-row"><span>Address</span><strong>{setting.address}</strong></div> : null}
       </div>
 
-      <table className="mt-3 w-full border-collapse border border-black text-left text-[11px]">
+      <table className="receipt-table">
         <thead>
-          <tr className="bg-zinc-200">
-            <th className="border border-black px-2 py-1 font-bold">Medicine</th>
-            <th className="border border-black px-2 py-1 font-bold">Generic</th>
-            <th className="border border-black px-2 py-1 text-right font-bold">Qty</th>
-            <th className="border border-black px-2 py-1 text-right font-bold">Unit</th>
-            <th className="border border-black px-2 py-1 text-right font-bold">Subtotal</th>
+          <tr>
+            <th>Medicine</th>
+            <th className="text-right">Qty</th>
+            <th className="text-right">Total</th>
           </tr>
         </thead>
         <tbody>
           {sale.items.map((item) => (
             <tr key={item.id}>
-              <td className="border border-black px-2 py-1 font-medium">{item.medicine_name}</td>
-              <td className="border border-black px-2 py-1">{item.generic_name || '-'}</td>
-              <td className="border border-black px-2 py-1 text-right">{item.quantity}</td>
-              <td className="border border-black px-2 py-1 text-right">{formatMoneyAfn(item.unit_price)}</td>
-              <td className="border border-black px-2 py-1 text-right font-medium">{formatMoneyAfn(item.total_price)}</td>
+              <td className="font-medium">{item.medicine_name}{item.generic_name ? <span className="receipt-item-detail">{item.generic_name}</span> : null}</td>
+              <td className="text-right">{item.quantity}</td>
+              <td className="text-right font-medium">{formatReceiptAmount(item.total_price)} AFN</td>
             </tr>
           ))}
-          <tr className="bg-zinc-100 font-bold">
-            <td className="border border-black px-2 py-1" colSpan={4}>Grand total</td>
-            <td className="border border-black px-2 py-1 text-right">{formatMoneyAfn(sale.total_amount)}</td>
+          <tr className="receipt-total-row">
+            <td colSpan={2}>Grand total</td>
+            <td className="text-right">{formatReceiptAmount(sale.total_amount)} AFN</td>
           </tr>
         </tbody>
       </table>
 
-      <BillReceiptNote receivedFrom={printedBy} amount={formatMoney(sale.total_amount)} />
+      <BillReceiptNote receivedFrom={printedBy} amount={formatReceiptAmount(sale.total_amount)} />
 
       <footer className="mt-4 flex items-end justify-between gap-6 text-sm">
         <p>Thank you for visiting {setting.pharmacy_name}.</p>
