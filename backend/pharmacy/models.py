@@ -12,8 +12,8 @@ def money(value):
     return Decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-def whole_money_up(value):
-    return Decimal(value).quantize(Decimal("1"), rounding=ROUND_CEILING)
+def ten_afn_up(value):
+    return (Decimal(value) / Decimal("10")).quantize(Decimal("1"), rounding=ROUND_CEILING) * Decimal("10")
 
 
 def pharmacy_default_profit_percentage(pharmacist):
@@ -89,7 +89,7 @@ class Medicine(SoftDeleteModel):
         if default_profit_percentage is not None:
             self.profit_percentage = default_profit_percentage
         price = self.buy_price + (self.buy_price * self.profit_percentage / Decimal("100"))
-        return whole_money_up(price)
+        return ten_afn_up(price)
 
     def save(self, *args, **kwargs):
         self.sell_price = self.calculate_sell_price()

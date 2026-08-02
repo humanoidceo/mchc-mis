@@ -113,16 +113,12 @@ function formatMoneyAfn(value: string | number): string {
   return `${formatMoney(value)} AFN`
 }
 
-function roundUpToNearestTen(value: string | number): number {
-  return Math.ceil(Math.max(0, Number(value) || 0) / 10) * 10
-}
-
-function roundedPharmacyBillTotal(sale: PharmacySale): number {
-  return sale.items.reduce((total, item) => total + roundUpToNearestTen(item.total_price), 0)
+function pharmacyBillTotal(sale: PharmacySale): number {
+  return Number(sale.total_amount) || 0
 }
 
 function pharmacyBillFinalAmount(sale: PharmacySale): number {
-  return sale.final_amount === null ? roundedPharmacyBillTotal(sale) : Number(sale.final_amount)
+  return sale.final_amount === null ? pharmacyBillTotal(sale) : Number(sale.final_amount)
 }
 
 function formatSaleQuantity(value: string | number): string {
@@ -998,10 +994,10 @@ function SalesWorkspace({
     void loadSales(currentPage, deferredFilterText)
   }, [currentPage, deferredFilterText])
 
-  const roundedBillTotal = rows.reduce((sum, row) => sum + roundUpToNearestTen(Number(row.unit_price || 0) * Number(row.quantity || 0)), 0)
+  const billTotal = rows.reduce((sum, row) => sum + (Number(row.unit_price || 0) * Number(row.quantity || 0)), 0)
   const effectiveDiscountPercentage = paymentType === 'discount' ? Math.min(100, Math.max(0, Number(discountPercentage) || 0)) : 0
-  const discountAmount = roundedBillTotal * (effectiveDiscountPercentage / 100)
-  const finalAmount = Math.max(0, roundedBillTotal - discountAmount)
+  const discountAmount = billTotal * (effectiveDiscountPercentage / 100)
+  const finalAmount = Math.max(0, billTotal - discountAmount)
 
   function resetBillingForm() {
     setEditingSaleId(null)
@@ -1260,7 +1256,7 @@ function SalesWorkspace({
               </div>
             ) : null}
             <div className="mt-3 grid gap-2 rounded border border-pink-100 bg-pink-50 p-3 text-sm sm:grid-cols-3">
-              <p><strong>Bill total:</strong> {formatReceiptAmount(roundedBillTotal)} AFN</p>
+              <p><strong>Bill total:</strong> {formatReceiptAmount(billTotal)} AFN</p>
               <p><strong>Discount:</strong> {paymentType === 'discount' ? String(effectiveDiscountPercentage) + '% (' + formatReceiptAmount(discountAmount) + ' AFN)' : 'None'}</p>
               <p><strong>Final amount:</strong> {formatReceiptAmount(finalAmount)} AFN</p>
             </div>
@@ -1911,7 +1907,7 @@ function PrintPharmacyBill({
   sale: PharmacySale
   setting: PharmacySetting
 }) {
-  const roundedTotal = roundedPharmacyBillTotal(sale)
+  const billTotal = pharmacyBillTotal(sale)
   const finalAmount = pharmacyBillFinalAmount(sale)
   const hasDiscount = sale.payment_type === 'discount'
 
@@ -1934,11 +1930,11 @@ function PrintPharmacyBill({
             <p>Medicine: <strong>{item.medicine_name}</strong></p>
             {item.generic_name ? <p>Generic name: <strong>{item.generic_name}</strong></p> : null}
             <p>Quantity: <strong>{formatReceiptAmount(item.quantity)}</strong></p>
-            <p>Amount: <strong>{formatReceiptAmount(roundUpToNearestTen(item.total_price))} AFN</strong></p>
+            <p>Amount: <strong>{formatReceiptAmount(item.total_price)} AFN</strong></p>
             <p aria-hidden="true">.........................</p>
           </div>
         ))}
-        <p className="receipt-total-line">Grand total: <strong>{formatReceiptAmount(roundedTotal)} AFN</strong></p>
+        <p className="receipt-total-line">Grand total: <strong>{formatReceiptAmount(billTotal)} AFN</strong></p>
         {hasDiscount ? <p>Discount: <strong>{sale.discount_percentage || '0'}% ({formatReceiptAmount(sale.discount_amount || '0')} AFN)</strong></p> : null}
         <p className="receipt-total-line">Final amount: <strong>{formatReceiptAmount(finalAmount)} AFN</strong></p>
       </div>

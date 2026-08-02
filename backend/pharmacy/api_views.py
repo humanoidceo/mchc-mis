@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from decimal import Decimal, ROUND_CEILING
+from decimal import Decimal
 from io import BytesIO
 from xml.sax.saxutils import escape
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -297,12 +297,8 @@ def sale_item_cost_price(item, default_profit_percentage: Decimal):
     return money(item.unit_price / divisor)
 
 
-def round_up_to_ten(value: Decimal) -> Decimal:
-    return (Decimal(value) / Decimal("10")).quantize(Decimal("1"), rounding=ROUND_CEILING) * Decimal("10")
-
-
 def pharmacy_bill_total(sale: Sale) -> Decimal:
-    return sum((round_up_to_ten(item.total_price) for item in sale.items.all()), Decimal("0.00"))
+    return sum((item.total_price for item in sale.items.all()), Decimal("0.00"))
 
 
 def pharmacy_payment_amounts(total: Decimal, payment_type: str, discount_percentage: Decimal):
@@ -1129,8 +1125,7 @@ class PharmacySaleViewSet(
                 {"medicine_name": item.medicine_name, "quantity": Decimal("0.00"), "amount": Decimal("0.00")},
             )
             row["quantity"] += item.quantity
-            item_amount = item.total_price
-            row["amount"] += (item_amount / Decimal("10")).quantize(Decimal("1"), rounding=ROUND_CEILING) * Decimal("10")
+            row["amount"] += item.total_price
 
         rows = [
             {
