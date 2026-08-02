@@ -1766,8 +1766,9 @@ function PrintPharmacyBill({
           <div className="receipt-text-item" key={item.id}>
             <p>Medicine: <strong>{item.medicine_name}</strong></p>
             {item.generic_name ? <p>Generic name: <strong>{item.generic_name}</strong></p> : null}
-            <p>Qty: <strong>{formatReceiptAmount(item.quantity)}</strong></p>
-            <p>Total: <strong>{formatReceiptAmount(item.total_price)} AFN</strong></p>
+            <p>Quantity: <strong>{formatReceiptAmount(item.quantity)}</strong></p>
+            <p>Amount: <strong>{formatReceiptAmount(item.total_price)} AFN</strong></p>
+            <p aria-hidden="true">.........................</p>
           </div>
         ))}
         <p className="receipt-total-line">Grand total: <strong>{formatReceiptAmount(sale.total_amount)} AFN</strong></p>

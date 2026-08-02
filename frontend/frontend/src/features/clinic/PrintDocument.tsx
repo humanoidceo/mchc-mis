@@ -75,7 +75,7 @@ export function BillReceiptNote({ receivedFrom, amount }: { receivedFrom: string
 
 export function BillSignature({ centered = false }: { centered?: boolean }) {
   return (
-    <div className={`bill-signature mt-5 text-sm font-bold text-black ${centered ? 'text-center' : 'text-right'}`}>
+    <div className={`bill-signature mt-5 mb-[2.25rem] text-sm font-bold text-black ${centered ? 'text-center' : 'text-right'}`}>
       <p>Auth Sign: ____________________</p>
     </div>
   )

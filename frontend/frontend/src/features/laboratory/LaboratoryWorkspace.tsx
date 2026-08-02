@@ -995,6 +995,7 @@ function PrintLaboratoryBill({ bill }: { bill: LaboratoryBill }) {
             <p>Test: <strong>{String(item.test_name ?? item.test ?? 'Test')}</strong></p>
             {item.instructions ? <p>Instructions: <strong>{String(item.instructions)}</strong></p> : null}
             <p>Cost: <strong>{formatReceiptAmount(String(item.cost ?? ''))} AFN</strong></p>
+            <p aria-hidden="true">.........................</p>
           </div>
         ))}
         <p className="receipt-total-line">Total cost: <strong>{formatReceiptAmount(bill.total_amount)} AFN</strong></p>
