@@ -972,10 +972,17 @@ function SalesWorkspace({
   const [editingPrescriptionDocumentId, setEditingPrescriptionDocumentId] = useState<number | null>(null)
   const [filterText, setFilterText] = useState('')
   const [deferredFilterText, setDeferredFilterText] = useState('')
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'pending' | 'approved'>('all')
+  const [fromDateFilter, setFromDateFilter] = useState('')
+  const [toDateFilter, setToDateFilter] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
 
-  async function loadSales(page = currentPage, search = deferredFilterText) {
-    const response = await apiFetch<PaginatedResponse<PharmacySale>>(`/pharmacy/sales/?page=${page}&q=${encodeURIComponent(search)}`)
+  async function loadSales(page = currentPage, search = deferredFilterText, paymentStatus = paymentStatusFilter) {
+    const params = new URLSearchParams({ page: String(page), q: search })
+    if (paymentStatus !== 'all') params.set('payment_status', paymentStatus)
+    if (fromDateFilter) params.set('from', fromDateFilter)
+    if (toDateFilter) params.set('to', toDateFilter)
+    const response = await apiFetch<PaginatedResponse<PharmacySale>>('/pharmacy/sales/?' + params.toString())
     setSales(response.results)
     setTotalCount(response.count)
   }
@@ -988,11 +995,11 @@ function SalesWorkspace({
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [deferredFilterText])
+  }, [deferredFilterText, paymentStatusFilter, fromDateFilter, toDateFilter])
 
   useEffect(() => {
     void loadSales(currentPage, deferredFilterText)
-  }, [currentPage, deferredFilterText])
+  }, [currentPage, deferredFilterText, paymentStatusFilter, fromDateFilter, toDateFilter])
 
   const billTotal = rows.reduce((sum, row) => sum + (Number(row.unit_price || 0) * Number(row.quantity || 0)), 0)
   const effectiveDiscountPercentage = paymentType === 'discount' ? Math.min(100, Math.max(0, Number(discountPercentage) || 0)) : 0
@@ -1272,9 +1279,16 @@ function SalesWorkspace({
       <Panel>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <SectionHeader title="Recent bills" subtitle="Search and reopen any bill for review or printing." />
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <input value={filterText} onChange={(event) => setFilterText(event.target.value)} className={inputClassName} placeholder="Search by bill or customer" />
             <button className={ghostButtonClassName} onClick={() => void loadSales(currentPage, deferredFilterText)}>Refresh</button>
+            <select value={paymentStatusFilter} onChange={(event) => setPaymentStatusFilter(event.target.value as 'all' | 'pending' | 'approved')} className={inputClassName}>
+              <option value="all">All payments</option>
+              <option value="pending">Pending payments</option>
+              <option value="approved">Approved payments</option>
+            </select>
+            <input type="date" value={fromDateFilter} onChange={(event) => setFromDateFilter(event.target.value)} className={inputClassName} aria-label="From date" title="From date" />
+            <input type="date" value={toDateFilter} onChange={(event) => setToDateFilter(event.target.value)} className={inputClassName} aria-label="To date" title="To date" />
           </div>
         </div>
 
@@ -1935,7 +1949,8 @@ function PrintPharmacyBill({
           </div>
         ))}
         <p className="receipt-total-line">Grand total: <strong>{formatReceiptAmount(billTotal)} AFN</strong></p>
-        {hasDiscount ? <p>Discount: <strong>{sale.discount_percentage || '0'}% ({formatReceiptAmount(sale.discount_amount || '0')} AFN)</strong></p> : null}
+        {hasDiscount ? <p>Discount percentage: <strong>{sale.discount_percentage || '0'}%</strong></p> : null}
+        {hasDiscount ? <p>Discount amount: <strong>{formatReceiptAmount(sale.discount_amount || '0')} AFN</strong></p> : null}
         <p className="receipt-total-line">Final amount: <strong>{formatReceiptAmount(finalAmount)} AFN</strong></p>
       </div>
 

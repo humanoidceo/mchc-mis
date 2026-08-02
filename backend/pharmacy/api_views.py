@@ -859,6 +859,20 @@ class PharmacySaleViewSet(
             .order_by("-created_at")
         )
         search = self.request.query_params.get("q", "").strip()
+        payment_status = self.request.query_params.get("payment_status", "").strip()
+        from_date_raw = self.request.query_params.get("from", "").strip()
+        to_date_raw = self.request.query_params.get("to", "").strip()
+        from_date = parse_date(from_date_raw) if from_date_raw else None
+        to_date = parse_date(to_date_raw) if to_date_raw else None
+        errors = {}
+        if from_date_raw and from_date is None:
+            errors["from"] = "Select a valid from date."
+        if to_date_raw and to_date is None:
+            errors["to"] = "Select a valid to date."
+        if from_date and to_date and to_date < from_date:
+            errors["to"] = "To date must be on or after from date."
+        if errors:
+            raise serializers.ValidationError(errors)
         if search:
             queryset = queryset.filter(
                 Q(bill_no__icontains=search)
@@ -867,6 +881,12 @@ class PharmacySaleViewSet(
                 | Q(patient__last_name__icontains=search)
                 | Q(patient__registration_number__icontains=search)
             )
+        if payment_status in {Payment.Status.PENDING, Payment.Status.APPROVED}:
+            queryset = queryset.filter(payment__status=payment_status)
+        if from_date:
+            queryset = queryset.filter(created_at__date__gte=from_date)
+        if to_date:
+            queryset = queryset.filter(created_at__date__lte=to_date)
         return queryset
 
     def get_serializer_class(self):
