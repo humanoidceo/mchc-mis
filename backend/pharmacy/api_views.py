@@ -297,6 +297,21 @@ def sale_item_cost_price(item, default_profit_percentage: Decimal):
     return money(item.unit_price / divisor)
 
 
+def round_up_to_ten(value: Decimal) -> Decimal:
+    return (Decimal(value) / Decimal("10")).quantize(Decimal("1"), rounding=ROUND_CEILING) * Decimal("10")
+
+
+def pharmacy_bill_total(sale: Sale) -> Decimal:
+    return sum((round_up_to_ten(item.total_price) for item in sale.items.all()), Decimal("0.00"))
+
+
+def pharmacy_payment_amounts(total: Decimal, payment_type: str, discount_percentage: Decimal):
+    if payment_type == Payment.PaymentType.DISCOUNT:
+        discount_amount = money(total * discount_percentage / Decimal("100"))
+        return discount_percentage, discount_amount, money(total - discount_amount)
+    return Decimal("0.00"), Decimal("0.00"), total
+
+
 def summarize_sales(sales_queryset, default_profit_percentage: Decimal):
     internal_amount = Decimal("0.00")
     external_amount = Decimal("0.00")
@@ -979,6 +994,13 @@ class PharmacySaleViewSet(
                 medicine.quantity -= quantity
                 medicine.save(update_fields=["quantity", "sell_price", "updated_at"])
 
+            bill_total = pharmacy_bill_total(sale)
+            payment_type = serializer.validated_data["payment_type"]
+            discount_percentage, discount_amount, payment_amount = pharmacy_payment_amounts(
+                bill_total,
+                payment_type,
+                serializer.validated_data["discount_percentage"],
+            )
             payment = Payment.objects.create(
                 patient=patient,
                 service="Pharmacy bill",
@@ -986,11 +1008,11 @@ class PharmacySaleViewSet(
                 doctor_name="",
                 patient_age=patient.age,
                 patient_age_unit=patient.age_unit,
-                doctor_fee=sale.total_amount,
-                payment_type=Payment.PaymentType.FULL,
-                discount_percentage=Decimal("0.00"),
-                discount_amount=Decimal("0.00"),
-                amount=sale.total_amount,
+                doctor_fee=bill_total,
+                payment_type=payment_type,
+                discount_percentage=discount_percentage,
+                discount_amount=discount_amount,
+                amount=payment_amount,
                 status=Payment.Status.PENDING,
                 notes=f"Pharmacy {customer_type} bill {sale.bill_no}",
                 created_by=request.user,
@@ -1043,13 +1065,24 @@ class PharmacySaleViewSet(
             for medicine in medicines.values():
                 medicine.save(update_fields=["quantity", "sell_price", "updated_at"])
 
+            sale._prefetched_objects_cache.pop("items", None)
+            bill_total = pharmacy_bill_total(sale)
+            payment_type = serializer.validated_data["payment_type"]
+            discount_percentage, discount_amount, payment_amount = pharmacy_payment_amounts(
+                bill_total,
+                payment_type,
+                serializer.validated_data["discount_percentage"],
+            )
             payment.patient = patient
             payment.patient_age = patient.age
             payment.patient_age_unit = patient.age_unit
-            payment.doctor_fee = sale.total_amount
-            payment.amount = sale.total_amount
+            payment.doctor_fee = bill_total
+            payment.payment_type = payment_type
+            payment.discount_percentage = discount_percentage
+            payment.discount_amount = discount_amount
+            payment.amount = payment_amount
             payment.notes = f"Pharmacy {customer_type} bill {sale.bill_no}"
-            payment.save(update_fields=["patient", "patient_age", "patient_age_unit", "doctor_fee", "amount", "notes", "updated_at"])
+            payment.save(update_fields=["patient", "patient_age", "patient_age_unit", "doctor_fee", "payment_type", "discount_percentage", "discount_amount", "amount", "notes", "updated_at"])
 
             sale.patient = patient
             sale.prescription_document = prescription

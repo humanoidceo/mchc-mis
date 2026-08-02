@@ -78,6 +78,10 @@ class PharmacySaleSerializer(serializers.ModelSerializer):
     patient_name = serializers.SerializerMethodField()
     payment_status = serializers.CharField(source="payment.status", read_only=True)
     payment_id = serializers.IntegerField(source="payment.id", read_only=True, allow_null=True)
+    payment_type = serializers.CharField(source="payment.payment_type", read_only=True)
+    discount_percentage = serializers.DecimalField(source="payment.discount_percentage", max_digits=5, decimal_places=2, read_only=True, allow_null=True)
+    discount_amount = serializers.DecimalField(source="payment.discount_amount", max_digits=12, decimal_places=2, read_only=True, allow_null=True)
+    final_amount = serializers.DecimalField(source="payment.amount", max_digits=12, decimal_places=2, read_only=True, allow_null=True)
     receptionist_name = serializers.SerializerMethodField()
     prescription_document_id = serializers.IntegerField(source="prescription_document.id", read_only=True, allow_null=True)
 
@@ -97,6 +101,10 @@ class PharmacySaleSerializer(serializers.ModelSerializer):
             "total_amount",
             "payment_id",
             "payment_status",
+            "payment_type",
+            "discount_percentage",
+            "discount_amount",
+            "final_amount",
             "receptionist_name",
             "prescription_document_id",
         )
@@ -131,6 +139,8 @@ class PharmacySaleCreateSerializer(serializers.Serializer):
     patient = serializers.IntegerField(required=False)
     prescription_document = serializers.IntegerField(required=False)
     customer_name = serializers.CharField(max_length=180, allow_blank=True, required=False)
+    payment_type = serializers.ChoiceField(choices=(("full", "Full payment"), ("discount", "Discount")), default="full")
+    discount_percentage = serializers.DecimalField(max_digits=5, decimal_places=2, min_value=Decimal("0"), max_value=Decimal("100"), required=False, default=Decimal("0"))
     items = PharmacySaleCreateItemSerializer(many=True)
 
     def validate_items(self, value):
@@ -154,6 +164,8 @@ class PharmacySaleCreateSerializer(serializers.Serializer):
         else:
             if not attrs.get("customer_name", "").strip():
                 raise serializers.ValidationError({"customer_name": "Type the external customer name."})
+        if attrs["payment_type"] == "full":
+            attrs["discount_percentage"] = Decimal("0")
         return attrs
 
 

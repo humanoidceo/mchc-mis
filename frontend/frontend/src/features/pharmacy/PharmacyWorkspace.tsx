@@ -121,6 +121,10 @@ function roundedPharmacyBillTotal(sale: PharmacySale): number {
   return sale.items.reduce((total, item) => total + roundUpToNearestTen(item.total_price), 0)
 }
 
+function pharmacyBillFinalAmount(sale: PharmacySale): number {
+  return sale.final_amount === null ? roundedPharmacyBillTotal(sale) : Number(sale.final_amount)
+}
+
 function formatSaleQuantity(value: string | number): string {
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(Number(value) || 0)
 }
@@ -962,6 +966,8 @@ function SalesWorkspace({
   const [selectedPatient, setSelectedPatient] = useState<PharmacyPatientSearchOption | null>(null)
   const [prescription, setPrescription] = useState<PharmacyPrescription | null>(null)
   const [rows, setRows] = useState<SaleDraftRow[]>([{ medicine: '', quantity: '1' }])
+  const [paymentType, setPaymentType] = useState<'full' | 'discount'>('full')
+  const [discountPercentage, setDiscountPercentage] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -992,9 +998,10 @@ function SalesWorkspace({
     void loadSales(currentPage, deferredFilterText)
   }, [currentPage, deferredFilterText])
 
-  const totalAmount = rows.reduce((sum, row) => {
-    return sum + (Number(row.unit_price || 0) * Number(row.quantity || 0))
-  }, 0)
+  const roundedBillTotal = rows.reduce((sum, row) => sum + roundUpToNearestTen(Number(row.unit_price || 0) * Number(row.quantity || 0)), 0)
+  const effectiveDiscountPercentage = paymentType === 'discount' ? Math.min(100, Math.max(0, Number(discountPercentage) || 0)) : 0
+  const discountAmount = roundedBillTotal * (effectiveDiscountPercentage / 100)
+  const finalAmount = Math.max(0, roundedBillTotal - discountAmount)
 
   function resetBillingForm() {
     setEditingSaleId(null)
@@ -1004,6 +1011,8 @@ function SalesWorkspace({
     setSelectedPatient(null)
     setPrescription(null)
     setRows([{ medicine: '', quantity: '1' }])
+    setPaymentType('full')
+    setDiscountPercentage('')
   }
 
   async function loadPrescription(patient: PharmacyPatientSearchOption) {
@@ -1053,6 +1062,8 @@ function SalesWorkspace({
           patient: customerType === 'internal' ? selectedPatient?.id : undefined,
           prescription_document: customerType === 'internal' ? prescription?.id ?? editingPrescriptionDocumentId ?? undefined : undefined,
           customer_name: customerType === 'external' ? customerName : '',
+          payment_type: paymentType,
+          discount_percentage: paymentType === 'discount' ? discountPercentage || '0' : '0',
           items: normalizedItems,
         }),
       })
@@ -1077,6 +1088,8 @@ function SalesWorkspace({
     setEditingSaleId(sale.id)
     setEditingPrescriptionDocumentId(sale.prescription_document_id)
     setCustomerType(sale.customer_type)
+    setPaymentType(sale.payment_type || 'full')
+    setDiscountPercentage(sale.payment_type === 'discount' ? sale.discount_percentage || '' : '')
     setRows(sale.items.map((item) => ({
       medicine: item.medicine ? String(item.medicine) : '',
       quantity: String(item.quantity),
@@ -1227,11 +1240,33 @@ function SalesWorkspace({
               )
             })}
           </div>
+          <div className="rounded border border-sky-200 bg-white p-4">
+            <span className="block text-sm font-medium text-zinc-700">Payment option</span>
+            <div className="mt-2 flex flex-wrap gap-4 text-sm">
+              <label className="flex items-center gap-2">
+                <input type="radio" checked={paymentType === 'full'} onChange={() => { setPaymentType('full'); setDiscountPercentage('') }} />
+                Full payment
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="radio" checked={paymentType === 'discount'} onChange={() => setPaymentType('discount')} />
+                Discount percentage
+              </label>
+            </div>
+            {paymentType === 'discount' ? (
+              <div className="mt-3 max-w-xs">
+                <Field label="Discount percentage">
+                  <input className={inputClassName} type="number" min="0" max="100" step="0.01" value={discountPercentage} onChange={(event) => setDiscountPercentage(event.target.value)} placeholder="Type 20 for 20%" required />
+                </Field>
+              </div>
+            ) : null}
+            <div className="mt-3 grid gap-2 rounded border border-pink-100 bg-pink-50 p-3 text-sm sm:grid-cols-3">
+              <p><strong>Bill total:</strong> {formatReceiptAmount(roundedBillTotal)} AFN</p>
+              <p><strong>Discount:</strong> {paymentType === 'discount' ? String(effectiveDiscountPercentage) + '% (' + formatReceiptAmount(discountAmount) + ' AFN)' : 'None'}</p>
+              <p><strong>Final amount:</strong> {formatReceiptAmount(finalAmount)} AFN</p>
+            </div>
+          </div>
           <div className="flex flex-wrap gap-2">
             {customerType === 'external' ? <button className={ghostButtonClassName} onClick={() => setRows([...rows, { medicine: '', quantity: '1' }])} type="button">Add line</button> : null}
-            <div className="rounded border border-zinc-200 bg-white px-4 py-2 text-sm text-slate-700">
-              Total {formatMoney(totalAmount)}
-            </div>
             <button className={buttonClassName} disabled={submitting || (customerType === 'internal' && loadingPrescription)} type="submit">{submitting ? 'Saving...' : editingSaleId === null ? 'Create bill and send to reception' : 'Save bill changes'}</button>
             {editingSaleId !== null ? <button className={ghostButtonClassName} type="button" onClick={resetBillingForm}>Cancel edit</button> : null}
           </div>
@@ -1259,7 +1294,7 @@ function SalesWorkspace({
                 <div className="text-right">
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-400">{sale.customer_type_label}</p>
                   <p className="text-sm text-slate-500">Total</p>
-                  <p className="text-xl font-semibold text-slate-950">{formatReceiptAmount(roundedPharmacyBillTotal(sale))} AFN</p>
+                  <p className="text-xl font-semibold text-slate-950">{formatReceiptAmount(pharmacyBillFinalAmount(sale))} AFN</p>
                 </div>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
@@ -1877,6 +1912,8 @@ function PrintPharmacyBill({
   setting: PharmacySetting
 }) {
   const roundedTotal = roundedPharmacyBillTotal(sale)
+  const finalAmount = pharmacyBillFinalAmount(sale)
+  const hasDiscount = sale.payment_type === 'discount'
 
   return (
     <section className={billPaperClassName}>
@@ -1902,9 +1939,11 @@ function PrintPharmacyBill({
           </div>
         ))}
         <p className="receipt-total-line">Grand total: <strong>{formatReceiptAmount(roundedTotal)} AFN</strong></p>
+        {hasDiscount ? <p>Discount: <strong>{sale.discount_percentage || '0'}% ({formatReceiptAmount(sale.discount_amount || '0')} AFN)</strong></p> : null}
+        <p className="receipt-total-line">Final amount: <strong>{formatReceiptAmount(finalAmount)} AFN</strong></p>
       </div>
 
-      <BillReceiptNote receivedFrom={sale.receptionist_name || 'Reception pending approval'} amount={formatReceiptAmount(roundedTotal)} />
+      <BillReceiptNote receivedFrom={sale.receptionist_name || 'Reception pending approval'} amount={formatReceiptAmount(finalAmount)} />
 
       <BillSignature />
     </section>

@@ -504,6 +504,10 @@ export type PharmacySale = {
   total_amount: string
   payment_id: number | null
   payment_status: 'pending' | 'approved' | null
+  payment_type: 'full' | 'discount'
+  discount_percentage: string | null
+  discount_amount: string | null
+  final_amount: string | null
   receptionist_name: string
   prescription_document_id: number | null
 }
