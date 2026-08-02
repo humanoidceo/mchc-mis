@@ -75,6 +75,7 @@ class PharmacySaleSerializer(serializers.ModelSerializer):
     patient_name = serializers.SerializerMethodField()
     payment_status = serializers.CharField(source="payment.status", read_only=True)
     payment_id = serializers.IntegerField(source="payment.id", read_only=True, allow_null=True)
+    receptionist_name = serializers.SerializerMethodField()
     prescription_document_id = serializers.IntegerField(source="prescription_document.id", read_only=True, allow_null=True)
 
     class Meta:
@@ -93,6 +94,7 @@ class PharmacySaleSerializer(serializers.ModelSerializer):
             "total_amount",
             "payment_id",
             "payment_status",
+            "receptionist_name",
             "prescription_document_id",
         )
         read_only_fields = fields
@@ -102,6 +104,13 @@ class PharmacySaleSerializer(serializers.ModelSerializer):
 
     def get_item_count(self, obj):
         return sum(item.quantity for item in obj.items.all())
+
+    def get_receptionist_name(self, obj):
+        payment = obj.payment
+        receptionist = payment.approved_by if payment else None
+        if receptionist is None:
+            return ''
+        return receptionist.get_full_name() or receptionist.username
 
     def get_patient_name(self, obj):
         if not obj.patient:

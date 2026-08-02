@@ -227,6 +227,7 @@ class LaboratoryBillSerializer(serializers.ModelSerializer):
     payload = serializers.SerializerMethodField()
     payment_status = serializers.CharField(source='payment.status', read_only=True)
     payment_id = serializers.IntegerField(source='payment.id', read_only=True, allow_null=True)
+    receptionist_name = serializers.SerializerMethodField()
     customer_type = serializers.SerializerMethodField()
     customer_type_label = serializers.SerializerMethodField()
     lab_order_document_id = serializers.SerializerMethodField()
@@ -245,6 +246,7 @@ class LaboratoryBillSerializer(serializers.ModelSerializer):
             'created_at',
             'payment_id',
             'payment_status',
+            'receptionist_name',
             'customer_type',
             'customer_type_label',
             'lab_order_document_id',
@@ -252,6 +254,13 @@ class LaboratoryBillSerializer(serializers.ModelSerializer):
             'has_results',
         )
         read_only_fields = fields
+
+    def get_receptionist_name(self, obj):
+        payment = obj.payment
+        receptionist = payment.approved_by if payment else None
+        if receptionist is None:
+            return ''
+        return receptionist.get_full_name() or receptionist.username
 
     def get_customer_type(self, obj):
         payload = enrich_lab_bill_payload(obj.payload)

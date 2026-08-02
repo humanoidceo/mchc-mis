@@ -474,7 +474,7 @@ class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
         setting, _ = PharmacySetting.objects.get_or_create(pharmacist=request.user)
         sales = (
             Sale.objects.filter(pharmacist=request.user)
-            .select_related("patient", "payment", "prescription_document")
+            .select_related("patient", "payment__approved_by", "prescription_document")
             .prefetch_related(Prefetch("items", queryset=SaleItem.objects.select_related("medicine").order_by("id")))
         )
         page_size = 10
@@ -593,7 +593,7 @@ class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
                 created_at__date__gte=from_date,
                 created_at__date__lte=to_date,
             )
-            .select_related("patient", "payment", "prescription_document")
+            .select_related("patient", "payment__approved_by", "prescription_document")
             .prefetch_related(Prefetch("items", queryset=SaleItem.objects.select_related("medicine").order_by("id")))
             .order_by("-created_at")
         )
@@ -838,7 +838,7 @@ class PharmacySaleViewSet(
     def get_queryset(self):
         queryset = (
             Sale.objects.filter(pharmacist=self.request.user)
-            .select_related("patient", "payment", "prescription_document")
+            .select_related("patient", "payment__approved_by", "prescription_document")
             .prefetch_related(
                 Prefetch("items", queryset=SaleItem.objects.select_related("medicine").order_by("id"))
             )

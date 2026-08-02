@@ -15,56 +15,148 @@ body {
 }
 
 .thermal-receipt {
-  width: 58mm;
+  width: 75.4mm;
+}
+
+/* Plain, printer-safe receipt output for Generic Text Only printers. */
+.generic-text-receipt,
+.generic-text-receipt * {
+  font-family: "Courier New", Courier, monospace !important;
+  font-size: 10px !important;
+  font-weight: 400 !important;
+  line-height: 1.35 !important;
+  letter-spacing: normal !important;
+  text-align: left !important;
+  text-transform: none !important;
+}
+
+.generic-text-receipt .receipt-divider {
+  display: none;
+}
+
+.receipt-plain-header,
+.receipt-plain-note {
+  margin: 0;
+  padding: 0;
+}
+
+.receipt-plain-note {
+  margin-top: 0.75rem;
 }
 
 .receipt-meta {
-  border-top: 1px dashed #18181b;
+  margin-top: 0.25rem;
 }
 
 .receipt-meta-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.75rem;
-  border-bottom: 1px dashed #a1a1aa;
-  padding: 0.3rem 0;
+  padding: 0.15rem 0;
   font-size: 0.7rem;
 }
 
 .receipt-meta-row span {
-  color: #52525b;
+  color: inherit;
+}
+
+.receipt-meta-row span::after {
+  content: ":";
 }
 
 .receipt-meta-row strong {
-  max-width: 65%;
-  text-align: right;
   overflow-wrap: anywhere;
+}
+
+.receipt-text-list {
+  margin-top: 0.75rem;
+  font-size: 0.7rem;
+}
+
+.receipt-text-list p {
+  margin: 0;
+  padding: 0.15rem 0;
+  overflow-wrap: anywhere;
+}
+
+.receipt-text-item {
+  margin-top: 0.4rem;
+}
+
+.receipt-total-line {
+  margin-top: 0.5rem !important;
+  font-weight: 700;
 }
 
 .receipt-table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
   margin-top: 0.75rem;
   font-size: 0.7rem;
 }
 
 .receipt-table th,
 .receipt-table td {
-  border-bottom: 1px dashed #71717a;
   padding: 0.35rem 0.2rem;
   vertical-align: top;
   overflow-wrap: anywhere;
 }
 
 .receipt-table th {
-  border-top: 1px solid #18181b;
+  white-space: nowrap;
+}
+
+.receipt-table th {
   font-weight: 700;
 }
 
 .receipt-total-row td {
-  border-top: 1px solid #18181b;
-  border-bottom: 1px solid #18181b;
   font-weight: 700;
+}
+
+.receipt-signature-cell {
+  text-align: center;
+}
+
+.receipt-signature-cell .bill-signature {
+  margin-top: 0.5rem;
+}
+
+.reception-bill-table {
+  border: 1px solid #000;
+  font-size: 0.546rem;
+}
+
+.reception-bill-table th,
+.reception-bill-table td {
+  border: 1px solid #000;
+  padding: 0.25rem 0.2rem;
+}
+
+.reception-bill-table th,
+.reception-bill-table .receipt-total-row td {
+  background: #fff;
+}
+
+.reception-details-table {
+  margin-top: 0.25rem;
+}
+
+.bill-signature {
+  clear: both;
+  position: static;
+  display: block;
+  width: 100%;
+  break-inside: avoid;
+}
+
+.receipt-divider {
+  margin: 0.45rem 0;
+  color: #18181b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .receipt-item-detail {
@@ -89,7 +181,7 @@ textarea {
   }
 
   @page thermal-receipt {
-    size: 58mm auto;
+    size: 75.4mm 297mm;
     margin: 0;
   }
 
@@ -99,7 +191,7 @@ textarea {
     width: 210mm !important;
     min-height: 0 !important;
     height: auto !important;
-    overflow: hidden !important;
+    overflow: visible !important;
     background: #fff !important;
   }
 
@@ -121,15 +213,13 @@ textarea {
   }
 
   .print-area {
-    position: absolute;
-    inset: 0;
+    position: static;
     width: 100%;
     background: #fff;
   }
 
   .print-preview-modal {
-    position: fixed !important;
-    inset: 0 !important;
+    position: static !important;
     display: block !important;
     width: 100% !important;
     max-width: none !important;
@@ -162,8 +252,7 @@ textarea {
   }
 
   .print-preview-modal .print-area {
-    position: absolute !important;
-    inset: 0 auto auto 0 !important;
+    position: static !important;
     margin: 0 !important;
   }
 
@@ -187,96 +276,20 @@ textarea {
   html:has(.thermal-receipt),
   body:has(.thermal-receipt),
   body:has(.thermal-receipt) #root {
-    width: 58mm !important;
+    width: 75.4mm !important;
   }
 
   .thermal-receipt {
     page: thermal-receipt;
     box-sizing: border-box;
-    width: 58mm !important;
+    width: 75.4mm !important;
     min-height: 0 !important;
     max-height: none !important;
     overflow: visible !important;
-    border: 0 !important;
-    border-radius: 0 !important;
-    padding: 3mm !important;
-    font-size: 9px !important;
-    line-height: 1.25 !important;
-  }
-
-  .thermal-receipt header {
-    min-height: 0 !important;
-    padding-bottom: 2mm !important;
-  }
-
-  .thermal-receipt header > div {
-    padding: 0 !important;
-  }
-
-  .thermal-receipt header h2 {
-    font-size: 8px !important;
-    line-height: 1.15 !important;
-    letter-spacing: normal !important;
-  }
-
-  .thermal-receipt header p {
-    margin-top: 1mm !important;
-    font-size: 5px !important;
-  }
-
-  .thermal-receipt .grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  }
-
-  .thermal-receipt .grid > div,
-  .thermal-receipt table th,
-  .thermal-receipt table td {
-    min-width: 0;
-    overflow-wrap: anywhere;
-    padding: 1.2mm !important;
-  }
-
-  .thermal-receipt table {
-    margin-top: 2mm !important;
-    font-size: 8px !important;
-  }
-
-  .thermal-receipt .receipt-meta-row {
-    gap: 2mm;
-    padding: 1.2mm 0;
-    font-size: 8px;
-  }
-
-  .thermal-receipt .receipt-table th,
-  .thermal-receipt .receipt-table td {
-    padding: 1.2mm 0.7mm !important;
-  }
-
-  .thermal-receipt .receipt-item-detail {
-    font-size: 7px;
-  }
-
-  .thermal-receipt .text-sm {
-    font-size: 9px !important;
-  }
-
-  .thermal-receipt .mt-3 {
-    margin-top: 2mm !important;
-  }
-
-  .thermal-receipt .mt-4,
-  .thermal-receipt .mt-5 {
-    margin-top: 3mm !important;
-  }
-
-  .thermal-receipt footer {
-    display: block !important;
-    margin-top: 3mm !important;
-    font-size: 9px !important;
-  }
-
-  .thermal-receipt footer > div {
-    margin-top: 3mm !important;
+    break-inside: avoid;
+    color-adjust: exact;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
 
   .a4-report {

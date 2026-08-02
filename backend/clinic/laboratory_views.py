@@ -141,12 +141,12 @@ class LaboratoryDashboardViewSet(mixins.ListModelMixin, LaboratoryBaseViewSet):
         bills_queryset = ClinicalDocument.objects.filter(
             document_type=ClinicalDocument.DocumentType.LAB_BILL,
             created_by=request.user,
-        ).select_related('payment')
+        ).select_related('payment__approved_by')
         recent_bills_count = bills_queryset.count()
         page_size = 10
         recent_bills = list(
             bills_queryset
-            .select_related('patient', 'payment')
+            .select_related('patient', 'payment__approved_by')
             .order_by('-created_at')[(recent_page - 1) * page_size:recent_page * page_size]
         )
         period_bills = bills_queryset.filter(created_at__gte=start_at)
@@ -267,7 +267,7 @@ class LaboratoryBillViewSet(
                 document_type=ClinicalDocument.DocumentType.LAB_BILL,
                 created_by=self.request.user,
             )
-            .select_related('patient', 'payment')
+            .select_related('patient', 'payment__approved_by')
             .order_by('-created_at')
         )
         search = self.request.query_params.get('q', '').strip()

@@ -99,6 +99,8 @@ export type Payment = {
   discount_amount: string
   amount: string
   status: 'pending' | 'approved'
+  created_by_name: string
+  approved_by_name: string
   notes: string
   created_at: string
 }
@@ -191,6 +193,7 @@ export type LaboratoryBill = {
   created_at: string
   payment_id: number | null
   payment_status: 'pending' | 'approved' | null
+  receptionist_name: string
   customer_type: 'internal' | 'external'
   customer_type_label: string
   lab_order_document_id: number | null
@@ -501,6 +504,7 @@ export type PharmacySale = {
   total_amount: string
   payment_id: number | null
   payment_status: 'pending' | 'approved' | null
+  receptionist_name: string
   prescription_document_id: number | null
 }
 

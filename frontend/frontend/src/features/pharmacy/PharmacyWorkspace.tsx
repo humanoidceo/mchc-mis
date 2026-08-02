@@ -16,7 +16,6 @@ import type {
   PharmacySetting,
   SearchResponse,
 } from '../../types/domain'
-import { useAuth } from '../auth/useAuth'
 import { BillReceiptNote, BillSignature, BillTitle, billPaperClassName, formatReceiptAmount, PrintDocument } from '../clinic/PrintDocument'
 import { PrintPreviewModal } from '../clinic/PrintPreviewModal'
 import { PharmacyMedicineStockSection } from './PharmacyMedicineStockSection'
@@ -212,7 +211,6 @@ function normalizeFamilyPlanningQuantityInput(value: string): string {
 }
 
 export function PharmacyWorkspace({ view }: { view: View }) {
-  const { user } = useAuth()
   const [dashboard, setDashboard] = useState<PharmacyDashboardStats>(emptyDashboard)
   const [setting, setSetting] = useState<PharmacySetting>(emptySetting)
   const [selectedSale, setSelectedSale] = useState<PharmacySale | null>(null)
@@ -277,7 +275,7 @@ export function PharmacyWorkspace({ view }: { view: View }) {
           printLabel="Print bill"
           onClose={() => setSelectedSale(null)}
         >
-          <PrintPharmacyBill sale={selectedSale} setting={setting} printedBy={user?.first_name || user?.username || 'MCHC staff'} />
+          <PrintPharmacyBill sale={selectedSale} setting={setting} />
         </PrintPreviewModal>
       ) : null}
       {selectedFamilyPlanningOrder ? (
@@ -1746,11 +1744,9 @@ function PharmacySettingsPage({ setting, onSaved }: { setting: PharmacySetting; 
 function PrintPharmacyBill({
   sale,
   setting,
-  printedBy,
 }: {
   sale: PharmacySale
   setting: PharmacySetting
-  printedBy: string
 }) {
   return (
     <section className={billPaperClassName}>
@@ -1763,39 +1759,23 @@ function PrintPharmacyBill({
         <div className="receipt-meta-row"><span>Patient ID</span><strong>{sale.patient ?? 'N/A'}</strong></div>
         <div className="receipt-meta-row"><span>Type</span><strong>{sale.customer_type_label} customer</strong></div>
         <div className="receipt-meta-row"><span>Status</span><strong>{sale.payment_status ?? 'pending'}</strong></div>
-        {setting.phone ? <div className="receipt-meta-row"><span>Phone</span><strong>{setting.phone}</strong></div> : null}
-        {setting.address ? <div className="receipt-meta-row"><span>Address</span><strong>{setting.address}</strong></div> : null}
       </div>
 
-      <table className="receipt-table">
-        <thead>
-          <tr>
-            <th>Medicine</th>
-            <th className="text-right">Qty</th>
-            <th className="text-right">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sale.items.map((item) => (
-            <tr key={item.id}>
-              <td className="font-medium">{item.medicine_name}{item.generic_name ? <span className="receipt-item-detail">{item.generic_name}</span> : null}</td>
-              <td className="text-right">{item.quantity}</td>
-              <td className="text-right font-medium">{formatReceiptAmount(item.total_price)} AFN</td>
-            </tr>
-          ))}
-          <tr className="receipt-total-row">
-            <td colSpan={2}>Grand total</td>
-            <td className="text-right">{formatReceiptAmount(sale.total_amount)} AFN</td>
-          </tr>
-        </tbody>
-      </table>
+      <div className="receipt-text-list">
+        {sale.items.map((item) => (
+          <div className="receipt-text-item" key={item.id}>
+            <p>Medicine: <strong>{item.medicine_name}</strong></p>
+            {item.generic_name ? <p>Generic name: <strong>{item.generic_name}</strong></p> : null}
+            <p>Qty: <strong>{formatReceiptAmount(item.quantity)}</strong></p>
+            <p>Total: <strong>{formatReceiptAmount(item.total_price)} AFN</strong></p>
+          </div>
+        ))}
+        <p className="receipt-total-line">Grand total: <strong>{formatReceiptAmount(sale.total_amount)} AFN</strong></p>
+      </div>
 
-      <BillReceiptNote receivedFrom={printedBy} amount={formatReceiptAmount(sale.total_amount)} />
+      <BillReceiptNote receivedFrom={sale.receptionist_name || 'Reception pending approval'} amount={formatReceiptAmount(sale.total_amount)} />
 
-      <footer className="mt-4 flex items-end justify-between gap-6 text-sm">
-        <p>Thank you for visiting {setting.pharmacy_name}.</p>
-        <BillSignature />
-      </footer>
+      <BillSignature />
     </section>
   )
 }

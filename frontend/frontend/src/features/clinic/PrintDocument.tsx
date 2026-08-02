@@ -45,41 +45,38 @@ function documentRowDetails(row: Record<string, unknown>): string {
   return details.filter(Boolean).join(' | ')
 }
 
-export const billPaperClassName = 'print-area thermal-receipt w-[58mm] bg-white p-3 font-sans text-[11px] leading-tight text-black shadow-none'
-export const billBoxClassName = 'border border-black'
-export const billCellClassName = 'border-r border-black px-2 py-1 last:border-r-0'
-export const billHeaderCellClassName = 'border-r border-black bg-zinc-200 px-2 py-1 text-left font-bold last:border-r-0'
+export const billPaperClassName = 'print-area thermal-receipt generic-text-receipt w-[75.4mm] bg-white p-3 text-black shadow-none'
 
 export function formatReceiptAmount(value: string | number): string {
   const amount = Number(value || 0)
   return Number.isFinite(amount) ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(amount) : String(value)
 }
 
+export function ReceiptDivider({ dots = false }: { dots?: boolean }) {
+  return <p className="receipt-divider" aria-hidden="true">{dots ? "............................" : "----------------------------"}</p>
+}
+
 export function BillTitle({ title, subtitle }: { title: string; subtitle: string }) {
   return (
-    <header className="min-h-16 pb-3 text-center">
-      <div className="pt-2">
-        <h2 className="text-[14px] font-black uppercase tracking-wide">{title}</h2>
-        <p className="mt-2 text-[9px] font-black">{subtitle}</p>
-      </div>
+    <header className="receipt-plain-header">
+      <p>{title}</p>
+      <p>{subtitle}</p>
     </header>
   )
 }
 
 export function BillReceiptNote({ receivedFrom, amount }: { receivedFrom: string; amount: string }) {
   return (
-    <div className="mt-4 text-center text-sm font-bold leading-7 text-black">
-      <p>Received with thanks from <strong>{receivedFrom}</strong> a sum of <strong>{amount} AFN</strong></p>
+    <div className="receipt-plain-note">
+      <p className="mb-8">Received from: {receivedFrom}; Amount received: {amount} AFN</p>
     </div>
   )
 }
 
-export function BillSignature() {
+export function BillSignature({ centered = false }: { centered?: boolean }) {
   return (
-    <div className="mt-5 flex justify-end text-sm">
-      <div className="min-w-44 border border-zinc-300 px-3 py-5 text-right font-bold text-zinc-700">
-        <p>Auth Sign</p>
-      </div>
+    <div className={`bill-signature mt-5 text-sm font-bold text-black ${centered ? 'text-center' : 'text-right'}`}>
+      <p>Auth Sign: ____________________</p>
     </div>
   )
 }
@@ -424,55 +421,33 @@ export function PrintDocument({ document }: { document: ClinicalDocument }) {
       <section className={billPaperClassName}>
         <BillTitle title="Mother and Child Health Support Center" subtitle={document.document_type_label} />
 
-        <div className={billBoxClassName}>
-          <div className="grid grid-cols-[7rem_1fr_7rem_1fr] border-b border-black">
-            <div className={billHeaderCellClassName}>Document:</div>
-            <div className={billCellClassName}>{document.document_type_label}</div>
-            <div className={billHeaderCellClassName}>Date:</div>
-            <div className={billCellClassName}>{new Date(document.created_at).toLocaleString()}</div>
-          </div>
-          <div className="grid grid-cols-[7rem_1fr_7rem_1fr] border-b border-black">
-            <div className={billHeaderCellClassName}>Patient ID:</div>
-            <div className={billCellClassName}>{document.patient}</div>
-            <div className={billHeaderCellClassName}>Patient name:</div>
-            <div className={billCellClassName}>{document.patient_name}</div>
-          </div>
-          <div className="grid grid-cols-[7rem_1fr_7rem_1fr] border-b border-black">
-            <div className={billHeaderCellClassName}>Prepared by:</div>
-            <div className={billCellClassName}>{document.created_by_name || 'MCHC staff'}</div>
-            <div className={billHeaderCellClassName}>Title:</div>
-            <div className={billCellClassName}>{document.title}</div>
-          </div>
+        <div className="receipt-meta">
+          <div className="receipt-meta-row"><span>Document</span><strong>{document.document_type_label}</strong></div>
+          <div className="receipt-meta-row"><span>Date</span><strong>{new Date(document.created_at).toLocaleString()}</strong></div>
+          <div className="receipt-meta-row"><span>Patient ID</span><strong>{document.patient}</strong></div>
+          <div className="receipt-meta-row"><span>Patient name</span><strong>{document.patient_name}</strong></div>
+          <div className="receipt-meta-row"><span>Prepared by</span><strong>{document.created_by_name || "MCHC staff"}</strong></div>
+          <div className="receipt-meta-row"><span>Title</span><strong>{document.title}</strong></div>
         </div>
 
         {lines.length ? (
-          <table className="mt-3 w-full border-collapse border border-black text-left text-[11px]">
-            <thead>
-              <tr className="bg-zinc-200">
-                <th className="border border-black px-2 py-1 font-bold">Item</th>
-                <th className="border border-black px-2 py-1 font-bold">Details</th>
-                <th className="border border-black px-2 py-1 text-right font-bold">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((item, index) => {
-                const row = item as Record<string, unknown>
-                return (
-                  <tr key={index}>
-                    <td className="border border-black px-2 py-1 font-medium">{String(row.name ?? row.test_name ?? row.test ?? row.medicine_name ?? row.medicine ?? row.vaccine ?? 'Item')}</td>
-                    <td className="border border-black px-2 py-1">{documentRowDetails(row)}</td>
-                    <td className="border border-black px-2 py-1 text-right">{String(row.cost ?? row.amount ?? '')}</td>
-                  </tr>
-                )
-              })}
-              <tr className="bg-zinc-100 font-bold">
-                <td className="border border-black px-2 py-1" colSpan={2}>Total cost</td>
-                <td className="border border-black px-2 py-1 text-right">{document.total_amount}</td>
-              </tr>
-            </tbody>
-          </table>
+          <div className="receipt-text-list">
+            {lines.map((item, index) => {
+              const row = item as Record<string, unknown>
+              const details = documentRowDetails(row)
+              const amount = String(row.cost ?? row.amount ?? '')
+              return (
+                <div className="receipt-text-item" key={index}>
+                  <p>Item: <strong>{String(row.name ?? row.test_name ?? row.test ?? row.medicine_name ?? row.medicine ?? row.vaccine ?? 'Item')}</strong></p>
+                  {details ? <p>Details: <strong>{details}</strong></p> : null}
+                  {amount ? <p>Amount: <strong>{amount}</strong></p> : null}
+                </div>
+              )
+            })}
+            <p className="receipt-total-line">Total cost: <strong>{document.total_amount}</strong></p>
+          </div>
         ) : (
-          <pre className="mt-3 whitespace-pre-wrap border border-black bg-zinc-50 p-3 text-[11px]">
+          <pre className="mt-3 whitespace-pre-wrap p-1 text-[11px]">
             {JSON.stringify(document.payload, null, 2)}
           </pre>
         )}
@@ -550,47 +525,24 @@ export function PrintPaymentBill({ payment, printedBy }: { payment: Payment; pri
     <section className={billPaperClassName}>
       <BillTitle title="Mother and Child Health Support Center" subtitle="Reception bill" />
 
-      <div className="receipt-meta">
-        <div className="receipt-meta-row"><span>Date</span><strong>{createdAt}</strong></div>
-        <div className="receipt-meta-row"><span>Status</span><strong>{payment.status}</strong></div>
-        <div className="receipt-meta-row"><span>Patient</span><strong>{patientName}</strong></div>
-        <div className="receipt-meta-row"><span>Patient ID</span><strong>{payment.patient}</strong></div>
-        <div className="receipt-meta-row"><span>Age</span><strong>{formatPaymentAge(payment.patient_age, payment.patient_age_unit)}</strong></div>
-        <div className="receipt-meta-row"><span>Department</span><strong>{payment.department || payment.service}</strong></div>
-        <div className="receipt-meta-row"><span>Payment</span><strong>{isFree ? 'Free' : isDiscount ? `Discount (${payment.discount_percentage}%)` : 'Full payment'}</strong></div>
+      <div className="receipt-text-list">
+        <p>Date: <strong>{createdAt}</strong></p>
+        <p>Status: <strong>{payment.status}</strong></p>
+        <p>Patient: <strong>{patientName}</strong></p>
+        <p>Patient ID: <strong>{payment.patient}</strong></p>
+        <p>Age: <strong>{formatPaymentAge(payment.patient_age, payment.patient_age_unit)}</strong></p>
+        <p>Department: <strong>{payment.department || payment.service}</strong></p>
+        <p>Payment: <strong>{isFree ? 'Free' : isDiscount ? `Discount (${payment.discount_percentage}%)` : 'Full payment'}</strong></p>
+        <p>Fee: <strong>{formatReceiptAmount(payment.doctor_fee)} AFN</strong></p>
+        {isDiscount || isFree ? <p>Discount: <strong>{formatReceiptAmount(isFree ? payment.doctor_fee : payment.discount_amount)} AFN</strong></p> : null}
+        <p className="receipt-total-line">Final amount: <strong>{isFree ? 'Free' : `${formatReceiptAmount(payment.amount)} AFN`}</strong></p>
       </div>
 
-      <table className="receipt-table">
-        <thead>
-          <tr>
-            <th>Service</th>
-            <th className="text-right">Fee</th>
-            <th className="text-right">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>{payment.service || payment.department || 'Reception bill'}</td>
-            <td className="text-right">{formatReceiptAmount(payment.doctor_fee)} AFN</td>
-            <td className="text-right font-bold">{isFree ? 'Free' : `${formatReceiptAmount(payment.amount)} AFN`}</td>
-          </tr>
-          {isDiscount || isFree ? (
-            <tr>
-              <td colSpan={2}>Discount</td>
-              <td className="text-right">{formatReceiptAmount(isFree ? payment.doctor_fee : payment.discount_amount)} AFN</td>
-            </tr>
-          ) : null}
-          <tr className="receipt-total-row">
-            <td colSpan={2}>Final amount</td>
-            <td className="text-right">{isFree ? 'Free' : `${formatReceiptAmount(payment.amount)} AFN`}</td>
-          </tr>
-        </tbody>
-      </table>
+      <BillSignature centered />
 
       {payment.notes ? <p className="mt-3 text-sm"><strong>Notes:</strong> {payment.notes}</p> : null}
 
-      <BillReceiptNote receivedFrom={printedBy} amount={isFree ? '0' : formatReceiptAmount(payment.amount)} />
-      <BillSignature />
+      <BillReceiptNote receivedFrom={payment.created_by_name || printedBy} amount={isFree ? '0' : formatReceiptAmount(payment.amount)} />
     </section>
   )
 }

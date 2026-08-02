@@ -239,7 +239,7 @@ export function LaboratoryWorkspace({ view }: { view: View }) {
         >
           {selectedPrintMode === 'result'
             ? <PrintLaboratoryResult bill={selectedBill} printedBy={printedBy} />
-            : <PrintLaboratoryBill bill={selectedBill} printedBy={printedBy} />}
+            : <PrintLaboratoryBill bill={selectedBill} />}
         </PrintPreviewModal>
       ) : null}
     </div>
@@ -972,8 +972,8 @@ function SearchCombo<T extends { id: number }>({
   )
 }
 
-function PrintLaboratoryBill({ bill, printedBy }: { bill: LaboratoryBill; printedBy: string }) {
-  const document = asBillDocument(bill, printedBy)
+function PrintLaboratoryBill({ bill }: { bill: LaboratoryBill }) {
+  const document = asBillDocument(bill, '')
   const payload = document.payload as Record<string, unknown>
   const items = Array.isArray(payload.ordered_items) ? payload.ordered_items as Array<Record<string, unknown>> : []
 
@@ -989,28 +989,18 @@ function PrintLaboratoryBill({ bill, printedBy }: { bill: LaboratoryBill; printe
         <div className="receipt-meta-row"><span>Customer type</span><strong>{bill.customer_type_label}</strong></div>
       </div>
 
-      <table className="receipt-table">
-        <thead>
-          <tr>
-            <th>Test</th>
-            <th className="text-right">Cost</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item, index) => (
-            <tr key={index}>
-              <td className="font-medium">{String(item.test_name ?? item.test ?? 'Test')}{item.instructions ? <span className="receipt-item-detail">{String(item.instructions)}</span> : null}</td>
-              <td className="text-right">{formatReceiptAmount(String(item.cost ?? ''))} AFN</td>
-            </tr>
-          ))}
-          <tr className="receipt-total-row">
-            <td>Total cost</td>
-            <td className="text-right">{formatReceiptAmount(bill.total_amount)} AFN</td>
-          </tr>
-        </tbody>
-      </table>
+      <div className="receipt-text-list">
+        {items.map((item, index) => (
+          <div className="receipt-text-item" key={index}>
+            <p>Test: <strong>{String(item.test_name ?? item.test ?? 'Test')}</strong></p>
+            {item.instructions ? <p>Instructions: <strong>{String(item.instructions)}</strong></p> : null}
+            <p>Cost: <strong>{formatReceiptAmount(String(item.cost ?? ''))} AFN</strong></p>
+          </div>
+        ))}
+        <p className="receipt-total-line">Total cost: <strong>{formatReceiptAmount(bill.total_amount)} AFN</strong></p>
+      </div>
 
-      <BillReceiptNote receivedFrom={printedBy} amount={formatReceiptAmount(bill.total_amount)} />
+      <BillReceiptNote receivedFrom={bill.receptionist_name || 'Reception pending approval'} amount={formatReceiptAmount(bill.total_amount)} />
       <BillSignature />
     </section>
   )
