@@ -180,7 +180,7 @@ function MedicineManager({
 
   useEffect(() => {
     let ignore = false
-    const querySuffix = `${rutfOnly ? '&rutf_only=1' : ''}${familyPlanningOnly ? '&family_planning_only=1' : ''}${expiredOnly ? '&expired_only=1' : ''}${upcomingExpiredOnly ? '&upcoming_expired_only=1' : ''}`
+    const querySuffix = `${rutfOnly ? '&rutf_only=1' : ''}${familyPlanningOnly ? '&family_planning_only=1' : ''}${!familyPlanningOnly ? '&exclude_family_planning=1' : ''}${expiredOnly ? '&expired_only=1' : ''}${upcomingExpiredOnly ? '&upcoming_expired_only=1' : ''}`
 
     async function loadMedicines() {
       setLoading(true)
@@ -260,7 +260,7 @@ function MedicineManager({
         ...emptyMedicineForm,
         profit_percentage: setting.default_profit_percentage,
       })
-      const response = await apiFetch<PaginatedResponse<PharmacyMedicine>>(`/pharmacy/medicines/?page=${page}&q=${encodeURIComponent(query)}${rutfOnly ? '&rutf_only=1' : ''}${familyPlanningOnly ? '&family_planning_only=1' : ''}${expiredOnly ? '&expired_only=1' : ''}${upcomingExpiredOnly ? '&upcoming_expired_only=1' : ''}`)
+      const response = await apiFetch<PaginatedResponse<PharmacyMedicine>>(`/pharmacy/medicines/?page=${page}&q=${encodeURIComponent(query)}${rutfOnly ? '&rutf_only=1' : ''}${familyPlanningOnly ? '&family_planning_only=1' : ''}${!familyPlanningOnly ? '&exclude_family_planning=1' : ''}${expiredOnly ? '&expired_only=1' : ''}${upcomingExpiredOnly ? '&upcoming_expired_only=1' : ''}`)
       setMedicines(response.results)
       setTotalCount(response.count)
     } catch (caught) {
@@ -274,7 +274,7 @@ function MedicineManager({
     setError('')
     try {
       await apiFetch(`/pharmacy/medicines/${medicineId}/`, { method: 'DELETE' })
-      const response = await apiFetch<PaginatedResponse<PharmacyMedicine>>(`/pharmacy/medicines/?page=${page}&q=${encodeURIComponent(query)}${rutfOnly ? '&rutf_only=1' : ''}${familyPlanningOnly ? '&family_planning_only=1' : ''}${expiredOnly ? '&expired_only=1' : ''}${upcomingExpiredOnly ? '&upcoming_expired_only=1' : ''}`)
+      const response = await apiFetch<PaginatedResponse<PharmacyMedicine>>(`/pharmacy/medicines/?page=${page}&q=${encodeURIComponent(query)}${rutfOnly ? '&rutf_only=1' : ''}${familyPlanningOnly ? '&family_planning_only=1' : ''}${!familyPlanningOnly ? '&exclude_family_planning=1' : ''}${expiredOnly ? '&expired_only=1' : ''}${upcomingExpiredOnly ? '&upcoming_expired_only=1' : ''}`)
       setMedicines(response.results)
       setTotalCount(response.count)
     } catch (caught) {

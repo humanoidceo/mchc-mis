@@ -653,6 +653,7 @@ class PharmacyMedicineViewSet(PharmacyBaseViewSet, viewsets.ModelViewSet):
         low_stock_only = self.request.query_params.get("low_stock")
         rutf_only = self.request.query_params.get("rutf_only")
         family_planning_only = self.request.query_params.get("family_planning_only")
+        exclude_family_planning = self.request.query_params.get("exclude_family_planning")
         expired_only = self.request.query_params.get("expired_only")
         upcoming_expired_only = self.request.query_params.get("upcoming_expired_only")
         if search:
@@ -669,6 +670,8 @@ class PharmacyMedicineViewSet(PharmacyBaseViewSet, viewsets.ModelViewSet):
             queryset = queryset.filter(Q(name__icontains="rutf") | Q(generic_name__icontains="rutf")).order_by("expiry_date", "name")
         if family_planning_only in {"1", "true", "yes"}:
             queryset = queryset.filter(generic_name__iexact="Family Planning").order_by("expiry_date", "name")
+        elif exclude_family_planning in {"1", "true", "yes"}:
+            queryset = queryset.exclude(generic_name__iexact="Family Planning")
         if expired_only in {"1", "true", "yes"}:
             current_month_start = timezone.localdate().replace(day=1)
             queryset = queryset.filter(expiry_date__isnull=False, expiry_date__lt=current_month_start).order_by("expiry_date", "name")
