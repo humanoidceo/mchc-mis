@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING
 from io import BytesIO
 from xml.sax.saxutils import escape
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -1058,6 +1058,59 @@ class PharmacySaleViewSet(
 
         output = PharmacySaleSerializer(sale, context=self.get_serializer_context())
         return Response(output.data)
+
+    @action(detail=False, methods=["get"], url_path="medicine-sales")
+    def medicine_sales(self, request):
+        from_date_raw = request.query_params.get("from", "").strip()
+        to_date_raw = request.query_params.get("to", "").strip()
+        search = request.query_params.get("q", "").strip()
+        from_date = parse_date(from_date_raw) if from_date_raw else None
+        to_date = parse_date(to_date_raw) if to_date_raw else None
+        errors = {}
+        if from_date_raw and from_date is None:
+            errors["from"] = "Select a valid from date."
+        if to_date_raw and to_date is None:
+            errors["to"] = "Select a valid to date."
+        if from_date and to_date and to_date < from_date:
+            errors["to"] = "To date must be on or after from date."
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        summary = {}
+        sale_items = (
+            SaleItem.objects
+            .filter(sale__pharmacist=request.user, sale__deleted_at__isnull=True)
+            .only("medicine_name", "quantity", "unit_price")
+            .order_by("medicine_name", "id")
+        )
+        if from_date:
+            sale_items = sale_items.filter(sale__created_at__date__gte=from_date)
+        if to_date:
+            sale_items = sale_items.filter(sale__created_at__date__lte=to_date)
+        if search:
+            sale_items = sale_items.filter(medicine_name__icontains=search)
+
+        for item in sale_items:
+            row = summary.setdefault(
+                item.medicine_name,
+                {"medicine_name": item.medicine_name, "quantity": Decimal("0.00"), "amount": Decimal("0.00")},
+            )
+            row["quantity"] += item.quantity
+            item_amount = item.total_price
+            row["amount"] += (item_amount / Decimal("10")).quantize(Decimal("1"), rounding=ROUND_CEILING) * Decimal("10")
+
+        rows = [
+            {
+                "medicine_name": row["medicine_name"],
+                "quantity": str(row["quantity"]),
+                "amount": str(row["amount"]),
+            }
+            for row in summary.values()
+        ]
+        page = self.paginate_queryset(rows)
+        if page is not None:
+            return self.get_paginated_response(page)
+        return Response(rows)
 
     def destroy(self, request, *args, **kwargs):
         sale = self.get_object()

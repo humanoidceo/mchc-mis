@@ -11,6 +11,7 @@ import { PharmacyWorkspace } from './PharmacyWorkspace'
 const links = [
   { to: '/pharmacy/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/pharmacy/report', label: 'Report', icon: FileText },
+  { to: '/pharmacy/medicine-sales', label: 'Medicine Sales', icon: ClipboardList },
   { to: '/pharmacy/medicines', label: 'Medicines', icon: Pill },
   { to: '/pharmacy/family-planning-stock', label: 'Family Planning Stock', icon: Package },
   { to: '/pharmacy/family-planning-orders', label: 'Family Planning Orders', icon: HeartPulse },
@@ -109,6 +110,7 @@ export function PharmacyDashboardLayout() {
             <Route path="/pharmacy" element={<Navigate to="/pharmacy/dashboard" replace />} />
             <Route path="/pharmacy/dashboard" element={<PharmacyWorkspace view="dashboard" />} />
             <Route path="/pharmacy/report" element={<PharmacyWorkspace view="report" />} />
+            <Route path="/pharmacy/medicine-sales" element={<PharmacyWorkspace view="medicine-sales" />} />
             <Route path="/pharmacy/medicines" element={<PharmacyWorkspace view="medicines" />} />
             <Route path="/pharmacy/family-planning-stock" element={<PharmacyWorkspace view="family-planning-stock" />} />
             <Route path="/pharmacy/family-planning-orders" element={<PharmacyWorkspace view="family-planning-orders" />} />

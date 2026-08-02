@@ -20,7 +20,7 @@ import { BillReceiptNote, BillSignature, BillTitle, billPaperClassName, formatRe
 import { PrintPreviewModal } from '../clinic/PrintPreviewModal'
 import { PharmacyMedicineStockSection } from './PharmacyMedicineStockSection'
 
-type View = 'dashboard' | 'report' | 'medicines' | 'family-planning-stock' | 'family-planning-orders' | 'expired-medicines' | 'upcoming-expired-medicines' | 'rutf-stock' | 'low-stock' | 'sales' | 'rutf-orders' | 'settings'
+type View = 'dashboard' | 'report' | 'medicine-sales' | 'medicines' | 'family-planning-stock' | 'family-planning-orders' | 'expired-medicines' | 'upcoming-expired-medicines' | 'rutf-stock' | 'low-stock' | 'sales' | 'rutf-orders' | 'settings'
 type SaleDraftRow = {
   medicine: string
   quantity: string
@@ -48,6 +48,11 @@ type PharmacyInventoryReportSummary = {
   stock_value_cost: string
   stock_value_sale: string
   generated_at: string
+}
+type MedicineSalesSummary = {
+  medicine_name: string
+  quantity: string
+  amount: string
 }
 
 const emptyDashboard: PharmacyDashboardStats = {
@@ -114,6 +119,10 @@ function roundUpToNearestTen(value: string | number): number {
 
 function roundedPharmacyBillTotal(sale: PharmacySale): number {
   return sale.items.reduce((total, item) => total + roundUpToNearestTen(item.total_price), 0)
+}
+
+function formatSaleQuantity(value: string | number): string {
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(Number(value) || 0)
 }
 
 function formatDariDate(value: string): string {
@@ -239,7 +248,7 @@ export function PharmacyWorkspace({ view }: { view: View }) {
         return
       }
 
-      if (currentView === 'medicines' || currentView === 'family-planning-stock' || currentView === 'family-planning-orders' || currentView === 'expired-medicines' || currentView === 'upcoming-expired-medicines' || currentView === 'rutf-stock' || currentView === 'low-stock' || currentView === 'sales' || currentView === 'rutf-orders') {
+      if (currentView === 'medicines' || currentView === 'medicine-sales' || currentView === 'family-planning-stock' || currentView === 'family-planning-orders' || currentView === 'expired-medicines' || currentView === 'upcoming-expired-medicines' || currentView === 'rutf-stock' || currentView === 'low-stock' || currentView === 'sales' || currentView === 'rutf-orders') {
         setSetting(await apiFetch<PharmacySetting>('/pharmacy/settings/'))
         return
       }
@@ -259,6 +268,7 @@ export function PharmacyWorkspace({ view }: { view: View }) {
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
       {view === 'dashboard' ? <PharmacyDashboard dashboard={dashboard} onRefresh={(period, recentPage, fromDate, toDate) => void loadData('dashboard', period, recentPage, fromDate, toDate)} /> : null}
       {view === 'report' ? <PharmacyInventoryReport /> : null}
+      {view === 'medicine-sales' ? <MedicineSalesPage /> : null}
       {view === 'medicines' ? <PharmacyMedicineStockSection key="medicines" /> : null}
       {view === 'family-planning-stock' ? <PharmacyMedicineStockSection key="family-planning-stock" familyPlanningOnly /> : null}
       {view === 'family-planning-orders' ? <FamilyPlanningOrdersWorkspace onSelectOrder={setSelectedFamilyPlanningOrder} /> : null}
@@ -331,6 +341,116 @@ export function PharmacyWorkspace({ view }: { view: View }) {
         </div>
       ) : null}
     </div>
+  )
+}
+
+function MedicineSalesPage() {
+  const [items, setItems] = useState<MedicineSalesSummary[]>([])
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [search, setSearch] = useState('')
+  const [appliedFromDate, setAppliedFromDate] = useState('')
+  const [appliedToDate, setAppliedToDate] = useState('')
+  const [appliedSearch, setAppliedSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const loadSales = useCallback(async (currentPage = page, currentFromDate = appliedFromDate, currentToDate = appliedToDate, currentSearch = appliedSearch) => {
+    setLoading(true)
+    setError('')
+    try {
+      const params = new URLSearchParams({ page: String(currentPage) })
+      if (currentFromDate) params.set('from', currentFromDate)
+      if (currentToDate) params.set('to', currentToDate)
+      if (currentSearch) params.set('q', currentSearch)
+      const response = await apiFetch<PaginatedResponse<MedicineSalesSummary>>('/pharmacy/sales/medicine-sales/?' + params.toString())
+      setItems(response.results)
+      setTotalCount(response.count)
+    } catch (caught) {
+      setError(describeApiError(caught, 'Unable to load medicine sales.'))
+    } finally {
+      setLoading(false)
+    }
+  }, [appliedFromDate, appliedToDate, appliedSearch, page])
+
+  useEffect(() => {
+    void loadSales()
+  }, [page, appliedFromDate, appliedToDate, appliedSearch])
+
+  function applyDateFilter(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if ((fromDate && !toDate) || (!fromDate && toDate)) {
+      setError('Select both a From and To date.')
+      return
+    }
+    if (fromDate && toDate && toDate < fromDate) {
+      setError('To date must be on or after From date.')
+      return
+    }
+    setError('')
+    setPage(1)
+    setAppliedFromDate(fromDate)
+    setAppliedToDate(toDate)
+    setAppliedSearch(search.trim())
+  }
+
+  function clearDateFilter() {
+    setFromDate('')
+    setToDate('')
+    setSearch('')
+    setAppliedFromDate('')
+    setAppliedToDate('')
+    setAppliedSearch('')
+    setPage(1)
+  }
+
+  return (
+    <Panel>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <SectionHeader title="Medicine sales" subtitle="See the total quantity sold and amount for each medicine." />
+        <button className={ghostButtonClassName} onClick={() => void loadSales()} disabled={loading}>Refresh</button>
+      </div>
+      <form className="mt-5 flex flex-wrap items-end gap-3" onSubmit={applyDateFilter}>
+        <Field label="From">
+          <input className={inputClassName} type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
+        </Field>
+        <Field label="To">
+          <input className={inputClassName} type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
+        </Field>
+        <Field label="Search">
+          <input className={inputClassName} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search medicine" />
+        </Field>
+        <button className={buttonClassName} type="submit">Filter</button>
+        <button className={ghostButtonClassName} type="button" onClick={clearDateFilter}>Clear</button>
+      </form>
+      {error ? <div className="mt-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+      <div className="mt-5 overflow-x-auto">
+        <table className="w-full min-w-[560px] border-collapse text-left text-sm">
+          <thead>
+            <tr className="border-b border-sky-100 text-slate-500">
+              <th className="py-3 pr-4 font-medium">Medicine name</th>
+              <th className="py-3 pr-4 text-right font-medium">Quantity</th>
+              <th className="py-3 text-right font-medium">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.medicine_name} className="border-b border-sky-50">
+                <td className="py-3 pr-4 font-medium text-slate-950">{item.medicine_name}</td>
+                <td className="py-3 pr-4 text-right text-slate-700">{formatSaleQuantity(item.quantity)}</td>
+                <td className="py-3 text-right font-medium text-slate-950">{formatReceiptAmount(item.amount)} AFN</td>
+              </tr>
+            ))}
+            {!items.length && !loading ? <tr><td colSpan={3} className="py-8 text-center text-slate-500">No medicines have been sold yet.</td></tr> : null}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-4">
+        <PaginationControls page={page} totalCount={totalCount} onPageChange={setPage} />
+      </div>
+    </Panel>
   )
 }
 
