@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from .models import Medicine, PharmacySetting, Sale, SaleItem
@@ -17,6 +19,7 @@ class PharmacySettingSerializer(serializers.ModelSerializer):
 
 class PharmacyMedicineSerializer(serializers.ModelSerializer):
     stock_status = serializers.SerializerMethodField()
+    buy_price = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0"))
 
     class Meta:
         model = Medicine

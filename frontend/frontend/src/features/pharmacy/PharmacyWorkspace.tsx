@@ -108,6 +108,14 @@ function formatMoneyAfn(value: string | number): string {
   return `${formatMoney(value)} AFN`
 }
 
+function roundUpToNearestTen(value: string | number): number {
+  return Math.ceil(Math.max(0, Number(value) || 0) / 10) * 10
+}
+
+function roundedPharmacyBillTotal(sale: PharmacySale): number {
+  return sale.items.reduce((total, item) => total + roundUpToNearestTen(item.total_price), 0)
+}
+
 function formatDariDate(value: string): string {
   return new Intl.DateTimeFormat('fa-AF-u-ca-gregory', {
     year: 'numeric',
@@ -1131,7 +1139,7 @@ function SalesWorkspace({
                 <div className="text-right">
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-400">{sale.customer_type_label}</p>
                   <p className="text-sm text-slate-500">Total</p>
-                  <p className="text-xl font-semibold text-slate-950">{formatMoneyAfn(sale.total_amount)}</p>
+                  <p className="text-xl font-semibold text-slate-950">{formatReceiptAmount(roundedPharmacyBillTotal(sale))} AFN</p>
                 </div>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
@@ -1748,6 +1756,8 @@ function PrintPharmacyBill({
   sale: PharmacySale
   setting: PharmacySetting
 }) {
+  const roundedTotal = roundedPharmacyBillTotal(sale)
+
   return (
     <section className={billPaperClassName}>
       <BillTitle title={setting.pharmacy_name} subtitle="Pharmacy bill" />
@@ -1767,14 +1777,14 @@ function PrintPharmacyBill({
             <p>Medicine: <strong>{item.medicine_name}</strong></p>
             {item.generic_name ? <p>Generic name: <strong>{item.generic_name}</strong></p> : null}
             <p>Quantity: <strong>{formatReceiptAmount(item.quantity)}</strong></p>
-            <p>Amount: <strong>{formatReceiptAmount(item.total_price)} AFN</strong></p>
+            <p>Amount: <strong>{formatReceiptAmount(roundUpToNearestTen(item.total_price))} AFN</strong></p>
             <p aria-hidden="true">.........................</p>
           </div>
         ))}
-        <p className="receipt-total-line">Grand total: <strong>{formatReceiptAmount(sale.total_amount)} AFN</strong></p>
+        <p className="receipt-total-line">Grand total: <strong>{formatReceiptAmount(roundedTotal)} AFN</strong></p>
       </div>
 
-      <BillReceiptNote receivedFrom={sale.receptionist_name || 'Reception pending approval'} amount={formatReceiptAmount(sale.total_amount)} />
+      <BillReceiptNote receivedFrom={sale.receptionist_name || 'Reception pending approval'} amount={formatReceiptAmount(roundedTotal)} />
 
       <BillSignature />
     </section>

@@ -47,6 +47,10 @@ function formatMoneyAfn(value: string | number): string {
   return `${formatMoney(value)} AFN`
 }
 
+function isValidBuyPrice(value: string): boolean {
+  return /^\d+(?:\.\d{1,2})?$/.test(value)
+}
+
 function describeApiError(caught: unknown, fallback: string): string {
   if (caught instanceof ApiError) {
     if (typeof caught.details === 'object' && caught.details) {
@@ -208,8 +212,12 @@ function MedicineManager({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setSubmitting(true)
     setError('')
+    if (!familyPlanningOnly && !rutfOnly && !isValidBuyPrice(form.buy_price)) {
+      setError('Buy price must be a non-negative number with up to two digits after the decimal point, for example 12.5 or 12.50.')
+      return
+    }
+    setSubmitting(true)
     try {
       const payload = familyPlanningOnly
         ? {
@@ -449,7 +457,7 @@ function MedicineManager({
                   <input value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} className={inputClassName} min="0" step="0.1" type="number" required />
                 </Field>
                 <Field label="Buy price">
-                  <input value={form.buy_price} onChange={(event) => setForm({ ...form, buy_price: event.target.value })} className={inputClassName} min="0" type="number" required />
+                  <input value={form.buy_price} onChange={(event) => setForm({ ...form, buy_price: event.target.value })} className={inputClassName} min="0" step="0.01" inputMode="decimal" type="number" required />
                 </Field>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
