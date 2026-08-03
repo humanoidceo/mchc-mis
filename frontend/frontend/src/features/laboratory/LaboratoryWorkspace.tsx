@@ -642,7 +642,7 @@ function LaboratoryBilling({
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+    <div className="space-y-6">
       <Panel>
         <SectionHeader title={t.title} subtitle={t.subtitle} />
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -852,35 +852,50 @@ function LaboratoryBilling({
               </div>
             </form>
           ) : null}
-          {bills.map((bill) => (
-            <div key={bill.id} className="rounded border border-sky-100 bg-white p-4 shadow-sm shadow-sky-100/60">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-lg font-semibold text-slate-950">Laboratory bill #{bill.id}</p>
-                  <p className="text-sm text-slate-500">{billCustomerLabel(bill)}</p>
-                  <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-400">{formatDate(bill.created_at)}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">{bill.customer_type_label}</p>
-                  <p className="text-sm text-slate-500">Total</p>
-                  <p className="text-xl font-semibold text-slate-950">{formatMoney(bill.total_amount)}</p>
-                </div>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <span className={`rounded-full px-3 py-1 text-xs font-medium ${bill.payment_status === 'approved' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-                  Reception payment {bill.payment_status ?? 'pending'}
-                </span>
-                <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-medium text-sky-800">{bill.item_count} test(s)</span>
-              </div>
-              <div className="mt-4 flex gap-2">
-                <button className={buttonClassName} onClick={() => onSelectBill(bill, 'bill')}>{common.print}</button>
-                {bill.payment_status === 'pending' && !bill.has_results ? <button className={ghostButtonClassName} onClick={() => void editBill(bill)}>{common.edit}</button> : null}
-                {bill.payment_status === 'approved' ? <button className={ghostButtonClassName} onClick={() => openResultsEditor(bill)}>{t.enterResults}</button> : null}
-                {bill.has_results ? <button className={ghostButtonClassName} onClick={() => onSelectBill(bill, 'result')}>{common.print}</button> : null}
-                <button className={ghostButtonClassName} onClick={() => void deleteBill(bill.id)}>{common.delete}</button>
-              </div>
+          {bills.length ? (
+            <div className="overflow-x-auto rounded border border-sky-100">
+              <table className="min-w-full divide-y divide-sky-100 text-left text-sm">
+                <thead className="bg-sky-50 text-xs uppercase tracking-wide text-slate-600">
+                  <tr>
+                    <th className="px-3 py-3">Bill</th>
+                    <th className="px-3 py-3">Customer</th>
+                    <th className="px-3 py-3">Type</th>
+                    <th className="px-3 py-3">Date</th>
+                    <th className="px-3 py-3">Tests</th>
+                    <th className="px-3 py-3">Total</th>
+                    <th className="px-3 py-3">Reception</th>
+                    <th className="px-3 py-3">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-sky-100 bg-white text-slate-700">
+                  {bills.map((bill) => (
+                    <tr key={bill.id}>
+                      <td className="px-3 py-3 font-semibold text-slate-950">#{bill.id}</td>
+                      <td className="px-3 py-3">{billCustomerLabel(bill)}</td>
+                      <td className="px-3 py-3">{bill.customer_type_label}</td>
+                      <td className="whitespace-nowrap px-3 py-3">{formatDate(bill.created_at)}</td>
+                      <td className="px-3 py-3">{bill.item_count}</td>
+                      <td className="whitespace-nowrap px-3 py-3 font-medium">{formatMoney(bill.total_amount)} AFN</td>
+                      <td className="px-3 py-3">
+                        <span className={`rounded-full px-2 py-1 text-xs font-medium ${bill.payment_status === 'approved' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}`}>
+                          {bill.payment_status ?? 'pending'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="flex flex-wrap gap-2">
+                          <button className={buttonClassName} onClick={() => onSelectBill(bill, 'bill')}>{common.print}</button>
+                          {bill.payment_status === 'pending' && !bill.has_results ? <button className={ghostButtonClassName} onClick={() => void editBill(bill)}>{common.edit}</button> : null}
+                          <button className={ghostButtonClassName} onClick={() => void deleteBill(bill.id)}>{common.delete}</button>
+                          {bill.payment_status === 'approved' ? <button className={ghostButtonClassName} onClick={() => openResultsEditor(bill)}>{t.enterResults}</button> : null}
+                          {bill.has_results ? <button className={ghostButtonClassName} onClick={() => onSelectBill(bill, 'result')}>Print result</button> : null}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ))}
+          ) : null}
           {!bills.length ? <p className="rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-600">No laboratory bills found.</p> : null}
           <PaginationControls page={page} totalCount={totalCount} onPageChange={setPage} />
         </div>
