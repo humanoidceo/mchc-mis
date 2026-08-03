@@ -520,6 +520,35 @@ class ExpenseViewSet(PermissionedModelViewSet):
         soft_delete_instance(instance, self.request.user)
 
     @action(detail=False, methods=['get'])
+    def summary(self, request):
+        raw_from = request.query_params.get('from', '').strip()
+        raw_to = request.query_params.get('to', '').strip()
+        date_from = parse_date(raw_from) if raw_from else None
+        date_to = parse_date(raw_to) if raw_to else None
+        if raw_from and date_from is None:
+            raise serializers.ValidationError({'from': 'Use a valid From date.'})
+        if raw_to and date_to is None:
+            raise serializers.ValidationError({'to': 'Use a valid To date.'})
+        if date_from and date_to and date_from > date_to:
+            raise serializers.ValidationError({'to': 'The To date must be on or after the From date.'})
+
+        queryset = self.get_queryset()
+        if date_from is not None:
+            queryset = queryset.filter(created_at__date__gte=date_from)
+        if date_to is not None:
+            queryset = queryset.filter(created_at__date__lte=date_to)
+        totals = {
+            row['category']: row['total']
+            for row in queryset.values('category').annotate(total=Sum('amount'))
+        }
+        return Response({
+            'results': [
+                {'category': category, 'amount': str(totals.get(category) or Decimal('0.00'))}
+                for category in EXPENSE_CATEGORIES
+            ]
+        })
+
+    @action(detail=False, methods=['get'])
     def categories(self, request):
         search = request.query_params.get('q', '').strip().lower()
         try:

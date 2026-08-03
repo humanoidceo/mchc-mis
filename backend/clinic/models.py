@@ -139,7 +139,7 @@ class SalaryAdvanceSettlement(TimestampedModel):
 
 
 class Expense(TimestampedModel, SoftDeleteModel):
-    name = models.CharField(max_length=180)
+    name = models.CharField(max_length=180, blank=True, default='')
     category = models.CharField(max_length=120)
     amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     description = models.TextField(blank=True)

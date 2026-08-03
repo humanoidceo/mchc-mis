@@ -32,6 +32,10 @@ type ReceptionReportSummary = {
   total_amount: string
   generated_at: string
 }
+type ExpenseCategorySummary = {
+  category: string
+  amount: string
+}
 type GynecologyUltrasoundFormState = {
   patient_status: 'new' | 'follow_up'
   report_type: 'obstetric' | 'pelvic'
@@ -1680,8 +1684,12 @@ function ExpensesSection() {
   const [search, setSearch] = useState('')
   const deferredSearch = useDeferredValue(search)
   const [editingId, setEditingId] = useState<number | null>(null)
-  const [form, setForm] = useState({ name: '', category: '', amount: '', description: '' })
+  const [form, setForm] = useState({ category: '', amount: '', description: '' })
   const [categoryInput, setCategoryInput] = useState('')
+  const [summaryFromDate, setSummaryFromDate] = useState('')
+  const [summaryToDate, setSummaryToDate] = useState('')
+  const [categorySummary, setCategorySummary] = useState<ExpenseCategorySummary[]>([])
+  const [summaryError, setSummaryError] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -1701,13 +1709,30 @@ function ExpensesSection() {
     }
   }, [deferredSearch, page])
 
+  const loadCategorySummary = useCallback(async () => {
+    setSummaryError('')
+    try {
+      const params = new URLSearchParams()
+      if (summaryFromDate) params.set('from', summaryFromDate)
+      if (summaryToDate) params.set('to', summaryToDate)
+      const response = await apiFetch<{ results: ExpenseCategorySummary[] }>(`/expenses/summary/?${params.toString()}`)
+      setCategorySummary(response.results)
+    } catch (caught) {
+      setSummaryError(describeApiError(caught, 'Unable to load expense category totals.'))
+    }
+  }, [summaryFromDate, summaryToDate])
+
   useEffect(() => {
     void loadExpenses(page, deferredSearch)
   }, [deferredSearch, loadExpenses, page])
 
+  useEffect(() => {
+    void loadCategorySummary()
+  }, [loadCategorySummary])
+
   function resetForm() {
     setEditingId(null)
-    setForm({ name: '', category: '', amount: '', description: '' })
+    setForm({ category: '', amount: '', description: '' })
     setCategoryInput('')
   }
 
@@ -1724,7 +1749,7 @@ function ExpensesSection() {
       await apiFetch<Expense>(editingId ? `/expenses/${editingId}/` : '/expenses/', {
         method: editingId ? 'PATCH' : 'POST',
         body: JSON.stringify({
-          name: form.name.trim(),
+          name: '',
           category: form.category.trim(),
           amount: form.amount,
           description: form.description.trim(),
@@ -1755,7 +1780,6 @@ function ExpensesSection() {
   function startEdit(expense: Expense) {
     setEditingId(expense.id)
     setForm({
-      name: expense.name,
       category: expense.category,
       amount: expense.amount,
       description: expense.description,
@@ -1767,21 +1791,39 @@ function ExpensesSection() {
 
   return (
     <>
+      <Panel>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-950">Expenses by category</p>
+            <p className="text-sm text-zinc-600">Amounts are calculated from the selected date range.</p>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
+              <span>From</span>
+              <input className={inputClassName} type="date" value={summaryFromDate} onChange={(event) => setSummaryFromDate(event.target.value)} />
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
+              <span>To</span>
+              <input className={inputClassName} type="date" value={summaryToDate} onChange={(event) => setSummaryToDate(event.target.value)} />
+            </label>
+            <button className={ghostButtonClassName} type="button" onClick={() => void loadCategorySummary()}>Refresh</button>
+          </div>
+        </div>
+        {summaryError ? <div className="mt-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{summaryError}</div> : null}
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {categorySummary.map((item) => (
+            <div key={item.category} className="rounded border border-sky-100 bg-sky-50 px-3 py-3 text-sm text-slate-700">
+              <span className="font-semibold text-slate-950">{item.category}:</span> {formatAfn(item.amount)}
+            </div>
+          ))}
+        </div>
+      </Panel>
       <SectionHeader title="Expenses" subtitle="Record clinic operating expenses with a searchable category list, then review, edit, or delete them." />
       <div className="grid gap-4 xl:grid-cols-[1.05fr_1.35fr]">
         <Panel>
           <form onSubmit={submit} className="grid gap-3">
             {error ? <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
             {notice ? <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div> : null}
-            <Field label="Name of expense">
-              <input
-                className={inputClassName}
-                value={form.name}
-                onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                placeholder="Type the expense name"
-                required
-              />
-            </Field>
             <SearchCombo<ExpenseCategoryOption>
               label="Category of expense"
               placeholder="Search expense category"
@@ -1834,7 +1876,7 @@ function ExpensesSection() {
           <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-slate-950">Expense records</p>
-              <p className="text-sm text-zinc-600">Search by expense name, category, or description.</p>
+              <p className="text-sm text-zinc-600">Search by category or description.</p>
             </div>
             <button className={ghostButtonClassName} type="button" onClick={() => void loadExpenses(page, deferredSearch)}>Refresh</button>
           </div>
@@ -1844,7 +1886,7 @@ function ExpensesSection() {
                 className={inputClassName}
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search expense name or category"
+                placeholder="Search expense category"
               />
             </Field>
             <div className="rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-700">
@@ -1857,7 +1899,7 @@ function ExpensesSection() {
               <div key={expense.id} className="rounded border border-sky-100 bg-white p-4 shadow-sm shadow-sky-100/60">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-lg font-semibold text-slate-950">{expense.name}</p>
+                    <p className="text-lg font-semibold text-slate-950">{expense.name || expense.category}</p>
                     <p className="text-sm font-medium text-sky-700">{expense.category}</p>
                     <p className="mt-2 text-sm font-semibold text-slate-900">{formatAfn(expense.amount)}</p>
                     <p className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-400">{new Date(expense.created_at).toLocaleString()}</p>
