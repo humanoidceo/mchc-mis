@@ -19,7 +19,7 @@ import { useAuth } from '../auth/useAuth'
 import { BillReceiptNote, BillSignature, BillTitle, billPaperClassName, formatReceiptAmount } from '../clinic/PrintDocument'
 import { PrintPreviewModal } from '../clinic/PrintPreviewModal'
 
-type View = 'dashboard' | 'billing'
+type View = 'dashboard' | 'billing' | 'tests'
 type LabTestOption = LabTest & { is_other_option?: boolean }
 type BillRow = {
   test: string
@@ -217,6 +217,7 @@ export function LaboratoryWorkspace({ view }: { view: View }) {
     <div className="space-y-6">
       {error ? <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
       {view === 'dashboard' ? <LaboratoryDashboard dashboard={dashboard} onRefresh={(period, recentPage) => void loadData('dashboard', period, recentPage)} /> : null}
+      {view === 'tests' ? <LaboratoryTestManagement /> : null}
       {view === 'billing' ? (
         <LaboratoryBilling
           onCreated={(bill) => {
@@ -246,6 +247,221 @@ export function LaboratoryWorkspace({ view }: { view: View }) {
             : <PrintLaboratoryBill bill={selectedBill} />}
         </PrintPreviewModal>
       ) : null}
+    </div>
+  )
+}
+
+function LaboratoryTestManagement() {
+  const [form, setForm] = useState({
+    name: '',
+    category: '',
+    unit: '',
+    normal_range_from: '',
+    normal_range_to: '',
+    is_panel: false,
+  })
+  const [parentPanel, setParentPanel] = useState<LabTest | null>(null)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [tests, setTests] = useState<LabTest[]>([])
+  const [totalTests, setTotalTests] = useState(0)
+  const [testsPage, setTestsPage] = useState(1)
+  const [testSearch, setTestSearch] = useState('')
+  const [editingTest, setEditingTest] = useState<LabTest | null>(null)
+
+  const loadTests = useCallback(async (currentPage = testsPage, search = testSearch) => {
+    const response = await apiFetch<PaginatedResponse<LabTest>>('/lab-tests/?page=' + currentPage + '&q=' + encodeURIComponent(search.trim()))
+    setTests(response.results)
+    setTotalTests(response.count)
+  }, [testSearch, testsPage])
+
+  useEffect(() => {
+    void loadTests().catch((caught) => setError(describeApiError(caught, 'Unable to load laboratory tests.')))
+  }, [loadTests])
+
+  function resetForm() {
+    setForm({ name: '', category: '', unit: '', normal_range_from: '', normal_range_to: '', is_panel: false })
+    setParentPanel(null)
+    setEditingTest(null)
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setError('')
+    setNotice('')
+    setSaving(true)
+    try {
+      const name = form.name.trim()
+      await apiFetch<LabTest>(editingTest ? '/lab-tests/' + editingTest.id + '/' : '/lab-tests/', {
+        method: editingTest ? 'PATCH' : 'POST',
+        body: JSON.stringify({
+          name,
+          display_name: name,
+          category: form.category.trim() || parentPanel?.category || '',
+          unit: form.unit.trim(),
+          normal_range_from: form.normal_range_from.trim(),
+          normal_range_to: form.normal_range_to.trim(),
+          is_panel: form.is_panel,
+          parent_panel: form.is_panel ? null : parentPanel?.id ?? null,
+          sort_order: editingTest?.sort_order ?? 0,
+          is_active: true,
+        }),
+      })
+      resetForm()
+      setNotice(editingTest ? 'Laboratory test updated successfully.' : 'Laboratory test added successfully.')
+      setTestsPage(1)
+      await loadTests(1)
+    } catch (caught) {
+      setError(describeApiError(caught, 'Unable to add the laboratory test.'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function editTest(test: LabTest) {
+    setEditingTest(test)
+    setForm({
+      name: test.display_name || test.name,
+      category: test.category,
+      unit: test.unit,
+      normal_range_from: test.normal_range_from,
+      normal_range_to: test.normal_range_to,
+      is_panel: test.is_panel,
+    })
+    setError('')
+    setNotice('')
+    if (test.parent_panel) {
+      try {
+        setParentPanel(await apiFetch<LabTest>('/lab-tests/' + test.parent_panel + '/'))
+      } catch (caught) {
+        setParentPanel(null)
+        setError(describeApiError(caught, 'Unable to load the parent panel.'))
+      }
+    } else {
+      setParentPanel(null)
+    }
+  }
+
+  async function deleteTest(test: LabTest) {
+    setError('')
+    setNotice('')
+    try {
+      await apiFetch<void>('/lab-tests/' + test.id + '/', { method: 'DELETE' })
+      const nextPage = tests.length === 1 && testsPage > 1 ? testsPage - 1 : testsPage
+      setTestsPage(nextPage)
+      await loadTests(nextPage)
+      setNotice('Laboratory test deleted.')
+    } catch (caught) {
+      setError(describeApiError(caught, 'Unable to delete the laboratory test.'))
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <SectionHeader title="Add laboratory test" subtitle="Add a single test, a panel, or a sub-test inside an existing panel." />
+      <Panel>
+        {error ? <div className="mb-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+        {notice ? <div className="mb-4 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div> : null}
+        <form className="grid gap-4 sm:grid-cols-2" onSubmit={submit}>
+          <Field label="Test name">
+            <input className={inputClassName} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
+          </Field>
+          <Field label="Category">
+            <input className={inputClassName} value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} placeholder={parentPanel?.category || 'e.g. Hematology'} />
+          </Field>
+          <Field label="Normal range from">
+            <input className={inputClassName} value={form.normal_range_from} onChange={(event) => setForm({ ...form, normal_range_from: event.target.value })} />
+          </Field>
+          <Field label="Normal range to">
+            <input className={inputClassName} value={form.normal_range_to} onChange={(event) => setForm({ ...form, normal_range_to: event.target.value })} />
+          </Field>
+          <Field label="Unit">
+            <input className={inputClassName} value={form.unit} onChange={(event) => setForm({ ...form, unit: event.target.value })} placeholder="e.g. mg/dL" />
+          </Field>
+          <label className="flex items-end gap-2 pb-2 text-sm font-medium text-slate-700">
+            <input type="checkbox" checked={form.is_panel} onChange={(event) => {
+              setForm({ ...form, is_panel: event.target.checked })
+              if (event.target.checked) setParentPanel(null)
+            }} />
+            This is a test panel
+          </label>
+          {!form.is_panel ? (
+            <div className="sm:col-span-2">
+              <SearchCombo<LabTest>
+                label="Parent panel (for a sub-test)"
+                placeholder="Search a panel, such as CBC"
+                searchPath="/lab-tests/search/"
+                valueText={parentPanel ? parentPanel.display_name || parentPanel.name : ''}
+                renderOption={labTestOptionLabel}
+                onSelect={(test) => {
+                  if (!test.is_panel) {
+                    setError('Select a test panel, not a single test.')
+                    return
+                  }
+                  setError('')
+                  setParentPanel(test)
+                }}
+              />
+              <p className="mt-1 text-xs text-zinc-500">Leave this empty only when adding a standalone test. Select a panel to create one of its sub-tests.</p>
+            </div>
+          ) : null}
+          <div className="sm:col-span-2">
+            <button className={buttonClassName} disabled={saving}>{saving ? common.saving : editingTest ? common.save : 'Add laboratory test'}</button>
+            {editingTest ? <button className={ghostButtonClassName} type="button" onClick={resetForm}>Cancel edit</button> : null}
+          </div>
+        </form>
+      </Panel>
+      <Panel>
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <SectionHeader title="All laboratory tests" subtitle="Manage the active tests and panels in this system." />
+          <div className="flex w-full gap-2 sm:w-auto">
+            <input
+              className={inputClassName}
+              value={testSearch}
+              onChange={(event) => {
+                setTestSearch(event.target.value)
+                setTestsPage(1)
+              }}
+              placeholder="Search laboratory tests"
+            />
+            <button className={ghostButtonClassName} onClick={() => void loadTests(testsPage)}>{common.refresh}</button>
+          </div>
+        </div>
+        <div className="overflow-x-auto rounded border border-sky-100">
+          <table className="min-w-full divide-y divide-sky-100 text-left text-sm">
+            <thead className="bg-sky-50 text-xs uppercase tracking-wide text-slate-600">
+              <tr>
+                <th className="px-3 py-3">Test</th>
+                <th className="px-3 py-3">Category</th>
+                <th className="px-3 py-3">Type</th>
+                <th className="px-3 py-3">Range</th>
+                <th className="px-3 py-3">Unit</th>
+                <th className="px-3 py-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-sky-100 bg-white text-slate-700">
+              {tests.map((test) => (
+                <tr key={test.id}>
+                  <td className="px-3 py-3 font-medium text-slate-950">{test.display_name || test.name}</td>
+                  <td className="px-3 py-3">{test.category || '-'}</td>
+                  <td className="px-3 py-3">{test.is_panel ? 'Panel (' + test.component_count + ' sub-tests)' : test.parent_panel ? 'Sub-test' : 'Single test'}</td>
+                  <td className="px-3 py-3">{test.normal_range_from || '-'} to {test.normal_range_to || '-'}</td>
+                  <td className="px-3 py-3">{test.unit || '-'}</td>
+                  <td className="px-3 py-3">
+                    <div className="flex gap-2">
+                      <button className={ghostButtonClassName} onClick={() => void editTest(test)}>{common.edit}</button>
+                      <button className={ghostButtonClassName} onClick={() => void deleteTest(test)}>{common.delete}</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!tests.length ? <p className="mt-4 rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-600">No laboratory tests found.</p> : null}
+        <PaginationControls page={testsPage} totalCount={totalTests} onPageChange={setTestsPage} />
+      </Panel>
     </div>
   )
 }

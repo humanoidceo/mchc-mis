@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Navigate, NavLink, Route, Routes } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, FlaskConical, LayoutDashboard, Trash2, User } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FlaskConical, LayoutDashboard, PlusCircle, Trash2, User } from 'lucide-react'
 
 import { SectionHeader } from '../../components/ui'
 import { AccountSettingsPage } from '../account/AccountSettingsPage'
@@ -11,6 +11,7 @@ import { LaboratoryWorkspace } from './LaboratoryWorkspace'
 const links = [
   { to: '/laboratory/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/laboratory/billing', label: 'Billing', icon: FlaskConical },
+  { to: '/laboratory/tests', label: 'Add lab test', icon: PlusCircle },
   { to: '/laboratory/account', label: 'My account', icon: User },
 ]
 
@@ -99,6 +100,7 @@ export function LaboratoryDashboardLayout() {
             <Route path="/laboratory" element={<Navigate to="/laboratory/dashboard" replace />} />
             <Route path="/laboratory/dashboard" element={<LaboratoryWorkspace view="dashboard" />} />
             <Route path="/laboratory/billing" element={<LaboratoryWorkspace view="billing" />} />
+            <Route path="/laboratory/tests" element={<LaboratoryWorkspace view="tests" />} />
             <Route path="/laboratory/account" element={<AccountSettingsPage />} />
             <Route path="/laboratory/trash" element={<TrashBinPage />} />
             <Route path="/" element={<Navigate to="/laboratory/dashboard" replace />} />

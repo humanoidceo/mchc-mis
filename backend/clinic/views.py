@@ -963,13 +963,22 @@ class LabTestViewSet(PermissionedModelViewSet):
         queryset = super().get_queryset()
         if self.action in {'list', 'retrieve', 'search'}:
             queryset = queryset.filter(is_active=True)
+        search = self.request.query_params.get('q', '').strip()
+        if search and self.action == 'list':
+            queryset = queryset.filter(
+                Q(name__icontains=search)
+                | Q(display_name__icontains=search)
+                | Q(category__icontains=search)
+                | Q(normal_range_from__icontains=search)
+                | Q(normal_range_to__icontains=search)
+                | Q(unit__icontains=search)
+            )
         return queryset
 
     @action(detail=False, methods=['get'])
     def search(self, request):
         queryset = (
             self.get_queryset()
-            .filter(parent_panel__isnull=True)
             .annotate(component_count=Count('components', filter=Q(components__is_active=True)))
             .order_by('category', 'sort_order', 'name')
         )
