@@ -186,6 +186,7 @@ class ClinicalDocument(TimestampedModel, SoftDeleteModel):
     title = models.CharField(max_length=160)
     payload = models.JSONField(default=dict, blank=True)
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    result_file = models.FileField(upload_to='laboratory/results/', blank=True)
     payment = models.OneToOneField(
         Payment,
         null=True,

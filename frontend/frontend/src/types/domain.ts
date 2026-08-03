@@ -196,6 +196,7 @@ export type LaboratoryBill = {
   payment_id: number | null
   payment_status: 'pending' | 'approved' | null
   final_amount: string | null
+  result_file: string | null
   receptionist_name: string
   customer_type: 'internal' | 'external'
   customer_type_label: string
@@ -205,7 +206,7 @@ export type LaboratoryBill = {
 }
 
 export type LaboratoryDashboardStats = {
-  period: 'daily' | 'weekly' | 'monthly' | 'annual'
+  period: 'daily' | 'weekly' | 'monthly' | 'annual' | 'custom'
   period_label: string
   pending_lab_orders: number
   bills_created: number

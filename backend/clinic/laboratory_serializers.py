@@ -275,6 +275,7 @@ class LaboratoryBillSerializer(serializers.ModelSerializer):
     payment_status = serializers.CharField(source='payment.status', read_only=True)
     payment_id = serializers.IntegerField(source='payment.id', read_only=True, allow_null=True)
     final_amount = serializers.DecimalField(source='payment.amount', max_digits=12, decimal_places=2, read_only=True, allow_null=True)
+    result_file = serializers.FileField(read_only=True, allow_null=True)
     receptionist_name = serializers.SerializerMethodField()
     customer_type = serializers.SerializerMethodField()
     customer_type_label = serializers.SerializerMethodField()
@@ -295,6 +296,7 @@ class LaboratoryBillSerializer(serializers.ModelSerializer):
             'payment_id',
             'payment_status',
             'final_amount',
+            'result_file',
             'receptionist_name',
             'customer_type',
             'customer_type_label',
@@ -340,7 +342,7 @@ class LaboratoryBillSerializer(serializers.ModelSerializer):
 
 
 class LaboratoryDashboardSerializer(serializers.Serializer):
-    period = serializers.ChoiceField(choices=(('daily', 'Daily'), ('weekly', 'Weekly'), ('monthly', 'Monthly'), ('annual', 'Annual')))
+    period = serializers.ChoiceField(choices=(('daily', 'Daily'), ('weekly', 'Weekly'), ('monthly', 'Monthly'), ('annual', 'Annual'), ('custom', 'Custom')))
     period_label = serializers.CharField()
     pending_lab_orders = serializers.IntegerField()
     bills_created = serializers.IntegerField()

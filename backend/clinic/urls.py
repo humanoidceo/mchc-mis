@@ -107,5 +107,10 @@ urlpatterns = [
         LaboratoryBillViewSet.as_view({'post': 'results'}),
         name='laboratory-bill-results',
     ),
+    path(
+        'laboratory/bills/<int:pk>/upload-result/',
+        LaboratoryBillViewSet.as_view({'post': 'upload_result'}),
+        name='laboratory-bill-upload-result',
+    ),
     path('', include(router.urls)),
 ]

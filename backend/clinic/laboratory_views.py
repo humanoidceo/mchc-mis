@@ -1,12 +1,15 @@
 from datetime import timedelta
 from decimal import Decimal
+from pathlib import Path
 
 from django.db import transaction
 from django.db.models import Count, Q, Sum
 from django.db.models.functions import TruncDate, TruncMonth
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -63,7 +66,7 @@ def dashboard_period_start(period: str):
     return now.replace(hour=0, minute=0, second=0, microsecond=0), 'Daily'
 
 
-def build_patient_trend(period: str, bills_queryset):
+def build_patient_trend(period: str, bills_queryset, custom_from=None, custom_to=None):
     now = timezone.localtime(timezone.now())
 
     if period == 'annual':
@@ -84,7 +87,15 @@ def build_patient_trend(period: str, bills_queryset):
             for index, month_label in enumerate(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], start=1)
         ]
 
-    if period == 'weekly':
+    if period == 'custom' and custom_from and custom_to:
+        start = now.replace(
+            year=custom_from.year,
+            month=custom_from.month,
+            day=custom_from.day,
+        )
+        bucket_count = (custom_to - custom_from).days + 1
+        labels = None
+    elif period == 'weekly':
         start = now - timedelta(days=now.weekday())
         bucket_count = 7
         labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -110,7 +121,7 @@ def build_patient_trend(period: str, bills_queryset):
     }
     return [
         {
-            'label': labels[index] if labels else str((start + timedelta(days=index)).day),
+            'label': labels[index] if labels else f'{(start + timedelta(days=index)).month}/{(start + timedelta(days=index)).day}',
             'value': counts.get((start + timedelta(days=index)).date(), 0),
         }
         for index in range(bucket_count)
@@ -131,13 +142,22 @@ class LaboratoryDashboardViewSet(mixins.ListModelMixin, LaboratoryBaseViewSet):
 
     def list(self, request, *args, **kwargs):
         period = request.query_params.get('period', 'monthly')
-        if period not in {'daily', 'weekly', 'monthly', 'annual'}:
+        if period not in {'daily', 'weekly', 'monthly', 'annual', 'custom'}:
             period = 'monthly'
         try:
             recent_page = max(1, int(request.query_params.get('recent_page', '1')))
         except ValueError:
             recent_page = 1
+        custom_from = parse_date(request.query_params.get('from', ''))
+        custom_to = parse_date(request.query_params.get('to', ''))
+        if period == 'custom' and (custom_from is None or custom_to is None):
+            raise serializers.ValidationError({'period': 'Choose both From and To dates for a custom report.'})
+        if custom_from and custom_to and custom_from > custom_to:
+            raise serializers.ValidationError({'to': 'The To date must be on or after the From date.'})
+
         start_at, period_label = dashboard_period_start(period)
+        if period == 'custom':
+            period_label = f'Custom ({custom_from.isoformat()} to {custom_to.isoformat()})'
         bills_queryset = ClinicalDocument.objects.filter(
             document_type=ClinicalDocument.DocumentType.LAB_BILL,
             created_by=request.user,
@@ -149,13 +169,16 @@ class LaboratoryDashboardViewSet(mixins.ListModelMixin, LaboratoryBaseViewSet):
             .select_related('patient', 'payment__approved_by')
             .order_by('-created_at')[(recent_page - 1) * page_size:recent_page * page_size]
         )
-        period_bills = bills_queryset.filter(created_at__gte=start_at)
+        if period == 'custom':
+            period_bills = bills_queryset.filter(created_at__date__range=(custom_from, custom_to))
+        else:
+            period_bills = bills_queryset.filter(created_at__gte=start_at)
         pending_reception = period_bills.filter(payment__status=Payment.Status.PENDING).count()
         approved_reception = period_bills.filter(payment__status=Payment.Status.APPROVED).count()
         total_amount = period_bills.aggregate(total=Sum('total_amount'))['total'] or Decimal('0.00')
         internal_patients = period_bills.filter(payload__customer_type='internal').aggregate(total=Count('patient', distinct=True))['total'] or 0
         external_patients = period_bills.filter(Q(payload__customer_type='external') | Q(payload__customer_type__isnull=True)).aggregate(total=Count('patient', distinct=True))['total'] or 0
-        patient_trend = build_patient_trend(period, period_bills)
+        patient_trend = build_patient_trend(period, period_bills, custom_from, custom_to)
         internal_amount = period_bills.filter(payload__customer_type='internal').aggregate(total=Sum('total_amount'))['total'] or Decimal('0.00')
         external_amount = period_bills.filter(Q(payload__customer_type='external') | Q(payload__customer_type__isnull=True)).aggregate(total=Sum('total_amount'))['total'] or Decimal('0.00')
         full_paid_amount = period_bills.filter(payment__payment_type=Payment.PaymentType.FULL).aggregate(total=Sum('payment__amount'))['total'] or Decimal('0.00')
@@ -278,6 +301,13 @@ class LaboratoryBillViewSet(
                 | Q(patient__last_name__icontains=search)
                 | Q(patient__registration_number__icontains=search)
             )
+
+        date_from = parse_date(self.request.query_params.get('from', ''))
+        if date_from is not None:
+            queryset = queryset.filter(created_at__date__gte=date_from)
+        date_to = parse_date(self.request.query_params.get('to', ''))
+        if date_to is not None:
+            queryset = queryset.filter(created_at__date__lte=date_to)
         return queryset
 
     def get_serializer_class(self):
@@ -477,6 +507,26 @@ class LaboratoryBillViewSet(
         document.payload = payload
         document.save(update_fields=['payload', 'updated_at'])
 
+        output = LaboratoryBillSerializer(document, context=self.get_serializer_context())
+        return Response(output.data)
+
+    @action(detail=True, methods=['post'], url_path='upload-result', parser_classes=[MultiPartParser, FormParser])
+    def upload_result(self, request, pk=None):
+        document = self.get_object()
+        if document.payment is None or document.payment.status != Payment.Status.APPROVED:
+            raise serializers.ValidationError({'payment': 'Reception must approve this laboratory bill before a result can be uploaded.'})
+
+        result_file = request.FILES.get('file')
+        if result_file is None:
+            raise serializers.ValidationError({'file': 'Choose a PDF, PNG, JPG, or JPEG result file.'})
+        extension = Path(result_file.name).suffix.lower()
+        if extension not in {'.pdf', '.png', '.jpg', '.jpeg'}:
+            raise serializers.ValidationError({'file': 'Only PDF, PNG, JPG, and JPEG files are allowed.'})
+        if result_file.size > 10 * 1024 * 1024:
+            raise serializers.ValidationError({'file': 'Result file must be 10 MB or smaller.'})
+
+        document.result_file = result_file
+        document.save(update_fields=['result_file', 'updated_at'])
         output = LaboratoryBillSerializer(document, context=self.get_serializer_context())
         return Response(output.data)
 
