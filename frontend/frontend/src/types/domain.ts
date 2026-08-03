@@ -172,6 +172,8 @@ export type LaboratoryOrderItem = {
   test_name: string
   instructions: string
   matched: boolean
+  selected_component_ids?: number[]
+  components?: LabTestComponent[]
 }
 
 export type LaboratoryOrder = {
@@ -303,6 +305,16 @@ export type LabTest = {
   unit: string
   is_active: boolean
   component_count: number
+  components: LabTestComponent[]
+}
+
+export type LabTestComponent = {
+  id: number
+  name: string
+  display_name: string
+  normal_range_from: string
+  normal_range_to: string
+  unit: string
 }
 
 export type StockMovement = {

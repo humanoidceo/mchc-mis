@@ -664,6 +664,17 @@ PANEL_BLUEPRINT = [
         ],
     },
     {
+        'sheet': 'Skin T',
+        'category': 'Microbiology',
+        'name': 'Skin scraping examination',
+        'prefix': 'SKIN',
+        'components': [
+            text_only('Gram stain'),
+            text_only('Squamous epithelial cells', '/HPF'),
+            text_only('Smear findings'),
+        ],
+    },
+    {
         'sheet': 'G6PD',
         'category': 'Hematology',
         'name': 'G6PD screen',

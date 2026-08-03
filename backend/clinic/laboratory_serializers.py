@@ -27,9 +27,27 @@ def resolve_lab_test_reference(test_id: int | None, test_name: str) -> LabTest |
     return None
 
 
-def build_ordered_item_snapshot(test: LabTest | None, test_id: int | None, test_name: str, instructions: str, cost: Decimal):
-    label = lab_test_label(test, fallback=test_name) or test_name
+def panel_component_snapshot(component: LabTest) -> dict:
     return {
+        'id': component.id,
+        'name': component.name,
+        'display_name': component.display_name,
+        'normal_range_from': component.normal_range_from,
+        'normal_range_to': component.normal_range_to,
+        'unit': component.unit,
+    }
+
+
+def build_ordered_item_snapshot(
+    test: LabTest | None,
+    test_id: int | None,
+    test_name: str,
+    instructions: str,
+    cost: Decimal,
+    selected_component_ids: list[int] | None = None,
+):
+    label = lab_test_label(test, fallback=test_name) or test_name
+    item = {
         'test': test.id if test else test_id,
         'test_name': label,
         'full_name': test.name if test else label,
@@ -39,6 +57,13 @@ def build_ordered_item_snapshot(test: LabTest | None, test_id: int | None, test_
         'instructions': instructions,
         'cost': str(cost),
     }
+    if test is not None and test.is_panel:
+        components = list(test.components.filter(is_active=True).order_by('sort_order', 'name'))
+        available_ids = {component.id for component in components}
+        selected_ids = [component_id for component_id in (selected_component_ids or [component.id for component in components]) if component_id in available_ids]
+        item['components'] = [panel_component_snapshot(component) for component in components]
+        item['selected_component_ids'] = selected_ids
+    return item
 
 
 def build_result_item_snapshot(test: LabTest | None, test_id: int | None, test_name: str, instructions: str, result: str = ''):
@@ -57,14 +82,25 @@ def build_result_item_snapshot(test: LabTest | None, test_id: int | None, test_n
     }
 
 
-def expand_lab_test_selection(test_id: int | None, test_name: str, instructions: str, cost: Decimal):
+def expand_lab_test_selection(
+    test_id: int | None,
+    test_name: str,
+    instructions: str,
+    cost: Decimal,
+    selected_component_ids: list[int] | None = None,
+):
     test = resolve_lab_test_reference(test_id, test_name)
-    ordered_item = build_ordered_item_snapshot(test, test_id, test_name, instructions, cost)
+    ordered_item = build_ordered_item_snapshot(test, test_id, test_name, instructions, cost, selected_component_ids)
 
     if test is not None and test.is_panel:
         components = list(test.components.filter(is_active=True).order_by('sort_order', 'name'))
         if components:
-            return ordered_item, [build_result_item_snapshot(component, component.id, component.name, instructions) for component in components]
+            selected_ids = set(ordered_item.get('selected_component_ids', []))
+            return ordered_item, [
+                build_result_item_snapshot(component, component.id, component.name, instructions)
+                for component in components
+                if component.id in selected_ids
+            ]
 
     return ordered_item, [build_result_item_snapshot(test, test_id, test_name, instructions)]
 
@@ -88,6 +124,14 @@ def enrich_ordered_item(item):
     enriched['category'] = test.category
     enriched['is_panel'] = test.is_panel
     enriched['component_count'] = test.components.filter(is_active=True).count() if test.is_panel else 1
+    if test.is_panel:
+        components = list(test.components.filter(is_active=True).order_by('sort_order', 'name'))
+        available_ids = {component.id for component in components}
+        selected_ids = enriched.get('selected_component_ids')
+        if not isinstance(selected_ids, list):
+            selected_ids = [component.id for component in components]
+        enriched['components'] = [panel_component_snapshot(component) for component in components]
+        enriched['selected_component_ids'] = [component_id for component_id in selected_ids if component_id in available_ids]
     return enriched
 
 
@@ -160,6 +204,8 @@ class LaboratoryOrderItemSerializer(serializers.Serializer):
     category = serializers.CharField(allow_blank=True)
     is_panel = serializers.BooleanField()
     component_count = serializers.IntegerField()
+    selected_component_ids = serializers.ListField(child=serializers.IntegerField(), required=False)
+    components = serializers.ListField(child=serializers.DictField(), required=False)
 
 
 class LaboratoryOrderSerializer(serializers.Serializer):
@@ -176,6 +222,7 @@ class LaboratoryBillItemSerializer(serializers.Serializer):
     test_name = serializers.CharField()
     instructions = serializers.CharField(allow_blank=True, required=False)
     cost = serializers.DecimalField(max_digits=10, decimal_places=2)
+    selected_component_ids = serializers.ListField(child=serializers.IntegerField(), min_length=1, required=False)
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
@@ -346,6 +393,8 @@ def serialize_lab_order_items(order: ClinicalDocument):
                 'category': test.category if test is not None else '',
                 'is_panel': bool(test.is_panel) if test is not None else False,
                 'component_count': test.components.filter(is_active=True).count() if test is not None and test.is_panel else 1,
+                'selected_component_ids': item.get('selected_component_ids') if isinstance(item.get('selected_component_ids'), list) else ([component.id for component in test.components.filter(is_active=True).order_by('sort_order', 'name')] if test is not None and test.is_panel else []),
+                'components': [panel_component_snapshot(component) for component in test.components.filter(is_active=True).order_by('sort_order', 'name')] if test is not None and test.is_panel else [],
             }
         )
     return rows

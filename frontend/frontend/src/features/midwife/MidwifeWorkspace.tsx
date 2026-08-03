@@ -3,6 +3,7 @@ import type { FormEvent, UIEvent } from 'react'
 
 import { ApiError, apiFetch } from '../../api/client'
 import { buttonClassName, Field, ghostButtonClassName, inputClassName, PaginationControls, Panel, SectionHeader } from '../../components/ui'
+import { LabPanelComponents } from '../../components/LabPanelComponents'
 import type { ClinicalDocument, LabTest, Medicine, MidwifeDashboardStats, PaginatedResponse, Patient, Payment, SearchResponse } from '../../types/domain'
 import { FamilyPlanningOrderSection } from '../familyPlanning/FamilyPlanningOrderSection'
 import { PrintDocument } from '../clinic/PrintDocument'
@@ -10,9 +11,9 @@ import { PrintDocument } from '../clinic/PrintDocument'
 type View = 'dashboard' | 'records' | 'deliveries' | 'documents' | 'family-planning' | 'billing'
 type PatientSearchOption = Pick<Patient, 'id' | 'registration_number' | 'first_name' | 'last_name' | 'age' | 'phone'>
 type MedicineSearchOption = Pick<Medicine, 'id' | 'name' | 'unit' | 'current_stock'>
-type LabTestSearchOption = Pick<LabTest, 'id' | 'name' | 'display_name' | 'category' | 'is_panel' | 'component_count'>
+type LabTestSearchOption = Pick<LabTest, 'id' | 'name' | 'display_name' | 'category' | 'is_panel' | 'component_count' | 'components'>
 type PrescriptionItem = { medicine: number; medicine_name: string; quantity: string; instructions: string }
-type LabOrderItem = { test: number; test_name: string }
+type LabOrderItem = { test: number; test_name: string; selected_component_ids?: number[]; components?: LabTest['components'] }
 type VisitType = 'anc' | 'pnc'
 type PatientStatus = 'new' | 'follow_up'
 type DeliveryMode = 'normal_vaginal' | 'assisted_vaginal' | 'c_section' | 'referred'
@@ -646,7 +647,12 @@ function MidwifeClinicalDocuments({ onPrint }: { onPrint: (document: ClinicalDoc
   }
 
   function addLabTest(test: LabTestSearchOption) {
-    setLabOrderItems((current) => current.some((item) => item.test === test.id) ? current : [...current, { test: test.id, test_name: test.display_name || test.name }])
+    setLabOrderItems((current) => current.some((item) => item.test === test.id) ? current : [...current, {
+      test: test.id,
+      test_name: test.display_name || test.name,
+      components: test.is_panel ? test.components : [],
+      selected_component_ids: test.is_panel ? test.components.map((component) => component.id) : [],
+    }])
     setError('')
   }
 
@@ -675,7 +681,9 @@ function MidwifeClinicalDocuments({ onPrint }: { onPrint: (document: ClinicalDoc
           document_type: documentType,
           title: documentType === 'prescription' ? 'Prescription' : 'Laboratory order',
           total_amount: '0',
-          payload: documentType === 'prescription' ? { items: prescriptionItems } : { items: labOrderItems },
+          payload: documentType === 'prescription'
+            ? { items: prescriptionItems }
+            : { items: labOrderItems.map(({ test, test_name, selected_component_ids }) => ({ test, test_name, selected_component_ids })) },
         }),
       })
       resetForm()
@@ -762,6 +770,14 @@ function MidwifeClinicalDocuments({ onPrint }: { onPrint: (document: ClinicalDoc
                     onRemove: () => setLabOrderItems((current) => current.filter((_, itemIndex) => itemIndex !== index)),
                   }))}
                 />
+                {labOrderItems.filter((item) => item.components?.length).map((item) => (
+                  <LabPanelComponents
+                    key={item.test}
+                    components={item.components ?? []}
+                    selectedIds={item.selected_component_ids ?? []}
+                    onChange={(selected_component_ids) => setLabOrderItems((current) => current.map((row) => row.test === item.test ? { ...row, selected_component_ids } : row))}
+                  />
+                ))}
               </div>
             )}
 

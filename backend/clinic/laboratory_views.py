@@ -355,6 +355,7 @@ class LaboratoryBillViewSet(
                 test_name=item['test_name'],
                 instructions=item.get('instructions', ''),
                 cost=cost,
+                selected_component_ids=item.get('selected_component_ids'),
             )
             items.append(ordered_item)
             result_items.extend(expanded_result_items)

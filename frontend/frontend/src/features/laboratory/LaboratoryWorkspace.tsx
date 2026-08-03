@@ -3,6 +3,7 @@ import type { FormEvent, UIEvent } from 'react'
 
 import { ApiError, apiFetch } from '../../api/client'
 import { buttonClassName, Field, ghostButtonClassName, inputClassName, PaginationControls, Panel, SectionHeader } from '../../components/ui'
+import { LabPanelComponents } from '../../components/LabPanelComponents'
 import type {
   ClinicalDocument,
   LaboratoryBill,
@@ -26,6 +27,8 @@ type BillRow = {
   cost: string
   instructions: string
   is_other?: boolean
+  selected_component_ids?: number[]
+  components?: LabTest['components']
 }
 type ResultRow = {
   test: number
@@ -99,6 +102,7 @@ const otherLabTestOption: LabTestOption = {
   category: '',
   is_panel: false,
   component_count: 0,
+  components: [],
   parent_panel: null,
   sort_order: 0,
   normal_range_from: '',
@@ -480,6 +484,8 @@ function LaboratoryBilling({
         cost: '',
         instructions: item.instructions,
         is_other: item.test === null && Boolean(item.test_name?.trim()),
+        components: item.components ?? [],
+        selected_component_ids: item.selected_component_ids ?? item.components?.map((component) => component.id) ?? [],
       }))
       setRows(nextRows)
       setCustomTestSeed(nextCustomSeedFromRows(nextRows))
@@ -506,6 +512,7 @@ function LaboratoryBilling({
           test_name: row.test_label,
           instructions: row.instructions,
           cost: row.cost,
+          selected_component_ids: row.components?.length ? row.selected_component_ids : undefined,
         }))
       if (!items.length) throw new Error('Add at least one lab test with cost.')
 
@@ -548,6 +555,8 @@ function LaboratoryBilling({
       cost: String(item.cost ?? ''),
       instructions: String(item.instructions ?? ''),
       is_other: typeof item.test === 'number' && Number(item.test) <= 0,
+      components: Array.isArray(item.components) ? item.components as LabTest['components'] : [],
+      selected_component_ids: Array.isArray(item.selected_component_ids) ? item.selected_component_ids as number[] : [],
     }))
     setRows(nextRows)
     setCustomTestSeed(nextCustomSeedFromRows(nextRows))
@@ -712,11 +721,31 @@ function LaboratoryBilling({
                       setCustomTestSeed((current) => current - 1)
                       nextRows[index] = { ...row, test: String(nextCustomTestId), test_label: '', is_other: true }
                     } else {
-                      nextRows[index] = { ...row, test: String(test.id), test_label: test.display_name || test.name, is_other: false }
+                      nextRows[index] = {
+                        ...row,
+                        test: String(test.id),
+                        test_label: test.display_name || test.name,
+                        is_other: false,
+                        components: test.is_panel ? test.components : [],
+                        selected_component_ids: test.is_panel ? test.components.map((component) => component.id) : [],
+                      }
                     }
                     setRows(nextRows)
                   }}
                 />
+                {row.components?.length ? (
+                  <div className="md:col-span-4">
+                    <LabPanelComponents
+                      components={row.components}
+                      selectedIds={row.selected_component_ids ?? []}
+                      onChange={(selected_component_ids) => {
+                        const nextRows = [...rows]
+                        nextRows[index] = { ...row, selected_component_ids }
+                        setRows(nextRows)
+                      }}
+                    />
+                  </div>
+                ) : null}
                 {row.is_other ? (
                   <div className="md:col-span-4">
                     <Field label="Manual test name">

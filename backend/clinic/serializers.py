@@ -440,6 +440,7 @@ class MedicineSerializer(serializers.ModelSerializer):
 
 class LabTestSerializer(serializers.ModelSerializer):
     component_count = serializers.SerializerMethodField()
+    components = serializers.SerializerMethodField()
 
     class Meta:
         model = LabTest
@@ -456,6 +457,7 @@ class LabTestSerializer(serializers.ModelSerializer):
             'unit',
             'is_active',
             'component_count',
+            'components',
             'created_at',
             'updated_at',
         )
@@ -466,6 +468,21 @@ class LabTestSerializer(serializers.ModelSerializer):
         if annotated_count is not None:
             return int(annotated_count)
         return obj.components.filter(is_active=True).count() if obj.is_panel else 0
+
+    def get_components(self, obj) -> list[dict]:
+        if not obj.is_panel:
+            return []
+        return [
+            {
+                'id': component.id,
+                'name': component.name,
+                'display_name': component.display_name,
+                'normal_range_from': component.normal_range_from,
+                'normal_range_to': component.normal_range_to,
+                'unit': component.unit,
+            }
+            for component in obj.components.filter(is_active=True).order_by('sort_order', 'name')
+        ]
 
 
 class MedicineStockMovementSerializer(serializers.ModelSerializer):
