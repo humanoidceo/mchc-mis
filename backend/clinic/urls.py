@@ -22,7 +22,7 @@ from .laboratory_views import (
     LaboratoryDashboardViewSet,
     LaboratoryPatientViewSet,
 )
-from .midwife_views import MidwifeDashboardViewSet, MidwifePatientViewSet
+from .midwife_views import MidwifeBillingViewSet, MidwifeDashboardViewSet, MidwifePatientViewSet
 from .malnutrition_views import MalnutritionDashboardViewSet, MalnutritionPatientViewSet
 
 router = DefaultRouter()
@@ -66,6 +66,16 @@ urlpatterns = [
         'midwife/patients/',
         MidwifePatientViewSet.as_view({'get': 'list'}),
         name='midwife-patients',
+    ),
+    path(
+        'midwife/billing/',
+        MidwifeBillingViewSet.as_view({'get': 'list', 'post': 'create'}),
+        name='midwife-billing',
+    ),
+    path(
+        'midwife/billing/<int:pk>/',
+        MidwifeBillingViewSet.as_view({'put': 'update', 'patch': 'update', 'delete': 'destroy'}),
+        name='midwife-billing-detail',
     ),
     path(
         'laboratory/dashboard/',

@@ -1,16 +1,27 @@
 from datetime import date, timedelta
+from decimal import Decimal, InvalidOperation
 
 from django.db import models
 from django.db.models import Count
 from django.db.models.functions import TruncDate, TruncMonth
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework import viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from accounts.access import user_has_permission
-from .models import ClinicalDocument, Patient
-from .serializers import ClinicalDocumentSerializer, MidwifeDashboardSerializer, PatientSerializer
+from accounts.trash import soft_delete_instance
+from .models import ClinicalDocument, Patient, Payment, round_up_to_ten
+from .serializers import ClinicalDocumentSerializer, MidwifeDashboardSerializer, PatientSerializer, PaymentSerializer
+
+
+MIDWIFE_BILLING_PROCEDURES = {
+    'iud_insertion': 'Insertion of IUD',
+    'iud_removal': 'Removal of IUD',
+    'implant_insertion': 'Insertion of implant',
+    'implant_removal': 'Removal of implant',
+}
 
 
 def is_midwife_user(user) -> bool:
@@ -108,7 +119,9 @@ class MidwifePatientViewSet(viewsets.ViewSet):
         except ValueError:
             offset = 0
 
-        queryset = Patient.objects.filter(payments__department__iexact='Maternal care').distinct().order_by('-created_at')
+        queryset = Patient.objects.order_by('-created_at')
+        if request.query_params.get('all') not in {'1', 'true', 'yes'}:
+            queryset = queryset.filter(payments__department__iexact='Maternal care').distinct()
         if search:
             queryset = queryset.filter(
                 models.Q(registration_number__icontains=search)
@@ -126,6 +139,121 @@ class MidwifePatientViewSet(viewsets.ViewSet):
                 'next_offset': next_offset,
             }
         )
+
+
+class MidwifeBillingViewSet(viewsets.ViewSet):
+    permission_classes = (IsAuthenticated,)
+    page_size = 10
+
+    def _check_access(self, request):
+        if not is_midwife_user(request.user):
+            self.permission_denied(request, message='Only midwife accounts can access midwife billing.')
+
+    def _queryset(self, request):
+        return Payment.objects.select_related('patient').filter(
+            created_by=request.user,
+            department='Maternal care',
+            notes__startswith='Midwife procedure:',
+        ).order_by('-created_at')
+
+    def _payment_data(self, payment, request):
+        return PaymentSerializer(payment, context={'request': request}).data
+
+    def _price(self, value):
+        try:
+            price = Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError):
+            raise serializers.ValidationError({'price': 'Enter a valid price.'})
+        if price <= 0:
+            raise serializers.ValidationError({'price': 'Price must be greater than zero.'})
+        return price.quantize(Decimal('0.01'))
+
+    def _procedure(self, value):
+        procedure = str(value or '').strip()
+        if procedure not in MIDWIFE_BILLING_PROCEDURES:
+            raise serializers.ValidationError({'procedure': 'Select a valid procedure.'})
+        return procedure
+
+    def list(self, request):
+        self._check_access(request)
+        queryset = self._queryset(request)
+        search = request.query_params.get('q', '').strip()
+        status_filter = request.query_params.get('status', '').strip().lower()
+        if search:
+            queryset = queryset.filter(
+                models.Q(patient__registration_number__icontains=search)
+                | models.Q(patient__first_name__icontains=search)
+                | models.Q(patient__last_name__icontains=search)
+                | models.Q(service__icontains=search)
+            )
+        if status_filter in {Payment.Status.PENDING, Payment.Status.APPROVED}:
+            queryset = queryset.filter(status=status_filter)
+
+        try:
+            page = max(1, int(request.query_params.get('page', '1')))
+        except ValueError:
+            page = 1
+        total = queryset.count()
+        start = (page - 1) * self.page_size
+        results = queryset[start:start + self.page_size]
+        return Response({
+            'count': total,
+            'next': page + 1 if start + self.page_size < total else None,
+            'previous': page - 1 if page > 1 else None,
+            'results': [self._payment_data(payment, request) for payment in results],
+        })
+
+    def create(self, request):
+        self._check_access(request)
+        patient = get_object_or_404(Patient, pk=request.data.get('patient'))
+        procedure = self._procedure(request.data.get('procedure'))
+        price = self._price(request.data.get('price'))
+        payment = Payment.objects.create(
+            patient=patient,
+            service=MIDWIFE_BILLING_PROCEDURES[procedure],
+            department='Maternal care',
+            doctor_name='',
+            patient_age=patient.age,
+            patient_age_unit=patient.age_unit,
+            doctor_fee=price,
+            payment_type=Payment.PaymentType.FULL,
+            discount_percentage=Decimal('0.00'),
+            discount_amount=Decimal('0.00'),
+            amount=round_up_to_ten(price),
+            status=Payment.Status.PENDING,
+            notes=f'Midwife procedure: {procedure}',
+            created_by=request.user,
+        )
+        return Response(self._payment_data(payment, request), status=status.HTTP_201_CREATED)
+
+    def update(self, request, pk=None):
+        self._check_access(request)
+        payment = get_object_or_404(self._queryset(request), pk=pk)
+        if payment.status == Payment.Status.APPROVED:
+            raise serializers.ValidationError({'detail': 'Approved billing records cannot be edited.'})
+
+        patient = payment.patient
+        if 'patient' in request.data:
+            patient = get_object_or_404(Patient, pk=request.data.get('patient'))
+        procedure = self._procedure(request.data.get('procedure') or payment.notes.replace('Midwife procedure: ', ''))
+        price = self._price(request.data.get('price', payment.doctor_fee))
+        payment.patient = patient
+        payment.patient_age = patient.age
+        payment.patient_age_unit = patient.age_unit
+        payment.service = MIDWIFE_BILLING_PROCEDURES[procedure]
+        payment.doctor_fee = price
+        payment.amount = round_up_to_ten(price)
+        payment.notes = f'Midwife procedure: {procedure}'
+        payment.save(update_fields=['patient', 'patient_age', 'patient_age_unit', 'service', 'doctor_fee', 'amount', 'notes', 'updated_at'])
+        return Response(self._payment_data(payment, request))
+
+    def destroy(self, request, pk=None):
+        self._check_access(request)
+        payment = get_object_or_404(self._queryset(request), pk=pk)
+        if payment.status == Payment.Status.APPROVED:
+            raise serializers.ValidationError({'detail': 'Approved billing records cannot be deleted.'})
+        soft_delete_instance(payment, request.user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class MidwifeDashboardViewSet(viewsets.ViewSet):

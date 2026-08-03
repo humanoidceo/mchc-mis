@@ -15,7 +15,7 @@ body {
 }
 
 .thermal-receipt {
-  width: 75.4mm;
+  width: 80mm;
 }
 
 /* Plain, printer-safe receipt output for Generic Text Only printers. */
@@ -181,7 +181,7 @@ textarea {
   }
 
   @page thermal-receipt {
-    size: 75.4mm 297mm;
+    size: 80mm 297mm;
     margin: 0;
   }
 
@@ -276,17 +276,20 @@ textarea {
   html:has(.thermal-receipt),
   body:has(.thermal-receipt),
   body:has(.thermal-receipt) #root {
-    width: 75.4mm !important;
+    width: 80mm !important;
   }
 
   .thermal-receipt {
     page: thermal-receipt;
     box-sizing: border-box;
-    width: 75.4mm !important;
+    width: 80mm !important;
     min-height: 0 !important;
     max-height: none !important;
     overflow: visible !important;
-    break-inside: avoid;
+    break-inside: auto;
+    page-break-inside: auto;
+    break-after: auto;
+    page-break-after: auto;
     color-adjust: exact;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;

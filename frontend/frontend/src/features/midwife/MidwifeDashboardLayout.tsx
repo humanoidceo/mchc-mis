@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Navigate, NavLink, Route, Routes } from 'react-router-dom'
-import { Baby, ChevronLeft, ChevronRight, FileText, HeartPulse, LayoutDashboard, NotebookPen, Trash2, User } from 'lucide-react'
+import { Baby, ChevronLeft, ChevronRight, FileText, HeartPulse, LayoutDashboard, NotebookPen, ReceiptText, Trash2, User } from 'lucide-react'
 
 import { SectionHeader } from '../../components/ui'
 import { AccountSettingsPage } from '../account/AccountSettingsPage'
@@ -14,6 +14,7 @@ const links = [
   { to: '/midwife/deliveries', label: 'Deliveries', icon: Baby },
   { to: '/midwife/documents', label: 'Clinical documents', icon: FileText },
   { to: '/midwife/family-planning', label: 'Family planning', icon: HeartPulse },
+  { to: '/midwife/billing', label: 'Billing', icon: ReceiptText },
   { to: '/midwife/account', label: 'My account', icon: User },
 ]
 
@@ -105,6 +106,7 @@ export function MidwifeDashboardLayout() {
             <Route path="/midwife/deliveries" element={<MidwifeWorkspace view="deliveries" />} />
             <Route path="/midwife/documents" element={<MidwifeWorkspace view="documents" />} />
             <Route path="/midwife/family-planning" element={<MidwifeWorkspace view="family-planning" />} />
+            <Route path="/midwife/billing" element={<MidwifeWorkspace view="billing" />} />
             <Route path="/midwife/account" element={<AccountSettingsPage />} />
             <Route path="/midwife/trash" element={<TrashBinPage />} />
             <Route path="/" element={<Navigate to="/midwife/dashboard" replace />} />

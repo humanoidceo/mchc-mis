@@ -25,7 +25,7 @@ from .laboratory_serializers import (
     latest_lab_order_for_patient,
     serialize_lab_order_items,
 )
-from .models import ClinicalDocument, Patient, Payment
+from .models import ClinicalDocument, Patient, Payment, round_up_to_ten
 
 
 def is_laboratory_user(user) -> bool:
@@ -379,7 +379,7 @@ class LaboratoryBillViewSet(
                 payment_type=Payment.PaymentType.FULL,
                 discount_percentage=Decimal('0.00'),
                 discount_amount=Decimal('0.00'),
-                amount=total_amount,
+                amount=round_up_to_ten(total_amount),
                 status=Payment.Status.PENDING,
                 notes=f'Laboratory {customer_type} bill',
                 created_by=request.user,
@@ -422,7 +422,7 @@ class LaboratoryBillViewSet(
             payment.patient_age = patient.age
             payment.patient_age_unit = patient.age_unit
             payment.doctor_fee = total_amount
-            payment.amount = total_amount
+            payment.amount = round_up_to_ten(total_amount)
             payment.notes = f'Laboratory {customer_type} bill'
             payment.save(update_fields=['patient', 'patient_age', 'patient_age_unit', 'doctor_fee', 'amount', 'notes', 'updated_at'])
 

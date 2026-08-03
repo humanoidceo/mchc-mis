@@ -45,7 +45,7 @@ function documentRowDetails(row: Record<string, unknown>): string {
   return details.filter(Boolean).join(' | ')
 }
 
-export const billPaperClassName = 'print-area thermal-receipt generic-text-receipt w-[75.4mm] bg-white p-3 text-black shadow-none'
+export const billPaperClassName = 'print-area thermal-receipt generic-text-receipt w-[80mm] bg-white p-3 text-black shadow-none'
 
 export function formatReceiptAmount(value: string | number): string {
   const amount = Number(value || 0)

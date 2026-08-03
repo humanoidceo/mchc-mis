@@ -976,6 +976,7 @@ function PrintLaboratoryBill({ bill }: { bill: LaboratoryBill }) {
   const document = asBillDocument(bill, '')
   const payload = document.payload as Record<string, unknown>
   const items = Array.isArray(payload.ordered_items) ? payload.ordered_items as Array<Record<string, unknown>> : []
+  const finalAmount = bill.final_amount ?? bill.total_amount
 
   return (
     <section className={billPaperClassName}>
@@ -999,9 +1000,10 @@ function PrintLaboratoryBill({ bill }: { bill: LaboratoryBill }) {
           </div>
         ))}
         <p className="receipt-total-line">Total cost: <strong>{formatReceiptAmount(bill.total_amount)} AFN</strong></p>
+        <p className="receipt-total-line">Final amount: <strong>{formatReceiptAmount(finalAmount)} AFN</strong></p>
       </div>
 
-      <BillReceiptNote receivedFrom={bill.receptionist_name || 'Reception pending approval'} amount={formatReceiptAmount(bill.total_amount)} />
+      <BillReceiptNote receivedFrom={bill.receptionist_name || 'Reception pending approval'} amount={formatReceiptAmount(finalAmount)} />
       <BillSignature />
     </section>
   )

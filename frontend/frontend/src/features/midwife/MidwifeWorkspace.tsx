@@ -3,11 +3,11 @@ import type { FormEvent, UIEvent } from 'react'
 
 import { ApiError, apiFetch } from '../../api/client'
 import { buttonClassName, Field, ghostButtonClassName, inputClassName, PaginationControls, Panel, SectionHeader } from '../../components/ui'
-import type { ClinicalDocument, LabTest, Medicine, MidwifeDashboardStats, PaginatedResponse, Patient, SearchResponse } from '../../types/domain'
+import type { ClinicalDocument, LabTest, Medicine, MidwifeDashboardStats, PaginatedResponse, Patient, Payment, SearchResponse } from '../../types/domain'
 import { FamilyPlanningOrderSection } from '../familyPlanning/FamilyPlanningOrderSection'
 import { PrintDocument } from '../clinic/PrintDocument'
 
-type View = 'dashboard' | 'records' | 'deliveries' | 'documents' | 'family-planning'
+type View = 'dashboard' | 'records' | 'deliveries' | 'documents' | 'family-planning' | 'billing'
 type PatientSearchOption = Pick<Patient, 'id' | 'registration_number' | 'first_name' | 'last_name' | 'age' | 'phone'>
 type MedicineSearchOption = Pick<Medicine, 'id' | 'name' | 'unit' | 'current_stock'>
 type LabTestSearchOption = Pick<LabTest, 'id' | 'name' | 'display_name' | 'category' | 'is_panel' | 'component_count'>
@@ -260,6 +260,7 @@ export function MidwifeWorkspace({ view }: { view: View }) {
           patientSearchPlaceholder="Search patient name or registration number"
         />
       ) : null}
+      {view === 'billing' ? <MidwifeBilling /> : null}
       {selectedDocument ? (
         <div className="space-y-3">
           <div className="no-print flex gap-2">
@@ -269,6 +270,170 @@ export function MidwifeWorkspace({ view }: { view: View }) {
           <PrintDocument document={selectedDocument} />
         </div>
       ) : null}
+    </div>
+  )
+}
+
+type MidwifeBillingProcedure = 'iud_insertion' | 'iud_removal' | 'implant_insertion' | 'implant_removal'
+
+const midwifeBillingProcedures: Array<{ value: MidwifeBillingProcedure; label: string }> = [
+  { value: 'iud_insertion', label: 'Insertion of IUD' },
+  { value: 'iud_removal', label: 'Removal of IUD' },
+  { value: 'implant_insertion', label: 'Insertion of implant' },
+  { value: 'implant_removal', label: 'Removal of implant' },
+]
+
+function MidwifeBilling() {
+  const [selectedPatientId, setSelectedPatientId] = useState<number | null>(null)
+  const [selectedPatientLabel, setSelectedPatientLabel] = useState('')
+  const [procedure, setProcedure] = useState<MidwifeBillingProcedure>('iud_insertion')
+  const [price, setPrice] = useState('')
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [records, setRecords] = useState<Payment[]>([])
+  const [totalCount, setTotalCount] = useState(0)
+  const [page, setPage] = useState(1)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved'>('all')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const loadRecords = useCallback(async (nextPage = page, nextSearch = search, nextStatus = statusFilter) => {
+    const params = new URLSearchParams({ page: String(nextPage) })
+    if (nextSearch.trim()) params.set('q', nextSearch.trim())
+    if (nextStatus !== 'all') params.set('status', nextStatus)
+    const response = await apiFetch<PaginatedResponse<Payment>>(`/midwife/billing/?${params.toString()}`)
+    setRecords(response.results)
+    setTotalCount(response.count)
+  }, [page, search, statusFilter])
+
+  useEffect(() => {
+    void loadRecords().catch((caught) => setError(describeApiError(caught, 'Unable to load billing records.')))
+  }, [loadRecords])
+
+  function resetForm() {
+    setSelectedPatientId(null)
+    setSelectedPatientLabel('')
+    setProcedure('iud_insertion')
+    setPrice('')
+    setEditingId(null)
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedPatientId) {
+      setError('Select a registered patient.')
+      return
+    }
+    setSubmitting(true)
+    setError('')
+    try {
+      const body = JSON.stringify({ patient: selectedPatientId, procedure, price })
+      if (editingId) {
+        await apiFetch<Payment>(`/midwife/billing/${editingId}/`, { method: 'PATCH', body })
+      } else {
+        await apiFetch<Payment>('/midwife/billing/', { method: 'POST', body })
+      }
+      resetForm()
+      setPage(1)
+      await loadRecords(1)
+    } catch (caught) {
+      setError(describeApiError(caught, 'Unable to save billing record.'))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  function editRecord(record: Payment) {
+    if (record.status === 'approved') return
+    const procedureValue = record.notes.replace('Midwife procedure: ', '') as MidwifeBillingProcedure
+    setEditingId(record.id)
+    setSelectedPatientId(record.patient)
+    setSelectedPatientLabel(record.patient_name)
+    setProcedure(midwifeBillingProcedures.some((item) => item.value === procedureValue) ? procedureValue : 'iud_insertion')
+    setPrice(record.doctor_fee)
+    setError('')
+  }
+
+  async function deleteRecord(record: Payment) {
+    if (record.status === 'approved') return
+    try {
+      await apiFetch<void>(`/midwife/billing/${record.id}/`, { method: 'DELETE' })
+      const nextPage = records.length === 1 && page > 1 ? page - 1 : page
+      setPage(nextPage)
+      await loadRecords(nextPage)
+    } catch (caught) {
+      setError(describeApiError(caught, 'Unable to delete billing record.'))
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <SectionHeader title="Midwife billing" subtitle="Create a procedure bill for Reception to approve." />
+      {error ? <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+      <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+        <Panel>
+          <form className="grid gap-4" onSubmit={submit}>
+            <SearchCombo<PatientSearchOption>
+              label="Patient"
+              placeholder="Search registered patient name or ID"
+              searchPath="/midwife/patients/?all=1"
+              valueText={selectedPatientLabel}
+              renderOption={(patient) => `${patient.registration_number} - ${patient.first_name} ${patient.last_name}${patient.age ? ` (${patient.age})` : ''}`}
+              onSelect={(patient) => {
+                setSelectedPatientId(patient.id)
+                setSelectedPatientLabel(`${patient.registration_number} - ${patient.first_name} ${patient.last_name}`)
+              }}
+            />
+            <Field label="Procedure">
+              <select className={inputClassName} value={procedure} onChange={(event) => setProcedure(event.target.value as MidwifeBillingProcedure)}>
+                {midwifeBillingProcedures.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Price (AFN)">
+              <input className={inputClassName} type="number" min="0.01" step="0.01" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Enter price" />
+            </Field>
+            <div className="flex flex-wrap gap-2">
+              <button className={buttonClassName} disabled={submitting}>{submitting ? common.saving : editingId ? common.update : 'Submit'}</button>
+              {editingId ? <button type="button" className={ghostButtonClassName} onClick={resetForm}>Cancel</button> : null}
+            </div>
+          </form>
+        </Panel>
+
+        <Panel>
+          <div className="flex flex-wrap items-end justify-between gap-3 border-b border-sky-100 pb-4">
+            <SectionHeader title="My billing records" subtitle="Pending records are approved by Reception." />
+            <div className="flex w-full flex-wrap gap-2 lg:w-auto">
+              <input className={inputClassName} value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Search patient or procedure" />
+              <select className={inputClassName + ' max-w-36'} value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as 'all' | 'pending' | 'approved'); setPage(1) }}>
+                <option value="all">All statuses</option>
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+              </select>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3">
+            {records.map((record) => (
+              <div key={record.id} className="rounded border border-sky-100 bg-sky-50 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-slate-950">{record.patient_name}</p>
+                    <p className="text-sm text-slate-700">{record.service}</p>
+                    <p className="mt-1 text-sm text-slate-600">Price: {record.doctor_fee} AFN · Final amount: {record.amount} AFN</p>
+                    <p className="mt-1 text-xs text-zinc-500">{formatDateTime(record.created_at)}</p>
+                  </div>
+                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${record.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>{record.status}</span>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button className={ghostButtonClassName} disabled={record.status === 'approved'} onClick={() => editRecord(record)}>Edit</button>
+                  <button className={ghostButtonClassName} disabled={record.status === 'approved'} onClick={() => void deleteRecord(record)}>Delete</button>
+                </div>
+              </div>
+            ))}
+            {!records.length ? <p className="rounded border border-sky-100 bg-white px-4 py-3 text-sm text-slate-600">No billing records found.</p> : null}
+          </div>
+          <PaginationControls page={page} totalCount={totalCount} pageSize={10} onPageChange={setPage} />
+        </Panel>
+      </div>
     </div>
   )
 }
@@ -1259,7 +1424,8 @@ function SearchCombo<T extends { id: number }>({
   const loadOptions = useCallback(async (offset: number, replace = false, search = query) => {
     setLoading(true)
     try {
-      const response = await apiFetch<SearchResponse<T>>(`${searchPath}?q=${encodeURIComponent(search)}&offset=${offset}`)
+      const separator = searchPath.includes('?') ? '&' : '?'
+      const response = await apiFetch<SearchResponse<T>>(`${searchPath}${separator}q=${encodeURIComponent(search)}&offset=${offset}`)
       setItems((current) => replace ? response.results : [...current, ...response.results])
       setNextOffset(response.next_offset)
     } finally {

@@ -193,6 +193,7 @@ export type LaboratoryBill = {
   created_at: string
   payment_id: number | null
   payment_status: 'pending' | 'approved' | null
+  final_amount: string | null
   receptionist_name: string
   customer_type: 'internal' | 'external'
   customer_type_label: string

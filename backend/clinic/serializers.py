@@ -5,7 +5,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.db.models import Sum
 from rest_framework import serializers
 
-from .models import ClinicalDocument, Expense, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, WebsitePageContent, WebsiteSettings
+from .models import ClinicalDocument, Expense, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, WebsitePageContent, WebsiteSettings, round_up_to_ten
 from .salary_rules import AFGHAN_MONTHS, calculate_afghanistan_salary_tax, current_afghan_date
 
 
@@ -147,7 +147,7 @@ class PaymentSerializer(serializers.ModelSerializer):
         attrs['doctor_fee'] = doctor_fee
         attrs['discount_percentage'] = money(discount_percentage)
         attrs['discount_amount'] = money(discount_amount)
-        attrs['amount'] = money(amount)
+        attrs['amount'] = money(round_up_to_ten(amount))
         attrs['patient_age_unit'] = patient_age_unit
         if not attrs.get('service') and attrs.get('department'):
             attrs['service'] = f"{attrs['department']} consultation"

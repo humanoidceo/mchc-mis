@@ -1,7 +1,17 @@
+from decimal import Decimal, ROUND_CEILING
+
 from django.conf import settings
 from django.db import models
 
 from shared.soft_delete import SoftDeleteModel
+
+
+def round_up_to_ten(value) -> Decimal:
+    """Round a positive Afghanis amount up to the next 10 AFN."""
+    amount = Decimal(value)
+    if amount <= 0:
+        return Decimal('0.00')
+    return (amount / Decimal('10')).quantize(Decimal('1'), rounding=ROUND_CEILING) * Decimal('10')
 
 
 class TimestampedModel(models.Model):

@@ -227,6 +227,7 @@ class LaboratoryBillSerializer(serializers.ModelSerializer):
     payload = serializers.SerializerMethodField()
     payment_status = serializers.CharField(source='payment.status', read_only=True)
     payment_id = serializers.IntegerField(source='payment.id', read_only=True, allow_null=True)
+    final_amount = serializers.DecimalField(source='payment.amount', max_digits=12, decimal_places=2, read_only=True, allow_null=True)
     receptionist_name = serializers.SerializerMethodField()
     customer_type = serializers.SerializerMethodField()
     customer_type_label = serializers.SerializerMethodField()
@@ -246,6 +247,7 @@ class LaboratoryBillSerializer(serializers.ModelSerializer):
             'created_at',
             'payment_id',
             'payment_status',
+            'final_amount',
             'receptionist_name',
             'customer_type',
             'customer_type_label',
