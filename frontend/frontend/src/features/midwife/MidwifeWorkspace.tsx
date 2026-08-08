@@ -35,18 +35,18 @@ const common = {
 
 const midwifeDashboardText = {
   title: 'Midwife dashboard',
-  subtitle: 'Structured maternal care records based on ANC and PNC workflows, with follow-up visibility and risk tracking.',
+  subtitle: 'Structured midwifery records based on ANC and PNC workflows, with follow-up visibility and risk tracking.',
   recentRecords: 'Recent maternal records',
 }
 
 const midwifeDocumentsText = {
   title: 'Clinical documents',
-  subtitle: 'Create prescriptions or laboratory test orders for Maternal care patients and print the same half-A4 documents used by doctor-like accounts.',
+  subtitle: 'Create prescriptions or laboratory test orders for Midwifery patients and print the same half-A4 documents used by doctor-like accounts.',
 }
 
 const midwifeRecordsText = {
-  title: 'Maternal care record',
-  subtitle: 'Search a patient registered by reception in the Maternal care department, record ANC or PNC findings, and plan the next follow-up.',
+  title: 'Midwifery record',
+  subtitle: 'Search a patient registered by reception in the Midwifery department, record ANC or PNC findings, and plan the next follow-up.',
   recordsTitle: 'Maternal records',
 }
 
@@ -706,7 +706,7 @@ function MidwifeClinicalDocuments({ onPrint }: { onPrint: (document: ClinicalDoc
             <div className="grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
               <SearchCombo<PatientSearchOption>
                 label="Patient"
-                placeholder="Search Maternal care patient name or registration number"
+                placeholder="Search Midwifery patient name or registration number"
                 searchPath="/midwife/patients/"
                 valueText={selectedPatient ? `${selectedPatient.registration_number} - ${selectedPatient.first_name} ${selectedPatient.last_name}` : ''}
                 renderOption={(patient) => `${patient.registration_number} - ${patient.first_name} ${patient.last_name}${patient.age ? ` (${patient.age})` : ''}${patient.phone ? ` - ${patient.phone}` : ''}`}
@@ -872,7 +872,7 @@ function MidwifeRecords({ onPrint }: { onPrint: (document: ClinicalDocument) => 
         body: JSON.stringify({
           patient: selectedPatientId,
           document_type: 'ultrasound',
-          title: `${form.visitType === 'pnc' ? 'PNC' : 'ANC'} maternal care record`,
+          title: `${form.visitType === 'pnc' ? 'PNC' : 'ANC'} midwifery record`,
           total_amount: '0',
           payload: {
             midwife_record: true,
@@ -954,7 +954,7 @@ function MidwifeRecords({ onPrint }: { onPrint: (document: ClinicalDocument) => 
           <form onSubmit={submit} className="mt-5 space-y-4">
             <SearchCombo<PatientSearchOption>
               label="Patient"
-              placeholder="Search Maternal care patient name or registration number"
+              placeholder="Search Midwifery patient name or registration number"
               searchPath="/midwife/patients/"
               valueText={selectedPatientLabel}
               renderOption={(patient) => `${patient.registration_number} - ${patient.first_name} ${patient.last_name}${patient.age ? ` (${patient.age})` : ''}${patient.phone ? ` - ${patient.phone}` : ''}`}
@@ -1239,7 +1239,7 @@ function MidwifeDeliveries({ onPrint }: { onPrint: (document: ClinicalDocument) 
           <form onSubmit={submit} className="mt-5 space-y-4">
             <SearchCombo<PatientSearchOption>
               label="Patient"
-              placeholder="Search Maternal care patient name or registration number"
+              placeholder="Search Midwifery patient name or registration number"
               searchPath="/midwife/patients/"
               valueText={selectedPatientLabel}
               renderOption={(patient) => `${patient.registration_number} - ${patient.first_name} ${patient.last_name}${patient.age ? ` (${patient.age})` : ''}${patient.phone ? ` - ${patient.phone}` : ''}`}

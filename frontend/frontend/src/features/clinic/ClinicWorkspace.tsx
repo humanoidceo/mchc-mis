@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { ApiError, apiFetch } from '../../api/client'
 import { buttonClassName, Field, ghostButtonClassName, inputClassName, PaginationControls, Panel, SectionHeader } from '../../components/ui'
 import { LabPanelComponents } from '../../components/LabPanelComponents'
-import type { ClinicalDocument, DashboardStats, DocumentType, DocumentTypeDefinition, EmployeeSearchOption, Expense, ExpenseCategoryOption, LabTest, Medicine, PaginatedResponse, Patient, Payment, SalaryAdvance, SalaryPayment, SearchResponse } from '../../types/domain'
+import type { ClinicalDocument, DashboardStats, DoctorOption, DocumentType, DocumentTypeDefinition, EmployeeSearchOption, Expense, ExpenseCategoryOption, LabTest, Medicine, PaginatedResponse, Patient, Payment, SalaryAdvance, SalaryPayment, SearchResponse } from '../../types/domain'
 import { useAuth } from '../auth/useAuth'
 import { FamilyPlanningOrderSection } from '../familyPlanning/FamilyPlanningOrderSection'
 import { PharmacyMedicineStockSection } from '../pharmacy/PharmacyMedicineStockSection'
@@ -96,8 +96,9 @@ const documentTemplates: Record<DocumentType, Record<string, unknown>> = {
   rutf: { items: [{ name: 'RUTF sachets', quantity: 14, notes: 'One week supply' }] },
 }
 
-const departmentOptions = ['Maternal care', 'Child care', 'General health', 'Gynecology', 'Emergency', 'Laboratory', 'Ultrasound', 'Vaccination', 'Malnutrition']
+const departmentOptions = ['Midwifery', 'Pediatrics', 'OPD', 'Gynecology', 'Emergency', 'Laboratory', 'Ultrasound', 'Vaccination', 'Malnutrition']
 const freeDepartments = new Set(['vaccination', 'malnutrition'])
+const receptionDoctorDepartments = new Set(['midwifery', 'ultrasound', 'opd', 'pediatrics', 'gynecology'])
 const dashboardPeriodOptions: Array<{ value: DashboardStats['period']; label: string }> = [
   { value: 'daily', label: 'Daily' },
   { value: 'weekly', label: 'Weekly' },
@@ -198,9 +199,9 @@ function formatAgeWithUnit(age: number | null, ageUnit: AgeUnit | undefined): st
 }
 
 const receptionDepartmentDariLabels: Record<string, string> = {
-  'Maternal care': 'مراقبت مادر',
-  'Child care': 'مراقبت طفل',
-  'General health': 'صحت عمومی',
+  'Midwifery': 'مراقبت مادر',
+  'Pediatrics': 'مراقبت طفل',
+  'OPD': 'صحت عمومی',
   'Gynecology': 'نسایی ولادی',
   'Emergency': 'عاجل',
   'Laboratory': 'لابراتوار',
@@ -250,6 +251,10 @@ const emptyGynecologyUltrasoundForm: GynecologyUltrasoundFormState = {
 
 function isFreeDepartment(department: string): boolean {
   return freeDepartments.has(department.trim().toLowerCase())
+}
+
+function needsReceptionDoctor(department: string): boolean {
+  return receptionDoctorDepartments.has(department.trim().toLowerCase())
 }
 
 function flattenValidationDetails(value: unknown, prefix = ''): string[] {
@@ -1024,6 +1029,120 @@ function Patients({
   )
 }
 
+function ReceptionDepartmentDoctorCombo({
+  department,
+  selectedUsername,
+  onSelect,
+}: {
+  department: string
+  selectedUsername: string
+  onSelect: (username: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [options, setOptions] = useState<DoctorOption[]>([])
+  const [page, setPage] = useState(1)
+  const [hasNextPage, setHasNextPage] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const requestRef = useRef(0)
+
+  async function loadPage(nextPage: number, append = false) {
+    const requestNumber = requestRef.current + 1
+    requestRef.current = requestNumber
+    setLoading(true)
+    try {
+      const response = await apiFetch<PaginatedResponse<DoctorOption>>(
+        `/doctor-departments/department-staff/?department=${encodeURIComponent(department)}&page=${nextPage}&q=${encodeURIComponent(query)}`,
+      )
+      if (requestNumber !== requestRef.current) return
+      setOptions((current) => append ? [...current, ...response.results] : response.results)
+      setPage(nextPage)
+      setHasNextPage(Boolean(response.next))
+    } finally {
+      if (requestNumber === requestRef.current) setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    requestRef.current += 1
+    setOptions([])
+    setPage(1)
+    setHasNextPage(false)
+    if (!open) return
+    const timer = window.setTimeout(() => {
+      void loadPage(1).catch(() => {
+        setOptions([])
+        setHasNextPage(false)
+      })
+    }, 200)
+    return () => window.clearTimeout(timer)
+  }, [department, open, query])
+
+  function loadMore() {
+    if (loading || !hasNextPage) return
+    void loadPage(page + 1, true)
+  }
+
+  return (
+    <Field label="Doctor username">
+      <div className="space-y-2">
+        <input
+          className={inputClassName}
+          value={query}
+          onFocus={() => setOpen(true)}
+          onClick={() => setOpen(true)}
+          onChange={(event) => {
+            setQuery(event.target.value)
+            setOpen(true)
+          }}
+          placeholder="Search doctor username"
+          role="combobox"
+          aria-expanded={open}
+          aria-controls="reception-department-doctors"
+          required={!selectedUsername}
+        />
+        {selectedUsername ? (
+          <div className="flex items-center justify-between gap-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+            <span>Selected: {selectedUsername}</span>
+            <button type="button" className="text-xs font-medium underline" onClick={() => { onSelect(''); setOpen(true) }}>Change</button>
+          </div>
+        ) : null}
+        {open ? (
+          <div
+            id="reception-department-doctors"
+            role="listbox"
+            className="max-h-40 overflow-y-auto rounded border border-sky-100 bg-white"
+            onScroll={(event) => {
+              const list = event.currentTarget
+              if (list.scrollHeight - list.scrollTop - list.clientHeight < 24) loadMore()
+            }}
+          >
+            {loading && !options.length ? <p className="px-3 py-2 text-sm text-zinc-500">Loading doctors...</p> : null}
+            {!loading && !options.length ? <p className="px-3 py-2 text-sm text-zinc-500">No doctors are assigned to this department.</p> : null}
+            {options.map((doctor) => (
+              <button
+                key={doctor.id}
+                type="button"
+                role="option"
+                aria-selected={selectedUsername === doctor.username}
+                className={`block w-full border-b border-sky-50 px-3 py-2 text-left text-sm font-medium text-slate-900 last:border-b-0 hover:bg-sky-50 ${selectedUsername === doctor.username ? 'bg-sky-50' : ''}`}
+                onClick={() => {
+                  onSelect(doctor.username)
+                  setOpen(false)
+                }}
+              >
+                {doctor.username}
+              </button>
+            ))}
+            {loading && options.length ? <p className="px-3 py-2 text-sm text-zinc-500">Loading the next 5 doctors...</p> : null}
+          </div>
+        ) : null}
+        {open ? <p className="text-xs text-zinc-500">Scroll for the next 5 doctors.</p> : null}
+      </div>
+    </Field>
+  )
+}
+
 function Payments({
   paymentsSearch,
   onPaymentsSearchChange,
@@ -1063,12 +1182,16 @@ function Payments({
     discount_percentage: '',
     notes: '',
   })
+  const [selectedDoctorUsername, setSelectedDoctorUsername] = useState('')
+  const [editingDoctorUsername, setEditingDoctorUsername] = useState('')
   const [formError, setFormError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [editingPatientId, setEditingPatientId] = useState<number | null>(null)
   const [editingPaymentId, setEditingPaymentId] = useState<number | null>(null)
   const [patientSubmitting, setPatientSubmitting] = useState(false)
   const [patientError, setPatientError] = useState('')
+  const [patientPendingDeletion, setPatientPendingDeletion] = useState<{ id: number; name: string } | null>(null)
+  const [deletingPatientId, setDeletingPatientId] = useState<number | null>(null)
   const [patientForm, setPatientForm] = useState({
     patient_name: '',
     age_unit: 'year' as AgeUnit,
@@ -1168,6 +1291,10 @@ function Payments({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setFormError('')
+    if (needsReceptionDoctor(form.department) && !selectedDoctorUsername) {
+      setFormError('Select a doctor assigned to this department.')
+      return
+    }
     setSubmitting(true)
     try {
       const payment = await apiFetch<Payment>('/payments/reception-bill/', {
@@ -1187,7 +1314,7 @@ function Payments({
           payment: {
             service: `${form.department} consultation`,
             department: form.department,
-            doctor_name: '',
+            doctor_name: selectedDoctorUsername,
             patient_age: Number(form.age),
             patient_age_unit: form.age_unit,
             doctor_fee: formatMoney(doctorFee),
@@ -1198,6 +1325,7 @@ function Payments({
         }),
       })
       setForm({ patient_name: '', age_unit: 'year', age: '', department: departmentOptions[0], doctor_fee: '', payment_type: 'full', discount_percentage: '', notes: '' })
+      setSelectedDoctorUsername('')
       onCreated(payment)
     } catch (caught) {
       setFormError(describeApiError(caught))
@@ -1215,6 +1343,7 @@ function Payments({
     setEditingPatientId(null)
     setEditingPaymentId(null)
     setPatientError('')
+    setEditingDoctorUsername('')
     setPatientForm({
       patient_name: '',
       age_unit: 'year',
@@ -1231,6 +1360,7 @@ function Payments({
     setPatientError('')
     setEditingPatientId(payment.patient)
     setEditingPaymentId(payment.id)
+    setEditingDoctorUsername(payment.doctor_name || '')
     setPatientForm({
       patient_name: payment.patient_full_name || payment.patient_name,
       age_unit: payment.patient_age_unit || 'year',
@@ -1247,6 +1377,10 @@ function Payments({
     event.preventDefault()
     if (editingPatientId === null || editingPaymentId === null) return
     setPatientError('')
+    if (needsReceptionDoctor(patientForm.department) && !editingDoctorUsername) {
+      setPatientError('Select a doctor assigned to this department.')
+      return
+    }
     setPatientSubmitting(true)
     try {
       await apiFetch<Patient>(`/patients/${editingPatientId}/`, {
@@ -1263,6 +1397,7 @@ function Payments({
         body: JSON.stringify({
           service: `${patientForm.department} consultation`,
           department: patientForm.department,
+          doctor_name: editingDoctorUsername,
           patient_age: patientForm.age === '' ? null : Number(patientForm.age),
           patient_age_unit: patientForm.age_unit,
           doctor_fee: formatMoney(editDoctorFee),
@@ -1280,18 +1415,20 @@ function Payments({
     }
   }
 
-  async function deletePatient(patientId: number, patientName: string) {
-    const confirmed = window.confirm(`Delete patient "${patientName}"? This also removes the linked payment records.`)
-    if (!confirmed) return
+  async function deletePatient(patientId: number) {
     setPatientError('')
+    setDeletingPatientId(patientId)
     try {
       await apiFetch(`/patients/${patientId}/`, { method: 'DELETE' })
       if (editingPatientId === patientId) {
         resetPatientForm()
       }
       await onSaved()
+      setPatientPendingDeletion(null)
     } catch (caught) {
       setPatientError(describeApiError(caught))
+    } finally {
+      setDeletingPatientId(null)
     }
   }
 
@@ -1314,16 +1451,20 @@ function Payments({
               className={inputClassName}
               value={form.department}
               onChange={(e) =>
-                setForm((current) => ({
-                  ...current,
-                  department: e.target.value,
-                  payment_type: isFreeDepartment(e.target.value) ? 'free' : (isFreeDepartment(current.department) ? 'full' : current.payment_type),
-                }))
+                {
+                  setSelectedDoctorUsername('')
+                  setForm((current) => ({
+                    ...current,
+                    department: e.target.value,
+                    payment_type: isFreeDepartment(e.target.value) ? 'free' : (isFreeDepartment(current.department) ? 'full' : current.payment_type),
+                  }))
+                }
               }
             >
               {departmentOptions.map((department) => <option key={department} value={department}>{department}</option>)}
             </select>
           </Field>
+          {needsReceptionDoctor(form.department) ? <ReceptionDepartmentDoctorCombo department={form.department} selectedUsername={selectedDoctorUsername} onSelect={setSelectedDoctorUsername} /> : null}
           <Field label="Doctor fee">
             <input className={inputClassName} type="number" min="0" step="0.01" value={departmentIsFree ? '0.00' : form.doctor_fee} onChange={(e) => setForm({ ...form, doctor_fee: e.target.value })} disabled={departmentIsFree} required={!departmentIsFree} />
           </Field>
@@ -1419,7 +1560,7 @@ function Payments({
                     <td className="flex gap-2 py-2">
                       <button className={ghostButtonClassName} onClick={() => onPrint(payment)}>Print</button>
                       {canEdit ? <button className={ghostButtonClassName} onClick={() => startPatientEdit(payment)}>Edit</button> : null}
-                      {canEdit ? <button className={ghostButtonClassName} onClick={() => void deletePatient(payment.patient, payment.patient_full_name || payment.patient_name)}>Delete</button> : null}
+                      {canEdit ? <button className={ghostButtonClassName} onClick={() => setPatientPendingDeletion({ id: payment.patient, name: payment.patient_full_name || payment.patient_name })}>Delete</button> : null}
                       {payment.status === 'pending' ? <button className={ghostButtonClassName} onClick={() => void approve(payment.id)}>Approve</button> : null}
                     </td>
                   </tr>
@@ -1460,16 +1601,20 @@ function Payments({
                   className={inputClassName}
                   value={patientForm.department}
                   onChange={(event) =>
-                    setPatientForm((current) => ({
-                      ...current,
-                      department: event.target.value,
-                      payment_type: isFreeDepartment(event.target.value) ? 'free' : (isFreeDepartment(current.department) ? 'full' : current.payment_type),
-                    }))
+                    {
+                      setEditingDoctorUsername('')
+                      setPatientForm((current) => ({
+                        ...current,
+                        department: event.target.value,
+                        payment_type: isFreeDepartment(event.target.value) ? 'free' : (isFreeDepartment(current.department) ? 'full' : current.payment_type),
+                      }))
+                    }
                   }
                 >
                   {departmentOptions.map((department) => <option key={department} value={department}>{department}</option>)}
                 </select>
               </Field>
+              {needsReceptionDoctor(patientForm.department) ? <ReceptionDepartmentDoctorCombo department={patientForm.department} selectedUsername={editingDoctorUsername} onSelect={setEditingDoctorUsername} /> : null}
               <Field label="Doctor fee">
                 <input className={inputClassName} type="number" min="0" step="0.01" value={editDepartmentIsFree ? '0.00' : patientForm.doctor_fee} onChange={(event) => setPatientForm((current) => ({ ...current, doctor_fee: event.target.value }))} disabled={editDepartmentIsFree} required={!editDepartmentIsFree} />
               </Field>
@@ -1500,6 +1645,21 @@ function Payments({
             <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{patientError}</div>
           )}
         </Panel>
+      ) : null}
+      {patientPendingDeletion ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6" role="dialog" aria-modal="true" aria-labelledby="delete-reception-bill-title">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100 text-xl font-bold text-red-700" aria-hidden="true">!</div>
+            <h2 id="delete-reception-bill-title" className="mt-4 text-xl font-semibold text-slate-950">Delete this reception bill?</h2>
+            <p className="mt-2 text-sm text-slate-600">Patient {patientPendingDeletion.name} and the linked reception payment records will be deleted. This action cannot be undone.</p>
+            <div className="mt-6 flex justify-center gap-3">
+              <button className={ghostButtonClassName} type="button" disabled={deletingPatientId !== null} onClick={() => setPatientPendingDeletion(null)}>Cancel</button>
+              <button className="inline-flex h-10 items-center justify-center rounded-lg bg-red-600 px-4 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300" type="button" disabled={deletingPatientId !== null} onClick={() => void deletePatient(patientPendingDeletion.id)}>
+                {deletingPatientId === patientPendingDeletion.id ? 'Deleting...' : 'Yes, delete bill'}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </>
   )

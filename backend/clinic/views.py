@@ -21,15 +21,17 @@ from rest_framework.response import Response
 
 from accounts.access import get_user_permissions, user_has_permission
 from accounts.trash import cleanup_expired_trash, soft_delete_instance
-from accounts.models import Employee
+from accounts.models import Employee, StaffProfile
 from accounts.permissions import Role
 from config.pagination import StandardResultsSetPagination
 from pharmacy.models import Medicine as PharmacyMedicine
 from .expense_categories import EXPENSE_CATEGORIES
-from .models import ClinicalDocument, Expense, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, WebsitePageContent, WebsiteSettings
+from .models import ClinicalDocument, DoctorDepartmentAssignment, Expense, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, WebsitePageContent, WebsiteSettings
 from .salary_rules import AFGHAN_MONTHS, current_afghan_date, money
 from .serializers import (
     ClinicalDocumentSerializer,
+    ASSIGNABLE_CLINICAL_ROLES,
+    DoctorDepartmentAssignmentSerializer,
     ExpenseSerializer,
     LabTestSerializer,
     MedicineSerializer,
@@ -54,6 +56,8 @@ DOCUMENT_CREATE_PERMISSIONS = {
     ClinicalDocument.DocumentType.VACCINATION: 'documents.vaccination.create',
     ClinicalDocument.DocumentType.RUTF: 'documents.rutf.create',
 }
+
+RECEPTION_DOCTOR_DEPARTMENTS = {'midwifery', 'ultrasound', 'opd', 'pediatrics', 'gynecology'}
 
 
 class DeleteAfterClose:
@@ -303,6 +307,104 @@ class PermissionedModelViewSet(viewsets.ModelViewSet):
             self.permission_denied(request, message=f'Missing permission: {code}')
 
 
+class DoctorDepartmentAssignmentViewSet(PermissionedModelViewSet):
+    queryset = DoctorDepartmentAssignment.objects.select_related('doctor', 'assigned_by')
+    serializer_class = DoctorDepartmentAssignmentSerializer
+    pagination_class = StandardResultsSetPagination
+    permission_map = {'*': 'patients.register'}
+
+    @action(detail=False, methods=['get'], url_path='available-doctors')
+    def available_doctors(self, request):
+        query = request.query_params.get('q', '').strip()
+        try:
+            page = max(1, int(request.query_params.get('page', '1')))
+        except (TypeError, ValueError):
+            page = 1
+        page_size = 5
+        profiles = (
+            StaffProfile.objects.select_related('user')
+            .filter(role__in=ASSIGNABLE_CLINICAL_ROLES, deleted_at__isnull=True, user__is_active=True)
+            .order_by('user__first_name', 'user__last_name', 'user__username')
+        )
+        if query:
+            profiles = profiles.filter(
+                Q(user__username__icontains=query)
+                | Q(user__first_name__icontains=query)
+                | Q(user__last_name__icontains=query)
+            )
+
+        total = profiles.count()
+        start = (page - 1) * page_size
+        results = profiles[start:start + page_size]
+        return Response({
+            'count': total,
+            'next': f'?page={page + 1}' if start + page_size < total else None,
+            'previous': f'?page={page - 1}' if page > 1 else None,
+            'results': [
+                {
+                    'id': profile.user_id,
+                    'username': profile.user.username,
+                    'full_name': profile.user.get_full_name() or profile.user.username,
+                    'role': profile.role,
+                    'role_label': profile.get_role_display(),
+                }
+                for profile in results
+            ],
+        })
+
+    @action(detail=False, methods=['get'], url_path='department-staff')
+    def department_staff(self, request):
+        department = request.query_params.get('department', '').strip()
+        query = request.query_params.get('q', '').strip()
+        try:
+            page = max(1, int(request.query_params.get('page', '1')))
+        except (TypeError, ValueError):
+            page = 1
+        page_size = 5
+
+        if department.lower() not in RECEPTION_DOCTOR_DEPARTMENTS:
+            return Response({'count': 0, 'next': None, 'previous': None, 'results': []})
+
+        assignments = (
+            DoctorDepartmentAssignment.objects.select_related('doctor', 'doctor__staff_profile')
+            .filter(
+                department__iexact=department,
+                doctor__is_active=True,
+                doctor__staff_profile__deleted_at__isnull=True,
+                doctor__staff_profile__role__in=ASSIGNABLE_CLINICAL_ROLES,
+            )
+            .order_by('doctor__first_name', 'doctor__last_name', 'doctor__username')
+        )
+        if query:
+            assignments = assignments.filter(
+                Q(doctor__username__icontains=query)
+                | Q(doctor__first_name__icontains=query)
+                | Q(doctor__last_name__icontains=query)
+            )
+
+        total = assignments.count()
+        start = (page - 1) * page_size
+        results = assignments[start:start + page_size]
+        return Response({
+            'count': total,
+            'next': f'?page={page + 1}' if start + page_size < total else None,
+            'previous': f'?page={page - 1}' if page > 1 else None,
+            'results': [
+                {
+                    'id': assignment.doctor_id,
+                    'username': assignment.doctor.username,
+                    'full_name': assignment.doctor.get_full_name() or assignment.doctor.username,
+                    'role': assignment.doctor.staff_profile.role,
+                    'role_label': assignment.doctor.staff_profile.get_role_display(),
+                }
+                for assignment in results
+            ],
+        })
+
+    def perform_create(self, serializer):
+        serializer.save(assigned_by=self.request.user)
+
+
 class PatientViewSet(PermissionedModelViewSet):
     queryset = Patient.objects.select_related('registered_by')
     serializer_class = PatientSerializer
@@ -458,6 +560,21 @@ class PaymentViewSet(PermissionedModelViewSet):
     def reception_bill(self, request):
         patient_data = request.data.get('patient') or {}
         payment_data = request.data.get('payment') or {}
+        department = str(payment_data.get('department') or '').strip()
+        doctor_username = str(payment_data.get('doctor_name') or '').strip()
+
+        if department.lower() in RECEPTION_DOCTOR_DEPARTMENTS:
+            has_valid_assignment = bool(doctor_username) and DoctorDepartmentAssignment.objects.filter(
+                department__iexact=department,
+                doctor__username=doctor_username,
+                doctor__is_active=True,
+                doctor__staff_profile__deleted_at__isnull=True,
+                doctor__staff_profile__role__in=ASSIGNABLE_CLINICAL_ROLES,
+            ).exists()
+            if not has_valid_assignment:
+                raise serializers.ValidationError({
+                    'payment': {'doctor_name': 'Select a current doctor assigned to this department.'},
+                })
 
         with transaction.atomic():
             patient_serializer = PatientSerializer(data=patient_data, context=self.get_serializer_context())

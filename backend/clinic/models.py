@@ -22,6 +22,33 @@ class TimestampedModel(models.Model):
         abstract = True
 
 
+class DoctorDepartmentAssignment(TimestampedModel):
+    """A department assignment for an active clinical staff login account."""
+
+    doctor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='doctor_department_assignments',
+    )
+    department = models.CharField(max_length=120)
+    assigned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='assigned_doctor_departments',
+    )
+
+    class Meta:
+        ordering = ('department', 'doctor__username')
+        constraints = (
+            models.UniqueConstraint(fields=('doctor', 'department'), name='unique_clinical_staff_department'),
+        )
+
+    def __str__(self) -> str:
+        return f'{self.doctor.username} - {self.department}'
+
+
 class Patient(TimestampedModel, SoftDeleteModel):
     class Gender(models.TextChoices):
         FEMALE = 'female', 'Female'

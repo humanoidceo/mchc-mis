@@ -100,6 +100,7 @@ export type Payment = {
   amount: string
   status: 'pending' | 'approved'
   created_by_name: string
+  created_by_username: string
   approved_by_name: string
   notes: string
   created_at: string
@@ -280,6 +281,25 @@ export type PaginatedResponse<T> = {
   next: string | null
   previous: string | null
   results: T[]
+}
+
+export type DoctorOption = {
+  id: number
+  username: string
+  full_name: string
+  role: 'doctor' | 'midwife' | 'gynecologist'
+  role_label: string
+}
+
+export type DoctorDepartmentAssignment = {
+  id: number
+  doctor: number
+  doctor_username: string
+  doctor_name: string
+  department: string
+  assigned_by_username: string
+  created_at: string
+  updated_at: string
 }
 
 export type Medicine = {

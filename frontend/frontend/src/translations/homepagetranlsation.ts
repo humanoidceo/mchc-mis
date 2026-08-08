@@ -8,7 +8,7 @@ export const homePageTranslation: Localized<HomePageTranslation> = {
     primaryCta: 'Explore services',
     secondaryCta: 'Contact us',
     featureDescription: 'Compassionate, quality-focused service for families.',
-    featureCards: ['Maternal care', 'Child care', 'Laboratory', 'Vaccination'],
+    featureCards: ['Midwifery', 'Pediatrics', 'Laboratory', 'Vaccination'],
     sloganLabel: 'Center slogan',
     slogan: 'Health of mother and child; foundation of a healthy society.',
     audienceEyebrow: 'Who we serve',

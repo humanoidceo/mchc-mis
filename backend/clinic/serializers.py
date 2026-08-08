@@ -5,7 +5,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.db.models import Sum
 from rest_framework import serializers
 
-from .models import ClinicalDocument, Expense, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, WebsitePageContent, WebsiteSettings, round_up_to_ten
+from accounts.permissions import Role
+from .models import ClinicalDocument, DoctorDepartmentAssignment, Expense, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, WebsitePageContent, WebsiteSettings, round_up_to_ten
 from .salary_rules import AFGHAN_MONTHS, calculate_afghanistan_salary_tax, current_afghan_date
 
 
@@ -14,6 +15,7 @@ MAX_WEBSITE_IMAGE_SIZE = 8 * 1024 * 1024
 ALLOWED_WEBSITE_IMAGE_EXTENSIONS = {'.avif', '.gif', '.heic', '.jpeg', '.jpg', '.png', '.webp'}
 ALLOWED_PRIVATE_DOCUMENT_EXTENSIONS = {'.docx', '.pdf', '.png', '.jpg', '.jpeg'}
 FREE_PAYMENT_DEPARTMENTS = {'vaccination', 'malnutrition'}
+ASSIGNABLE_CLINICAL_ROLES = (Role.DOCTOR, Role.MIDWIFE, Role.GYNECOLOGIST)
 
 
 def money(value: Decimal) -> Decimal:
@@ -72,6 +74,26 @@ def validate_age_and_unit(age_value: int | None, age_unit: str, *, age_field: st
         raise serializers.ValidationError({unit_field: 'Use Month for patients younger than one year.'})
 
 
+class DoctorDepartmentAssignmentSerializer(serializers.ModelSerializer):
+    doctor_username = serializers.CharField(source='doctor.username', read_only=True)
+    doctor_name = serializers.SerializerMethodField()
+    assigned_by_username = serializers.CharField(source='assigned_by.username', read_only=True)
+
+    class Meta:
+        model = DoctorDepartmentAssignment
+        fields = ('id', 'doctor', 'doctor_username', 'doctor_name', 'department', 'assigned_by_username', 'created_at', 'updated_at')
+        read_only_fields = ('created_at', 'updated_at', 'assigned_by_username')
+
+    def get_doctor_name(self, obj) -> str:
+        return obj.doctor.get_full_name() or obj.doctor.username
+
+    def validate_doctor(self, doctor):
+        profile = getattr(doctor, 'staff_profile', None)
+        if not doctor.is_active or profile is None or profile.deleted_at is not None or profile.role not in ASSIGNABLE_CLINICAL_ROLES:
+            raise serializers.ValidationError('Select an active Doctor, Midwife, or Gynecologist account.')
+        return doctor
+
+
 class PatientSerializer(serializers.ModelSerializer):
     registered_by_name = serializers.CharField(source='registered_by.get_full_name', read_only=True)
 
@@ -93,6 +115,7 @@ class PaymentSerializer(serializers.ModelSerializer):
     patient_name = serializers.CharField(source='patient.__str__', read_only=True)
     patient_full_name = serializers.SerializerMethodField()
     created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
+    created_by_username = serializers.CharField(source='created_by.username', read_only=True)
     approved_by_name = serializers.CharField(source='approved_by.get_full_name', read_only=True)
 
     class Meta:
@@ -328,8 +351,8 @@ class ClinicalDocumentSerializer(serializers.ModelSerializer):
         patient = attrs.get('patient', getattr(self.instance, 'patient', None))
 
         if document_type == ClinicalDocument.DocumentType.ULTRASOUND and isinstance(payload, dict) and (payload.get('midwife_record') or payload.get('delivery_record')):
-            if patient and not patient.payments.filter(department__iexact='Maternal care').exists():
-                raise serializers.ValidationError({'patient': 'This patient is not registered in the Maternal care department.'})
+            if patient and not patient.payments.filter(department__iexact='Midwifery').exists():
+                raise serializers.ValidationError({'patient': 'This patient is not registered in the Midwifery department.'})
 
         if document_type == ClinicalDocument.DocumentType.ULTRASOUND and isinstance(payload, dict) and payload.get('midwife_record'):
             visit_type = str(payload.get('visit_type', '')).strip().lower()

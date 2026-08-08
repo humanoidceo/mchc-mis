@@ -121,7 +121,7 @@ class PharmacySaleSerializer(serializers.ModelSerializer):
         receptionist = payment.approved_by if payment else None
         if receptionist is None:
             return ''
-        return receptionist.get_full_name() or receptionist.username
+        return receptionist.username
 
     def get_patient_name(self, obj):
         if not obj.patient:

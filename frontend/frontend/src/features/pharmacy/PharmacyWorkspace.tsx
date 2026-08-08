@@ -121,6 +121,10 @@ function pharmacyBillFinalAmount(sale: PharmacySale): number {
   return sale.final_amount === null ? pharmacyBillTotal(sale) : Number(sale.final_amount)
 }
 
+function roundUpToFive(value: number): number {
+  return Number.isFinite(value) && value > 0 ? Math.ceil(value / 5) * 5 : 0
+}
+
 function formatSaleQuantity(value: string | number): string {
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(Number(value) || 0)
 }
@@ -976,6 +980,8 @@ function SalesWorkspace({
   const [fromDateFilter, setFromDateFilter] = useState('')
   const [toDateFilter, setToDateFilter] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
+  const [salePendingDeletion, setSalePendingDeletion] = useState<PharmacySale | null>(null)
+  const [deletingSaleId, setDeletingSaleId] = useState<number | null>(null)
 
   async function loadSales(page = currentPage, search = deferredFilterText, paymentStatus = paymentStatusFilter) {
     const params = new URLSearchParams({ page: String(page), q: search })
@@ -1004,7 +1010,7 @@ function SalesWorkspace({
   const billTotal = rows.reduce((sum, row) => sum + (Number(row.unit_price || 0) * Number(row.quantity || 0)), 0)
   const effectiveDiscountPercentage = paymentType === 'discount' ? Math.min(100, Math.max(0, Number(discountPercentage) || 0)) : 0
   const discountAmount = billTotal * (effectiveDiscountPercentage / 100)
-  const finalAmount = Math.max(0, billTotal - discountAmount)
+  const finalAmount = roundUpToFive(Math.max(0, billTotal - discountAmount))
 
   function resetBillingForm() {
     setEditingSaleId(null)
@@ -1120,12 +1126,16 @@ function SalesWorkspace({
   async function deleteSale(saleId: number) {
     setError('')
     setNotice('')
+    setDeletingSaleId(saleId)
     try {
       await apiFetch(`/pharmacy/sales/${saleId}/`, { method: 'DELETE' })
       setNotice('Bill deleted and stock restored.')
+      setSalePendingDeletion(null)
       await loadSales(currentPage, deferredFilterText)
     } catch (caught) {
       setError(describeApiError(caught, 'Unable to delete bill.'))
+    } finally {
+      setDeletingSaleId(null)
     }
   }
 
@@ -1323,7 +1333,7 @@ function SalesWorkspace({
               <div className="mt-4 flex gap-2">
                 <button className={buttonClassName} onClick={() => onSelectSale(sale)}>Print bill</button>
                 <button className={ghostButtonClassName} onClick={() => void editSale(sale)}>Edit</button>
-                <button className={ghostButtonClassName} onClick={() => void deleteSale(sale.id)}>Delete</button>
+                <button className={ghostButtonClassName} onClick={() => setSalePendingDeletion(sale)}>Delete</button>
               </div>
             </div>
           ))}
@@ -1331,6 +1341,22 @@ function SalesWorkspace({
           <PaginationControls page={currentPage} totalCount={totalCount} onPageChange={setCurrentPage} />
         </div>
       </Panel>
+
+      {salePendingDeletion ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6" role="dialog" aria-modal="true" aria-labelledby="delete-pharmacy-bill-title">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100 text-xl font-bold text-red-700" aria-hidden="true">!</div>
+            <h2 id="delete-pharmacy-bill-title" className="mt-4 text-xl font-semibold text-slate-950">Delete this bill?</h2>
+            <p className="mt-2 text-sm text-slate-600">Bill {salePendingDeletion.bill_no} will be deleted and its medicine stock will be restored. This action cannot be undone.</p>
+            <div className="mt-6 flex justify-center gap-3">
+              <button className={ghostButtonClassName} type="button" disabled={deletingSaleId !== null} onClick={() => setSalePendingDeletion(null)}>Cancel</button>
+              <button className="inline-flex h-10 items-center justify-center rounded-lg bg-red-600 px-4 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300" type="button" disabled={deletingSaleId !== null} onClick={() => void deleteSale(salePendingDeletion.id)}>
+                {deletingSaleId === salePendingDeletion.id ? 'Deleting...' : 'Yes, delete bill'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -1938,16 +1964,28 @@ function PrintPharmacyBill({
         <div className="receipt-meta-row"><span>Status</span><strong>{sale.payment_status ?? 'pending'}</strong></div>
       </div>
 
+      <table className="receipt-table">
+        <thead>
+          <tr className="border-b border-black">
+            <th className="w-[10%] border-r border-black">No.</th>
+            <th className="w-[42%] border-r border-black">Med.</th>
+            <th className="w-[18%] border-r border-black text-right">Quantity</th>
+            <th className="w-[30%] text-right">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sale.items.map((item, index) => (
+            <tr className="border-b border-black" key={item.id}>
+              <td className="border-r border-black">{index + 1}</td>
+              <td className="border-r border-black">{item.medicine_name}{item.generic_name ? ` (${item.generic_name})` : ''}</td>
+              <td className="border-r border-black text-right">{formatReceiptAmount(item.quantity)}</td>
+              <td className="text-right">{formatReceiptAmount(item.total_price)} AFN</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
       <div className="receipt-text-list">
-        {sale.items.map((item) => (
-          <div className="receipt-text-item" key={item.id}>
-            <p>Medicine: <strong>{item.medicine_name}</strong></p>
-            {item.generic_name ? <p>Generic name: <strong>{item.generic_name}</strong></p> : null}
-            <p>Quantity: <strong>{formatReceiptAmount(item.quantity)}</strong></p>
-            <p>Amount: <strong>{formatReceiptAmount(item.total_price)} AFN</strong></p>
-            <p aria-hidden="true">.........................</p>
-          </div>
-        ))}
         <p className="receipt-total-line">Grand total: <strong>{formatReceiptAmount(billTotal)} AFN</strong></p>
         {hasDiscount ? <p>Discount percentage: <strong>{sale.discount_percentage || '0'}%</strong></p> : null}
         {hasDiscount ? <p>Discount amount: <strong>{formatReceiptAmount(sale.discount_amount || '0')} AFN</strong></p> : null}

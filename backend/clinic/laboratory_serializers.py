@@ -311,7 +311,7 @@ class LaboratoryBillSerializer(serializers.ModelSerializer):
         receptionist = payment.approved_by if payment else None
         if receptionist is None:
             return ''
-        return receptionist.get_full_name() or receptionist.username
+        return receptionist.username
 
     def get_customer_type(self, obj):
         payload = enrich_lab_bill_payload(obj.payload)

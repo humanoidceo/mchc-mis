@@ -353,7 +353,7 @@ export function PrintDocument({ document }: { document: ClinicalDocument }) {
           <div>
             <p className="text-sm font-medium text-sky-600">AFZENDA</p>
             <h2 className="text-xl font-semibold">Mother and Child Health Support Center</h2>
-            <p className="text-sm text-zinc-600">Maternal care record</p>
+            <p className="text-sm text-zinc-600">Midwifery record</p>
           </div>
         </header>
 
@@ -532,6 +532,7 @@ export function PrintPaymentBill({ payment, printedBy }: { payment: Payment; pri
         <p>Patient ID: <strong>{payment.patient}</strong></p>
         <p>Age: <strong>{formatPaymentAge(payment.patient_age, payment.patient_age_unit)}</strong></p>
         <p>Department: <strong>{payment.department || payment.service}</strong></p>
+        <p>Doctor: <strong>{payment.doctor_name || 'Not assigned'}</strong></p>
         <p>Payment: <strong>{isFree ? 'Free' : isDiscount ? `Discount (${payment.discount_percentage}%)` : 'Full payment'}</strong></p>
         <p>Fee: <strong>{formatReceiptAmount(payment.doctor_fee)} AFN</strong></p>
         {isDiscount || isFree ? <p>Discount: <strong>{formatReceiptAmount(isFree ? payment.doctor_fee : payment.discount_amount)} AFN</strong></p> : null}
@@ -542,7 +543,7 @@ export function PrintPaymentBill({ payment, printedBy }: { payment: Payment; pri
 
       {payment.notes ? <p className="mt-3 text-sm"><strong>Notes:</strong> {payment.notes}</p> : null}
 
-      <BillReceiptNote receivedFrom={payment.created_by_name || printedBy} amount={isFree ? '0' : formatReceiptAmount(payment.amount)} />
+      <BillReceiptNote receivedFrom={payment.created_by_username || printedBy} amount={isFree ? '0' : formatReceiptAmount(payment.amount)} />
     </section>
   )
 }

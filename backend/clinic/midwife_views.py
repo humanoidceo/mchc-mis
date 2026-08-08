@@ -121,7 +121,7 @@ class MidwifePatientViewSet(viewsets.ViewSet):
 
         queryset = Patient.objects.order_by('-created_at')
         if request.query_params.get('all') not in {'1', 'true', 'yes'}:
-            queryset = queryset.filter(payments__department__iexact='Maternal care').distinct()
+            queryset = queryset.filter(payments__department__iexact='Midwifery').distinct()
         if search:
             queryset = queryset.filter(
                 models.Q(registration_number__icontains=search)
@@ -152,7 +152,7 @@ class MidwifeBillingViewSet(viewsets.ViewSet):
     def _queryset(self, request):
         return Payment.objects.select_related('patient').filter(
             created_by=request.user,
-            department='Maternal care',
+            department='Midwifery',
             notes__startswith='Midwife procedure:',
         ).order_by('-created_at')
 
@@ -211,7 +211,7 @@ class MidwifeBillingViewSet(viewsets.ViewSet):
         payment = Payment.objects.create(
             patient=patient,
             service=MIDWIFE_BILLING_PROCEDURES[procedure],
-            department='Maternal care',
+            department='Midwifery',
             doctor_name='',
             patient_age=patient.age,
             patient_age_unit=patient.age_unit,

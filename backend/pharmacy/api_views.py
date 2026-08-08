@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING
 from io import BytesIO
 from xml.sax.saxutils import escape
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -18,7 +18,7 @@ from rest_framework.response import Response
 from accounts.access import user_has_permission
 from accounts.permissions import Role
 from accounts.trash import cleanup_expired_trash, soft_delete_instance
-from clinic.models import ClinicalDocument, Patient, Payment, round_up_to_ten
+from clinic.models import ClinicalDocument, Patient, Payment
 from clinic.serializers import ClinicalDocumentSerializer
 from config.pagination import StandardResultsSetPagination
 
@@ -301,11 +301,18 @@ def pharmacy_bill_total(sale: Sale) -> Decimal:
     return sum((item.total_price for item in sale.items.all()), Decimal("0.00"))
 
 
+def round_up_to_five(value: Decimal) -> Decimal:
+    value = money(value)
+    if value <= 0:
+        return Decimal("0.00")
+    return (value / Decimal("5")).quantize(Decimal("1"), rounding=ROUND_CEILING) * Decimal("5")
+
+
 def pharmacy_payment_amounts(total: Decimal, payment_type: str, discount_percentage: Decimal):
     if payment_type == Payment.PaymentType.DISCOUNT:
         discount_amount = money(total * discount_percentage / Decimal("100"))
-        return discount_percentage, discount_amount, round_up_to_ten(money(total - discount_amount))
-    return Decimal("0.00"), Decimal("0.00"), round_up_to_ten(total)
+        return discount_percentage, discount_amount, round_up_to_five(money(total - discount_amount))
+    return Decimal("0.00"), Decimal("0.00"), round_up_to_five(total)
 
 
 def summarize_sales(sales_queryset, default_profit_percentage: Decimal):

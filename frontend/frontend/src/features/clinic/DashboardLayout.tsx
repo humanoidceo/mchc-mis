@@ -15,6 +15,7 @@ import { WebsiteContentEditorPage } from '../website/WebsiteContentEditorPage'
 import { TrashBinPage } from '../trash/TrashBinPage'
 import { ClinicWorkspace } from './ClinicWorkspace'
 import { DatabaseBackupPage } from './DatabaseBackupPage'
+import { DoctorDepartmentPage } from './DoctorDepartmentPage'
 import { SectionHeader } from '../../components/ui'
 
 const common = {
@@ -32,6 +33,7 @@ const layoutText = {
   dashboard: 'Dashboard',
   patients: 'Patients',
   reception: 'Reception',
+  doctorDepartments: 'Doctor departments',
   report: 'Report',
   expenses: 'Expenses',
   salaries: 'Salaries',
@@ -55,6 +57,7 @@ export function DashboardLayout() {
     { to: '/dashboard', label: layoutText.dashboard, permission: null, icon: LayoutDashboard },
     { to: '/patients', label: layoutText.patients, permission: 'patients.view', icon: Users },
     { to: '/payments', label: layoutText.reception, permission: 'payments.view', icon: ReceiptText },
+    { to: '/doctor-departments', label: layoutText.doctorDepartments, permission: 'patients.register', icon: Users },
     { to: '/reception-report', label: layoutText.report, permission: 'payments.view', icon: FileText },
     { to: '/expenses', label: layoutText.expenses, permission: 'expenses.manage', icon: Wallet },
     { to: '/salaries', label: layoutText.salaries, permission: 'expenses.manage', icon: Wallet },
@@ -173,6 +176,7 @@ export function DashboardLayout() {
             <Route path="/dashboard" element={<ClinicWorkspace view="dashboard" />} />
             <Route path="/patients" element={<ClinicWorkspace view="patients" />} />
             <Route path="/payments" element={<ClinicWorkspace view="payments" />} />
+            <Route path="/doctor-departments" element={<DoctorDepartmentPage />} />
             <Route path="/reception-report" element={<ClinicWorkspace view="reception-report" />} />
             <Route path="/expenses" element={<ClinicWorkspace view="expenses" />} />
             <Route path="/salaries" element={<ClinicWorkspace view="salaries" />} />

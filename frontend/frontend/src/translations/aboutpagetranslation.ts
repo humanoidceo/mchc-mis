@@ -8,7 +8,7 @@ export const aboutPageTranslation: Localized<AboutPageTranslation> = {
       {
         title: 'General information',
         paragraphs: [
-          'MCHC is a non-profit health center established to provide health and humanitarian services in maternal health, newborn care, child health, and general health services.',
+          'MCHC is a non-profit health center established to provide health and humanitarian services in maternal health, newborn care, child health, and OPD services.',
           'The center operates under the Afghan Zemina Educational Services and Development Assistance Organization (AFZENDA), a non-governmental and non-profit organization registered with the Ministry of Economy.',
         ],
       },
@@ -29,7 +29,7 @@ export const aboutPageTranslation: Localized<AboutPageTranslation> = {
       {
         title: 'معلومات عمومی',
         paragraphs: [
-          'مرکز حمایه صحت طفل و مادر یک مرکز صحی غیرانتفاعی است که برای ارائه خدمات صحی و بشردوستانه در بخش صحت مادر، نوزاد، طفل و خدمات صحی عمومی ایجاد شده است.',
+          'مرکز حمایه صحت طفل و مادر یک مرکز صحی غیرانتفاعی است که برای ارائه خدمات صحی و بشردوستانه در بخش صحت مادر، نوزاد، طفل و خدمات OPD ایجاد شده است.',
           'این مرکز تحت چتر مؤسسه خدمات تعلیمی و معاونت انکشافی افغان زمین (AFZENDA) فعالیت می‌نماید؛ نهادی غیر دولتی و غیرانتفاعی که در وزارت اقتصاد ثبت و راجستر است.',
         ],
       },
@@ -50,7 +50,7 @@ export const aboutPageTranslation: Localized<AboutPageTranslation> = {
       {
         title: 'عمومي معلومات',
         paragraphs: [
-          'MCHC یو غیرانتفاعي روغتیايي مرکز دی چې د میندو روغتیا، نویو زېږېدلو ماشومانو پاملرنې، ماشومانو روغتیا او عمومي روغتیايي خدماتو لپاره جوړ شوی دی.',
+          'MCHC یو غیرانتفاعي روغتیايي مرکز دی چې د میندو روغتیا، نویو زېږېدلو ماشومانو پاملرنې، ماشومانو روغتیا او د OPD خدماتو لپاره جوړ شوی دی.',
           'دا مرکز د افغان زمین د تعلیمي خدماتو او پرمختیايي مرستو مؤسسې (AFZENDA) تر چتر لاندې فعالیت کوي؛ AFZENDA یوه غیر دولتي او غیرانتفاعي اداره ده چې د اقتصاد وزارت سره ثبت ده.',
         ],
       },

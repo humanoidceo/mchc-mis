@@ -5,6 +5,7 @@ from .views import (
     ClinicalDocumentViewSet,
     DashboardViewSet,
     database_backup,
+    DoctorDepartmentAssignmentViewSet,
     ExpenseViewSet,
     LabTestViewSet,
     MedicineStockMovementViewSet,
@@ -27,6 +28,7 @@ from .malnutrition_views import MalnutritionDashboardViewSet, MalnutritionPatien
 
 router = DefaultRouter()
 router.register('dashboard', DashboardViewSet, basename='dashboard')
+router.register('doctor-departments', DoctorDepartmentAssignmentViewSet, basename='doctor-departments')
 router.register('patients', PatientViewSet, basename='patients')
 router.register('payments', PaymentViewSet, basename='payments')
 router.register('expenses', ExpenseViewSet, basename='expenses')
