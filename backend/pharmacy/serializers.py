@@ -192,6 +192,7 @@ class PharmacyDashboardSerializer(serializers.Serializer):
     approved_reception_amount = serializers.DecimalField(max_digits=14, decimal_places=2)
     stock_units = serializers.DecimalField(max_digits=14, decimal_places=2)
     inventory_value = serializers.DecimalField(max_digits=14, decimal_places=2)
+    inventory_sale_value = serializers.DecimalField(max_digits=14, decimal_places=2)
     total_billed = serializers.DecimalField(max_digits=14, decimal_places=2)
     sold_medicines_total = serializers.DecimalField(max_digits=14, decimal_places=2)
     sold_medicines_profit = serializers.DecimalField(max_digits=14, decimal_places=2)

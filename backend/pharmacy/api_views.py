@@ -545,6 +545,8 @@ class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
         free_amount = period_sales.filter(payment__payment_type=Payment.PaymentType.FREE).aggregate(total=Sum("payment__amount"))["total"] or Decimal("0.00")
         pending_reception_amount = period_sales.filter(payment__status=Payment.Status.PENDING).aggregate(total=Sum("payment__amount"))["total"] or Decimal("0.00")
         approved_reception_amount = period_sales.filter(payment__status=Payment.Status.APPROVED).aggregate(total=Sum("payment__amount"))["total"] or Decimal("0.00")
+        sold_medicines_final_amount = period_sales.aggregate(total=Sum("payment__amount"))["total"] or Decimal("0.00")
+        sold_medicines_final_profit = money(sold_medicines_final_amount - sales_summary["sold_medicines_price"])
 
         serializer = self.get_serializer(
             {
@@ -573,9 +575,10 @@ class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
                 "approved_reception_amount": approved_reception_amount,
                 "stock_units": inventory_summary["stock_units"],
                 "inventory_value": inventory_summary["inventory_value_cost"],
+                "inventory_sale_value": inventory_summary["inventory_value_sale"],
                 "total_billed": sales_summary["total_billed"],
-                "sold_medicines_total": sales_summary["total_billed"],
-                "sold_medicines_profit": sales_summary["sold_medicines_profit"],
+                "sold_medicines_total": sold_medicines_final_amount,
+                "sold_medicines_profit": sold_medicines_final_profit,
                 "sold_medicines_price": sales_summary["sold_medicines_price"],
                 "family_planning_items_dispensed": family_planning_items_dispensed,
                 "patient_trend": patient_trend,
@@ -618,6 +621,8 @@ class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
 
         inventory_summary = summarize_inventory(medicines)
         sales_summary = summarize_sales(sales, setting.default_profit_percentage)
+        sold_final_amount = sales.aggregate(total=Sum("payment__amount"))["total"] or Decimal("0.00")
+        sold_final_profit = money(sold_final_amount - sales_summary["sold_medicines_price"])
 
         return Response(
             {
@@ -625,9 +630,9 @@ class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
                 "to": to_date.isoformat(),
                 "sales_count": sales.count(),
                 "sold_quantity": str(sales_summary["sold_quantity"]),
-                "sold_amount": str(sales_summary["total_billed"]),
+                "sold_amount": str(sold_final_amount),
                 "sold_cost_amount": str(sales_summary["sold_medicines_price"]),
-                "sold_profit_amount": str(sales_summary["sold_medicines_profit"]),
+                "sold_profit_amount": str(sold_final_profit),
                 "available_medicines_count": inventory_summary["available_medicines_count"],
                 "stock_units": str(inventory_summary["stock_units"]),
                 "stock_value_cost": str(inventory_summary["inventory_value_cost"]),

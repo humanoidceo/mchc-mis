@@ -78,6 +78,7 @@ const emptyDashboard: PharmacyDashboardStats = {
   approved_reception_amount: '0.00',
   stock_units: '0.00',
   inventory_value: '0.00',
+  inventory_sale_value: '0.00',
   total_billed: '0.00',
   sold_medicines_total: '0.00',
   sold_medicines_profit: '0.00',
@@ -658,7 +659,7 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
     }
   }, [period, recentSalesPage, fromDate, toDate])
 
-  const statCards = [
+  const statCards: Array<{ label: string; value: string | number; amount?: string; detail?: string; secondaryLabel?: string; secondaryAmount?: string; tone: string }> = [
     { label: 'Medicines registered', value: report.medicines_registered_count ?? 0, detail: report.period_label, tone: 'border-lime-100 bg-lime-50 text-lime-700' },
     { label: 'Internal patients', value: report.internal_patients, amount: report.internal_amount, tone: 'border-sky-100 bg-sky-50 text-sky-700' },
     { label: 'External patients', value: report.external_patients, amount: report.external_amount, tone: 'border-cyan-100 bg-cyan-50 text-cyan-700' },
@@ -667,7 +668,7 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
     { label: 'Free', value: report.free, amount: report.free_amount, tone: 'border-rose-100 bg-rose-50 text-rose-700' },
     { label: 'Reception pending', value: report.pending_reception_payments, amount: report.pending_reception_amount, tone: 'border-amber-100 bg-amber-50 text-amber-700' },
     { label: 'Reception approved', value: report.approved_reception_payments, amount: report.approved_reception_amount, tone: 'border-teal-100 bg-teal-50 text-teal-700' },
-    { label: 'Medicine stock value', value: report.period_label, amount: report.inventory_value, tone: 'border-fuchsia-100 bg-fuchsia-50 text-fuchsia-700' },
+    { label: 'Medicine stock value', value: 'Based on buy price', amount: report.inventory_value, secondaryLabel: 'Sell price', secondaryAmount: report.inventory_sale_value, tone: 'border-fuchsia-100 bg-fuchsia-50 text-fuchsia-700' },
   ]
 
   return (
@@ -701,8 +702,9 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
         {statCards.map((card) => (
           <div key={card.label} className={`rounded-md border p-4 shadow-sm ${card.tone}`}>
             <p className="text-xs font-semibold uppercase tracking-wide opacity-80">{card.label}</p>
-            <p className="mt-3 text-3xl font-semibold text-slate-950">{card.value}</p>
+            <p className={`mt-3 font-semibold text-slate-950 ${card.secondaryAmount !== undefined ? 'text-base' : 'text-3xl'}`}>{card.value}</p>
             {card.amount !== undefined ? <p className="mt-2 text-sm font-medium text-slate-700">{formatMoneyAfn(card.amount)}</p> : null}
+            {card.secondaryAmount !== undefined ? <p className="mt-2 text-sm font-medium text-slate-700">{card.secondaryLabel}: {formatMoneyAfn(card.secondaryAmount)}</p> : null}
             {card.detail !== undefined ? <p className="mt-2 text-sm font-medium text-slate-700">{card.detail}</p> : null}
           </div>
         ))}

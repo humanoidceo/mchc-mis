@@ -569,6 +569,7 @@ export type PharmacyDashboardStats = {
   approved_reception_amount: string
   stock_units: string
   inventory_value: string
+  inventory_sale_value: string
   total_billed: string
   sold_medicines_total: string
   sold_medicines_profit: string
