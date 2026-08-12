@@ -16,6 +16,7 @@ EXPENSE_CATEGORIES = [
     'equipments',
     'electricity',
     'internet',
+    'mobile credit',
     'building rent',
     'water',
     'Subsistence(eaasha)',

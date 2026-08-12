@@ -96,7 +96,7 @@ const documentTemplates: Record<DocumentType, Record<string, unknown>> = {
   rutf: { items: [{ name: 'RUTF sachets', quantity: 14, notes: 'One week supply' }] },
 }
 
-const departmentOptions = ['Midwifery', 'Pediatrics', 'OPD', 'Gynecology', 'Emergency', 'Laboratory', 'Ultrasound', 'Vaccination', 'Malnutrition']
+const departmentOptions = ['Midwifery', 'Pediatrics', 'OPD', 'Gynecology', 'Psychology', 'Emergency', 'Laboratory', 'Ultrasound', 'Vaccination', 'Malnutrition']
 const freeDepartments = new Set(['vaccination', 'malnutrition'])
 const receptionDoctorDepartments = new Set(['midwifery', 'ultrasound', 'opd', 'pediatrics', 'gynecology'])
 const dashboardPeriodOptions: Array<{ value: DashboardStats['period']; label: string }> = [
