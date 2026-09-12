@@ -9,6 +9,8 @@ export type NavItemTranslation = {
   vision: string
   services: string
   contact: string
+  posts: string
+  gallery: string
 }
 
 export type CommonTranslation = {

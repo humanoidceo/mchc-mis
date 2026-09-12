@@ -15,7 +15,7 @@ from django.utils.dateparse import parse_date
 from django.db import transaction
 from django.db.models import Count, F, Q, Sum
 from django.db.models.functions import TruncDate, TruncMonth
-from rest_framework import serializers, status, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -27,7 +27,7 @@ from accounts.models import Employee, StaffProfile
 from accounts.permissions import Role
 from config.pagination import StandardResultsSetPagination
 from pharmacy.models import Medicine as PharmacyMedicine
-from .models import AuditLog, CashBankTransaction, ClinicalDocument, DoctorDepartmentAssignment, Expense, ExpenseCategory, ExpenseSubcategory, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, WebsitePageContent, WebsiteSettings
+from .models import AuditLog, CashBankTransaction, ClinicalDocument, DoctorDepartmentAssignment, Expense, ExpenseCategory, ExpenseSubcategory, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, WebsiteGalleryImage, WebsitePageContent, WebsitePost, WebsitePostImage, WebsiteSettings
 from .salary_rules import AFGHAN_MONTHS, current_afghan_date, money
 from .serializers import (
     ClinicalDocumentSerializer,
@@ -46,7 +46,10 @@ from .serializers import (
     SalaryAdvanceSerializer,
     SalaryPaymentSerializer,
     WebsitePageContentSerializer,
+    WebsiteGalleryImageSerializer,
+    WebsitePostSerializer,
     WebsiteSettingsSerializer,
+    compress_website_post_image,
 )
 
 
@@ -1965,6 +1968,95 @@ class WebsiteSettingsViewSet(viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save(updated_by=request.user)
         return Response(serializer.data)
+
+
+class WebsitePostViewSet(viewsets.ModelViewSet):
+    queryset = WebsitePost.objects.select_related('created_by', 'updated_by').prefetch_related('images')
+    serializer_class = WebsitePostSerializer
+    parser_classes = (JSONParser, FormParser, MultiPartParser)
+    pagination_class = None
+
+    def get_permissions(self):
+        if self.action == 'public':
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        if self.action != 'public' and not user_has_permission(request.user, 'website.content.manage'):
+            self.permission_denied(request, message='Missing permission: website.content.manage')
+
+    @action(detail=False, methods=['get'], url_path='public')
+    def public(self, request):
+        paginator = StandardResultsSetPagination()
+        page = paginator.paginate_queryset(self.get_queryset(), request, view=self)
+        serializer = self.get_serializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
+    def perform_create(self, serializer):
+        photos = [compress_website_post_image(photo) for photo in self.request.FILES.getlist('images')]
+        with transaction.atomic():
+            post = serializer.save(created_by=self.request.user, updated_by=self.request.user)
+            for photo in photos:
+                WebsitePostImage.objects.create(post=post, image=photo)
+
+    def perform_update(self, serializer):
+        photos = [compress_website_post_image(photo) for photo in self.request.FILES.getlist('images')]
+        with transaction.atomic():
+            post = serializer.save(updated_by=self.request.user)
+            for photo in photos:
+                WebsitePostImage.objects.create(post=post, image=photo)
+
+    @action(detail=True, methods=['delete'], url_path=r'images/(?P<image_id>[^/.]+)')
+    def delete_image(self, request, pk=None, image_id=None):
+        post = self.get_object()
+        try:
+            image = post.images.get(pk=image_id)
+        except WebsitePostImage.DoesNotExist:
+            raise serializers.ValidationError({'image': 'Photo not found.'})
+        image.image.delete(save=False)
+        image.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def perform_destroy(self, instance):
+        for image in instance.images.all():
+            image.image.delete(save=False)
+        instance.delete()
+
+
+class WebsiteGalleryViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.DestroyModelMixin):
+    queryset = WebsiteGalleryImage.objects.select_related('uploaded_by')
+    serializer_class = WebsiteGalleryImageSerializer
+    parser_classes = (JSONParser, FormParser, MultiPartParser)
+    pagination_class = None
+
+    def get_permissions(self):
+        if self.action == 'public':
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        if self.action != 'public' and not user_has_permission(request.user, 'website.content.manage'):
+            self.permission_denied(request, message='Missing permission: website.content.manage')
+
+    @action(detail=False, methods=['get'], url_path='public')
+    def public(self, request):
+        return Response(self.get_serializer(self.get_queryset(), many=True).data)
+
+    @action(detail=False, methods=['post'], url_path='upload')
+    def upload(self, request):
+        photos = request.FILES.getlist('images')
+        if not photos:
+            raise serializers.ValidationError({'images': 'Select one or more photos.'})
+        compressed_photos = [compress_website_post_image(photo) for photo in photos]
+        with transaction.atomic():
+            images = [WebsiteGalleryImage.objects.create(image=photo, uploaded_by=request.user) for photo in compressed_photos]
+        return Response(self.get_serializer(images, many=True).data, status=status.HTTP_201_CREATED)
+
+    def perform_destroy(self, instance):
+        instance.image.delete(save=False)
+        instance.delete()
 
 
 class PrivateDocumentViewSet(PermissionedModelViewSet):

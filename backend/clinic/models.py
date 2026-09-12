@@ -515,6 +515,14 @@ def website_logo_upload_path(instance, filename: str) -> str:
     return f'website/logo/{filename}'
 
 
+def website_post_image_upload_path(instance, filename: str) -> str:
+    return f'website/posts/{instance.post_id}/{filename}'
+
+
+def website_gallery_image_upload_path(instance, filename: str) -> str:
+    return f'website/gallery/{filename}'
+
+
 def private_document_upload_path(instance, filename: str) -> str:
     return f'private-documents/{instance.category or "general"}/{filename}'
 
@@ -572,6 +580,57 @@ class WebsiteSettings(TimestampedModel):
 
     def __str__(self) -> str:
         return 'Website settings'
+
+
+class WebsitePost(TimestampedModel):
+    title_en = models.CharField(max_length=240)
+    title_fa = models.CharField(max_length=240)
+    title_ps = models.CharField(max_length=240)
+    content_en = models.TextField()
+    content_fa = models.TextField()
+    content_ps = models.TextField()
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='created_website_posts',
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='updated_website_posts',
+    )
+
+    class Meta:
+        ordering = ('-created_at', '-id')
+
+    def __str__(self) -> str:
+        return self.title_en
+
+
+class WebsitePostImage(TimestampedModel):
+    post = models.ForeignKey(WebsitePost, on_delete=models.CASCADE, related_name='images')
+    image = models.FileField(upload_to=website_post_image_upload_path)
+
+    class Meta:
+        ordering = ('created_at', 'id')
+
+
+class WebsiteGalleryImage(TimestampedModel):
+    image = models.FileField(upload_to=website_gallery_image_upload_path)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='uploaded_website_gallery_images',
+    )
+
+    class Meta:
+        ordering = ('-created_at', '-id')
 
 
 class PrivateDocument(TimestampedModel, SoftDeleteModel):

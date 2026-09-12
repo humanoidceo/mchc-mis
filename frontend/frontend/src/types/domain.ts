@@ -587,6 +587,38 @@ export type WebsitePageContent = {
   updated_by_name: string
 }
 
+export type WebsitePostImage = {
+  id: number
+  image: string
+  image_url: string
+  file_size_bytes: number
+  created_at: string
+}
+
+export type WebsitePost = {
+  id: number
+  title_en: string
+  title_fa: string
+  title_ps: string
+  content_en: string
+  content_fa: string
+  content_ps: string
+  images: WebsitePostImage[]
+  created_by_name: string
+  updated_by_name: string
+  created_at: string
+  updated_at: string
+}
+
+export type WebsiteGalleryImage = {
+  id: number
+  image: string
+  image_url: string
+  file_size_bytes: number
+  uploaded_by_name: string
+  created_at: string
+}
+
 export type PharmacySetting = {
   id: number
   pharmacy_name: string

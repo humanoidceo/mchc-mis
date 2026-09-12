@@ -1,18 +1,22 @@
 import json
+from io import BytesIO
 from pathlib import Path
 from decimal import Decimal, ROUND_HALF_UP
 
+from django.core.files.base import ContentFile
 from django.db import transaction
 from django.db.models import Sum
 from rest_framework import serializers
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from accounts.permissions import Role
-from .models import AuditLog, CashBankTransaction, ClinicalDocument, DoctorDepartmentAssignment, Expense, ExpenseCategory, ExpenseSubcategory, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, VehicleExpenseDetails, WebsitePageContent, WebsiteSettings, round_up_to_ten
+from .models import AuditLog, CashBankTransaction, ClinicalDocument, DoctorDepartmentAssignment, Expense, ExpenseCategory, ExpenseSubcategory, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, VehicleExpenseDetails, WebsiteGalleryImage, WebsitePageContent, WebsitePost, WebsitePostImage, WebsiteSettings, round_up_to_ten
 from .salary_rules import AFGHAN_MONTHS, calculate_afghanistan_salary_tax, current_afghan_date
 
 
 MONEY_QUANT = Decimal('0.01')
 MAX_WEBSITE_IMAGE_SIZE = 8 * 1024 * 1024
+MAX_WEBSITE_POST_IMAGE_SIZE = 1024 * 1024
 ALLOWED_WEBSITE_IMAGE_EXTENSIONS = {'.avif', '.gif', '.heic', '.jpeg', '.jpg', '.png', '.webp'}
 ALLOWED_PRIVATE_DOCUMENT_EXTENSIONS = {'.docx', '.pdf', '.png', '.jpg', '.jpeg'}
 ALLOWED_CASH_BANK_SLIP_EXTENSIONS = {'.pdf', '.png', '.jpg', '.jpeg', '.webp'}
@@ -34,6 +38,43 @@ def validate_website_image_file(file):
     if file.size > MAX_WEBSITE_IMAGE_SIZE:
         raise serializers.ValidationError('Image files must be 8 MB or smaller.')
     return file
+
+
+def compress_website_post_image(file):
+    """Return an upload smaller than 1 MB, converting only oversized files to JPEG."""
+    extension = Path(file.name).suffix.lower()
+    if extension not in {'.jpeg', '.jpg', '.png', '.webp'}:
+        raise serializers.ValidationError('Website post photos must be JPG, PNG, or WEBP images.')
+    if getattr(file, 'content_type', '') and not file.content_type.startswith('image/'):
+        raise serializers.ValidationError('Upload an image file.')
+    if file.size <= MAX_WEBSITE_POST_IMAGE_SIZE:
+        return file
+
+    try:
+        source = Image.open(file)
+        source = ImageOps.exif_transpose(source)
+        if source.mode != 'RGB':
+            background = Image.new('RGB', source.size, 'white')
+            if source.mode == 'RGBA':
+                background.paste(source, mask=source.getchannel('A'))
+            else:
+                background.paste(source.convert('RGB'))
+            source = background
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise serializers.ValidationError('This photo could not be processed.') from exc
+
+    for scale in (1, 0.85, 0.7, 0.55, 0.4):
+        image = source if scale == 1 else source.resize(
+            (max(1, int(source.width * scale)), max(1, int(source.height * scale))),
+            Image.Resampling.LANCZOS,
+        )
+        for quality in (85, 75, 65, 55, 45):
+            output = BytesIO()
+            image.save(output, format='JPEG', quality=quality, optimize=True)
+            if output.tell() < MAX_WEBSITE_POST_IMAGE_SIZE:
+                filename = f'{Path(file.name).stem}.jpg'
+                return ContentFile(output.getvalue(), name=filename)
+    raise serializers.ValidationError('This photo could not be compressed below 1 MB. Please use a smaller photo.')
 
 
 def validate_private_document_file(file, *, max_size_mb: Decimal):
@@ -919,6 +960,77 @@ class WebsiteSettingsSerializer(serializers.ModelSerializer):
 
     def get_updated_by_name(self, obj) -> str:
         return obj.updated_by.get_full_name() if obj.updated_by else ''
+
+
+class WebsitePostImageSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+    file_size_bytes = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WebsitePostImage
+        fields = ('id', 'image', 'image_url', 'file_size_bytes', 'created_at')
+        read_only_fields = fields
+
+    def get_image_url(self, obj) -> str:
+        request = self.context.get('request')
+        if not obj.image:
+            return ''
+        url = obj.image.url
+        return request.build_absolute_uri(url) if request else url
+
+    def get_file_size_bytes(self, obj) -> int:
+        return int(obj.image.size) if obj.image else 0
+
+
+class WebsitePostSerializer(serializers.ModelSerializer):
+    images = WebsitePostImageSerializer(many=True, read_only=True)
+    created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
+    updated_by_name = serializers.CharField(source='updated_by.get_full_name', read_only=True)
+
+    class Meta:
+        model = WebsitePost
+        fields = (
+            'id',
+            'title_en', 'title_fa', 'title_ps',
+            'content_en', 'content_fa', 'content_ps',
+            'images',
+            'created_by', 'created_by_name',
+            'updated_by', 'updated_by_name',
+            'created_at', 'updated_at',
+        )
+        read_only_fields = ('created_by', 'updated_by', 'created_at', 'updated_at')
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        errors = {}
+        for field in ('title_en', 'title_fa', 'title_ps', 'content_en', 'content_fa', 'content_ps'):
+            value = attrs.get(field, getattr(self.instance, field, ''))
+            if not str(value or '').strip():
+                errors[field] = 'This language is required.'
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+
+class WebsiteGalleryImageSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+    file_size_bytes = serializers.SerializerMethodField()
+    uploaded_by_name = serializers.CharField(source='uploaded_by.get_full_name', read_only=True)
+
+    class Meta:
+        model = WebsiteGalleryImage
+        fields = ('id', 'image', 'image_url', 'file_size_bytes', 'uploaded_by_name', 'created_at')
+        read_only_fields = fields
+
+    def get_image_url(self, obj) -> str:
+        request = self.context.get('request')
+        if not obj.image:
+            return ''
+        url = obj.image.url
+        return request.build_absolute_uri(url) if request else url
+
+    def get_file_size_bytes(self, obj) -> int:
+        return int(obj.image.size) if obj.image else 0
 
 
 class PrivateDocumentSerializer(serializers.ModelSerializer):

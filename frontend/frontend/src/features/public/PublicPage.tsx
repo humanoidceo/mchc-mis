@@ -2,11 +2,10 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 
 import { apiFetch } from '../../api/client'
-import aboutMotherChildImage from '../../assets/afghan-mother-child-about.png'
-import homeMotherChildImage from '../../assets/afghan-mother-child-home.png'
-import missionMotherChildImage from '../../assets/afghan-mother-child-mission.png'
-import servicesMotherChildImage from '../../assets/afghan-mother-child-services.png'
-import visionMotherChildImage from '../../assets/afghan-mother-child-vision.png'
+import aboutMotherChildImage from '../../assets/afghan-mother-child-about.webp'
+import missionMotherChildImage from '../../assets/afghan-mother-child-mission.webp'
+import servicesMotherChildImage from '../../assets/afghan-mother-child-services.webp'
+import visionMotherChildImage from '../../assets/afghan-mother-child-vision.webp'
 import { aboutPageTranslation } from '../../translations/aboutpagetranslation'
 import { commonTranslation } from '../../translations/commontranslation'
 import { contactPageTranslation } from '../../translations/contactpagetranslation'
@@ -15,10 +14,10 @@ import { missionPageTranslation } from '../../translations/missionpagetranslatio
 import { servicesPageTranslation } from '../../translations/servicespagetranslation'
 import type { LanguageCode } from '../../translations/types'
 import { visionPageTranslation } from '../../translations/visionpagetranslation'
-import type { WebsitePageContent, WebsitePageKey, WebsiteSettings } from '../../types/domain'
+import type { PaginatedResponse, WebsiteGalleryImage, WebsitePageContent, WebsitePageKey, WebsitePost, WebsiteSettings } from '../../types/domain'
 
 type PublicPageProps = {
-  page: WebsitePageKey
+  page: WebsitePageKey | 'posts' | 'gallery'
 }
 
 const languageOptions: Array<{ code: LanguageCode; label: string }> = [
@@ -29,6 +28,8 @@ const languageOptions: Array<{ code: LanguageCode; label: string }> = [
 
 const navItems = [
   { to: '/', key: 'home' },
+  { to: '/posts', key: 'posts' },
+  { to: '/gallery', key: 'gallery' },
   { to: '/about', key: 'about' },
   { to: '/mission', key: 'mission' },
   { to: '/vision', key: 'vision' },
@@ -37,7 +38,7 @@ const navItems = [
 ] as const
 
 const defaultImages: Record<WebsitePageKey, string> = {
-  home: homeMotherChildImage,
+  home: '',
   about: aboutMotherChildImage,
   mission: missionMotherChildImage,
   vision: visionMotherChildImage,
@@ -116,6 +117,8 @@ export function PublicPage({ page }: PublicPageProps) {
       {page === 'vision' ? <VisionPage language={language} pageContent={websiteContent.vision} /> : null}
       {page === 'services' ? <ServicesPage language={language} pageContent={websiteContent.services} /> : null}
       {page === 'contact' ? <ContactPage language={language} pageContent={websiteContent.contact} /> : null}
+      {page === 'posts' ? <PublicPostsPage language={language} /> : null}
+      {page === 'gallery' ? <PublicGalleryPage language={language} /> : null}
       <WebsiteFooter common={common} />
     </main>
   )
@@ -208,11 +211,11 @@ function HomePage({ language, pageContent }: { language: LanguageCode; pageConte
   return (
     <>
       <section className="relative min-h-[calc(100vh-5rem)] overflow-hidden bg-slate-950">
-        <img
+        {imageUrl ? <img
           src={imageUrl}
           alt="Afghan mother sitting with her young child in a community health clinic"
           className="absolute inset-0 h-full w-full object-cover object-[64%_center]"
-        />
+        /> : null}
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(2,6,23,0.95)_0%,rgba(12,74,110,0.72)_42%,rgba(2,6,23,0.12)_100%)]" />
         <div className="absolute inset-x-0 bottom-0 h-40 bg-[linear-gradient(0deg,#ffffff_0%,rgba(255,255,255,0)_100%)]" />
 
@@ -409,6 +412,115 @@ function ContactPage({ language, pageContent }: { language: LanguageCode; pageCo
             <button type="button" className="rounded bg-sky-500 px-5 py-3 font-semibold text-white shadow-sm shadow-sky-200 hover:bg-sky-600">{text.placeholders.submit}</button>
           </form>
         </InfoCard>
+      </div>
+    </ContentShell>
+  )
+}
+
+function PublicPostsPage({ language }: { language: LanguageCode }) {
+  const [posts, setPosts] = useState<WebsitePost[]>([])
+  const [page, setPage] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    let ignore = false
+    setLoading(true)
+    setError(false)
+    apiFetch<PaginatedResponse<WebsitePost>>(`/website-posts/public/?page=${page}`)
+      .then((response) => {
+        if (!ignore) {
+          setPosts(response.results)
+          setTotalCount(response.count)
+        }
+      })
+      .catch(() => {
+        if (!ignore) setError(true)
+      })
+      .finally(() => {
+        if (!ignore) setLoading(false)
+      })
+    return () => {
+      ignore = true
+    }
+  }, [page])
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / 10))
+  const title = language === 'fa' ? 'مطالب' : language === 'ps' ? 'لیکنې' : 'Website posts'
+  const subtitle = language === 'fa' ? 'تازه‌ترین مطالب مرکز حمایه صحت طفل و مادر' : language === 'ps' ? 'د مور او ماشوم د روغتیا ملاتړ مرکز وروستۍ لیکنې' : 'Latest news and updates from Mother and Child Health Support Center'
+
+  function localized(post: WebsitePost, field: 'title' | 'content'): string {
+    const suffix = language === 'fa' ? 'fa' : language === 'ps' ? 'ps' : 'en'
+    return post[`${field}_${suffix}` as keyof WebsitePost] as string
+  }
+
+  return (
+    <ContentShell eyebrow="MCHC" title={title}>
+      <p className="max-w-3xl text-lg leading-8 text-slate-600">{subtitle}</p>
+      {loading ? <p className="mt-8 text-slate-500">Loading posts...</p> : null}
+      {error ? <p className="mt-8 rounded-2xl border border-red-100 bg-red-50 p-4 text-red-700">Posts could not be loaded right now.</p> : null}
+      {!loading && !error && !posts.length ? <p className="mt-8 rounded-2xl border border-sky-100 bg-sky-50 p-6 text-slate-600">No posts have been published yet.</p> : null}
+      <div className="mt-8 grid gap-6">
+        {posts.map((post) => (
+          <article key={post.id} className="overflow-hidden rounded-3xl border border-sky-100 bg-white shadow-sm shadow-sky-100/70">
+            {post.images.length ? <div className={`grid gap-1 ${post.images.length === 1 ? 'grid-cols-1' : 'grid-cols-2 md:grid-cols-3'}`}>{post.images.map((image) => <img key={image.id} src={image.image_url} alt={localized(post, 'title')} className="h-56 w-full object-cover md:h-72" loading="lazy" />)}</div> : null}
+            <div className="p-6 md:p-8">
+              <p className="text-sm font-semibold text-pink-600">{new Date(post.created_at).toLocaleDateString()}</p>
+              <h2 className="mt-3 text-2xl font-bold text-slate-950 md:text-3xl">{localized(post, 'title')}</h2>
+              <p className="mt-4 whitespace-pre-wrap leading-8 text-slate-600">{localized(post, 'content')}</p>
+            </div>
+          </article>
+        ))}
+      </div>
+      {!loading && !error && totalCount > 10 ? (
+        <div className="mt-8 flex items-center justify-center gap-3">
+          <button type="button" className="rounded-full border border-sky-200 bg-white px-5 py-2 text-sm font-bold text-sky-700 disabled:cursor-not-allowed disabled:opacity-40" disabled={page === 1} onClick={() => setPage((current) => current - 1)}>Previous</button>
+          <span className="text-sm font-semibold text-slate-600">{page} / {totalPages}</span>
+          <button type="button" className="rounded-full bg-sky-500 px-5 py-2 text-sm font-bold text-white shadow-sm shadow-sky-200 disabled:cursor-not-allowed disabled:opacity-40" disabled={page === totalPages} onClick={() => setPage((current) => current + 1)}>Next</button>
+        </div>
+      ) : null}
+    </ContentShell>
+  )
+}
+
+function PublicGalleryPage({ language }: { language: LanguageCode }) {
+  const [images, setImages] = useState<WebsiteGalleryImage[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+  const title = language === 'fa' ? 'گالری' : language === 'ps' ? 'انځورونه' : 'Clinic gallery'
+  const subtitle = language === 'fa' ? 'نگاهی به فعالیت‌ها و محیط مرکز ما' : language === 'ps' ? 'زموږ د مرکز د فعالیتونو او چاپېریال انځورونه' : 'A glimpse of our clinic, care, and community activities.'
+
+  useEffect(() => {
+    let ignore = false
+    apiFetch<WebsiteGalleryImage[]>('/website-gallery/public/')
+      .then((response) => {
+        if (!ignore) setImages(response)
+      })
+      .catch(() => {
+        if (!ignore) setError(true)
+      })
+      .finally(() => {
+        if (!ignore) setLoading(false)
+      })
+    return () => {
+      ignore = true
+    }
+  }, [])
+
+  return (
+    <ContentShell eyebrow="MCHC" title={title}>
+      <p className="max-w-3xl text-lg leading-8 text-slate-600">{subtitle}</p>
+      {loading ? <p className="mt-8 text-slate-500">Loading gallery...</p> : null}
+      {error ? <p className="mt-8 rounded-2xl border border-red-100 bg-red-50 p-4 text-red-700">Gallery could not be loaded right now.</p> : null}
+      {!loading && !error && !images.length ? <p className="mt-8 rounded-2xl border border-sky-100 bg-sky-50 p-6 text-slate-600">No gallery photos have been added yet.</p> : null}
+      <div className="mt-8 columns-1 gap-5 sm:columns-2 lg:columns-3">
+        {images.map((image, index) => (
+          <figure key={image.id} className="group relative mb-5 break-inside-avoid overflow-hidden rounded-[1.75rem] border border-sky-100 bg-sky-50 shadow-sm shadow-sky-100">
+            <img src={image.image_url} alt={`MCHC clinic gallery ${index + 1}`} className="w-full object-cover transition duration-500 group-hover:scale-105" loading="lazy" />
+            <figcaption className="absolute inset-x-0 bottom-0 translate-y-full bg-gradient-to-t from-slate-950/80 to-transparent px-5 pb-4 pt-12 text-sm font-semibold text-white transition duration-300 group-hover:translate-y-0">MCHC Clinic</figcaption>
+          </figure>
+        ))}
       </div>
     </ContentShell>
   )

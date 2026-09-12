@@ -10,6 +10,7 @@ from .views import (
     DoctorDepartmentAssignmentViewSet,
     ExpenseCategoryViewSet,
     ExpenseViewSet,
+    WebsiteGalleryViewSet,
     LabTestViewSet,
     MedicineStockMovementViewSet,
     MedicineViewSet,
@@ -19,6 +20,7 @@ from .views import (
     SalaryAdvanceViewSet,
     SalaryPaymentViewSet,
     WebsitePageContentViewSet,
+    WebsitePostViewSet,
     WebsiteSettingsViewSet,
 )
 from .laboratory_views import (
@@ -46,6 +48,8 @@ router.register('lab-tests', LabTestViewSet, basename='lab-tests')
 router.register('medicines', MedicineViewSet, basename='medicines')
 router.register('stock-movements', MedicineStockMovementViewSet, basename='stock-movements')
 router.register('website-content', WebsitePageContentViewSet, basename='website-content')
+router.register('website-posts', WebsitePostViewSet, basename='website-posts')
+router.register('website-gallery', WebsiteGalleryViewSet, basename='website-gallery')
 router.register('website-settings', WebsiteSettingsViewSet, basename='website-settings')
 
 urlpatterns = [

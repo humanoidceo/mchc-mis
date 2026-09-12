@@ -12,6 +12,8 @@ import { PharmacyDashboardLayout } from '../pharmacy/PharmacyDashboardLayout'
 import { UserAdminPage } from '../users/UserAdminPage'
 import { VaccinationDashboardLayout } from '../vaccination/VaccinationDashboardLayout'
 import { WebsiteContentEditorPage } from '../website/WebsiteContentEditorPage'
+import { WebsitePostsPage } from '../website/WebsitePostsPage'
+import { WebsiteGalleryPage } from '../website/WebsiteGalleryPage'
 import { TrashBinPage } from '../trash/TrashBinPage'
 import { ClinicWorkspace } from './ClinicWorkspace'
 import { DatabaseBackupPage } from './DatabaseBackupPage'
@@ -54,6 +56,8 @@ const layoutText = {
   medicineStock: 'Medicine stock',
   employees: 'Employees',
   websiteContent: 'Website content',
+  websitePosts: 'Website posts',
+  websiteGallery: 'Website gallery',
   users: 'Users',
 }
 
@@ -79,6 +83,8 @@ export function DashboardLayout() {
     { to: '/database-backup', label: layoutText.databaseBackup, permission: null, icon: Database },
     { to: '/stock', label: layoutText.medicineStock, permission: 'stock.manage', icon: Package },
     { to: '/website-content', label: layoutText.websiteContent, permission: 'website.content.manage', icon: Globe },
+    { to: '/website-posts', label: layoutText.websitePosts, permission: 'website.content.manage', icon: FileText },
+    { to: '/website-gallery', label: layoutText.websiteGallery, permission: 'website.content.manage', icon: Globe },
     { to: '/users', label: layoutText.users, permission: 'users.manage', icon: Shield },
     { to: '/account', label: common.myAccount, permission: null, icon: User },
   ]
@@ -256,6 +262,8 @@ export function DashboardLayout() {
             <Route path="/stock" element={<ClinicWorkspace view="stock" />} />
             <Route path="/employees" element={<EmployeeAdminPage />} />
             <Route path="/website-content" element={<WebsiteContentEditorPage />} />
+            <Route path="/website-posts" element={<WebsitePostsPage />} />
+            <Route path="/website-gallery" element={<WebsiteGalleryPage />} />
             <Route path="/users" element={<UserAdminPage />} />
             <Route path="/account" element={<AccountSettingsPage />} />
             <Route path="/trash" element={<TrashBinPage />} />
