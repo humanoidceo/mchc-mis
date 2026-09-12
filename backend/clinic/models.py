@@ -1,7 +1,7 @@
 from decimal import Decimal, ROUND_CEILING
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 
 from shared.soft_delete import SoftDeleteModel
 
@@ -12,6 +12,10 @@ def round_up_to_ten(value) -> Decimal:
     if amount <= 0:
         return Decimal('0.00')
     return (amount / Decimal('10')).quantize(Decimal('1'), rounding=ROUND_CEILING) * Decimal('10')
+
+
+def cash_bank_slip_upload_path(instance, filename: str) -> str:
+    return f'cash-bank-slips/{instance.transaction_type}/{filename}'
 
 
 class TimestampedModel(models.Model):
@@ -88,9 +92,22 @@ class Payment(TimestampedModel, SoftDeleteModel):
         FREE = 'free', 'Free'
         DISCOUNT = 'discount', 'Discount'
 
+    class MidwiferyService(models.TextChoices):
+        IUD_INSERTION = 'iud_insertion', 'Insertion of IUD'
+        IUD_REMOVAL = 'iud_removal', 'Removal of IUD'
+        IMPLANT_INSERTION = 'implant_insertion', 'Insertion of implant'
+        IMPLANT_REMOVAL = 'implant_removal', 'Removal of implant'
+        COC_TABLET = 'coc_tablet', 'COC tablet'
+        POP_TABLET = 'pop_tablet', 'POP tablet'
+        CONDOM = 'condom', 'Condom'
+        DMPA = 'dmpa', 'DMPA'
+        EMERGENCY_TABLETS = 'emergency_tablets', 'Emergency Tablets'
+        DELIVERY = 'delivery', 'Delivery'
+
     patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='payments')
     service = models.CharField(max_length=120)
     department = models.CharField(max_length=120, blank=True)
+    midwifery_service = models.CharField(max_length=32, choices=MidwiferyService.choices, blank=True, default='')
     doctor_name = models.CharField(max_length=120, blank=True)
     patient_age = models.PositiveIntegerField(null=True, blank=True)
     patient_age_unit = models.CharField(max_length=8, choices=Patient.AgeUnit.choices, default=Patient.AgeUnit.YEAR)
@@ -165,11 +182,60 @@ class SalaryAdvanceSettlement(TimestampedModel):
         ordering = ('created_at', 'id')
 
 
+class ExpenseVoucherSequence(models.Model):
+    last_number = models.PositiveBigIntegerField(default=0)
+
+
+class VehicleExpenseVoucherSequence(models.Model):
+    last_number = models.PositiveBigIntegerField(default=0)
+
+
+def next_expense_voucher_number() -> str:
+    with transaction.atomic():
+        sequence = ExpenseVoucherSequence.objects.select_for_update().get(pk=1)
+        sequence.last_number += 1
+        sequence.save(update_fields=['last_number'])
+        return f'VCH-{sequence.last_number:05d}'
+
+
+def next_vehicle_expense_voucher_number() -> str:
+    with transaction.atomic():
+        sequence = VehicleExpenseVoucherSequence.objects.select_for_update().get(pk=1)
+        sequence.last_number += 1
+        sequence.save(update_fields=['last_number'])
+        return f'VCH-car-{sequence.last_number:05d}'
+
+
 class Expense(TimestampedModel, SoftDeleteModel):
+    VEHICLE_TRANSPORT_CATEGORY = 'E-06'
+    class PaymentMethod(models.TextChoices):
+        CASH = 'cash', 'Cash'
+        BANK_TRANSFER = 'bank_transfer', 'Bank transfer'
+        CHEQUE = 'cheque', 'Cheque'
+
+    class ChequeStatus(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        CLEARED = 'cleared', 'Cleared'
+        BOUNCED = 'bounced', 'Bounced'
+        CANCELLED = 'cancelled', 'Cancelled'
+
+    voucher_number = models.CharField(max_length=24, unique=True)
     name = models.CharField(max_length=180, blank=True, default='')
     category = models.CharField(max_length=120)
     amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     description = models.TextField(blank=True)
+    payment_method = models.CharField(max_length=20, choices=PaymentMethod.choices, default=PaymentMethod.CASH)
+    bank_name = models.CharField(max_length=180, blank=True, default='')
+    bank_account = models.CharField(max_length=180, blank=True, default='')
+    transfer_reference_number = models.CharField(max_length=180, blank=True, default='')
+    transfer_date = models.DateField(null=True, blank=True)
+    cheque_number = models.CharField(max_length=180, blank=True, default='')
+    cheque_date = models.DateField(null=True, blank=True)
+    cheque_status = models.CharField(max_length=20, choices=ChequeStatus.choices, default=ChequeStatus.PENDING)
+    paid_to_received_from = models.CharField(max_length=180, blank=True, default='')
+    funding_source = models.CharField(max_length=180, blank=True, default='')
+    project_activity = models.CharField(max_length=180, blank=True, default='')
+    department = models.CharField(max_length=120, blank=True, default='')
     salary_payment = models.OneToOneField(
         'SalaryPayment',
         null=True,
@@ -193,8 +259,153 @@ class Expense(TimestampedModel, SoftDeleteModel):
     class Meta:
         ordering = ('-created_at',)
 
+    def save(self, *args, **kwargs):
+        if not self.voucher_number:
+            self.voucher_number = (
+                next_vehicle_expense_voucher_number()
+                if self.category == self.VEHICLE_TRANSPORT_CATEGORY
+                else next_expense_voucher_number()
+            )
+        super().save(*args, **kwargs)
+
     def __str__(self) -> str:
-        return f'{self.name} ({self.category})'
+        return f'{self.voucher_number}: {self.name} ({self.category})'
+
+
+class VehicleExpenseDetails(TimestampedModel):
+    class ExpenseType(models.TextChoices):
+        FUEL = 'fuel', 'Fuel'
+        MAINTENANCE = 'maintenance', 'Vehicle maintenance'
+
+    class FuelType(models.TextChoices):
+        DIESEL = 'diesel', 'Diesel'
+        PETROL = 'petrol', 'Petrol'
+        GAS = 'gas', 'Gas'
+
+    expense = models.OneToOneField(Expense, on_delete=models.CASCADE, related_name='vehicle_details')
+    number_plate = models.CharField(max_length=64)
+    driver_name = models.CharField(max_length=180, blank=True, default='')
+    source = models.CharField(max_length=180, blank=True, default='')
+    destination = models.CharField(max_length=180, blank=True, default='')
+    travel_purpose = models.TextField(blank=True, default='')
+    expense_type = models.CharField(max_length=20, choices=ExpenseType.choices)
+    fuel_type = models.CharField(max_length=16, choices=FuelType.choices, blank=True, default='')
+    quantity_liters = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    price_per_liter = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    vehicle_odometer_km = models.PositiveBigIntegerField()
+    fuel_station_supplier = models.CharField(max_length=180, blank=True, default='')
+    invoice_number = models.CharField(max_length=180, blank=True, default='')
+    workshop = models.CharField(max_length=180, blank=True, default='')
+
+    class Meta:
+        indexes = [
+            models.Index(fields=('number_plate', 'expense_type')),
+        ]
+
+    def __str__(self) -> str:
+        return f'{self.expense.voucher_number} - {self.number_plate}'
+
+
+class CashBankTransaction(TimestampedModel, SoftDeleteModel):
+    class TransactionType(models.TextChoices):
+        DEPOSIT = 'deposit', 'Deposit'
+        WITHDRAWAL = 'withdrawal', 'Withdrawal'
+
+    class Currency(models.TextChoices):
+        USD = 'USD', 'USD'
+        AFN = 'AFN', 'AFN'
+
+    transaction_type = models.CharField(max_length=16, choices=TransactionType.choices)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    currency = models.CharField(max_length=3, choices=Currency.choices)
+    depositor_name = models.CharField(max_length=180, blank=True, default='')
+    withdrawer_name = models.CharField(max_length=180, blank=True, default='')
+    reason = models.TextField()
+    slip = models.FileField(upload_to=cash_bank_slip_upload_path)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='cash_bank_transactions',
+    )
+
+    class Meta:
+        ordering = ('-created_at', '-id')
+        indexes = [
+            models.Index(fields=('currency', 'transaction_type', 'created_at')),
+        ]
+
+    def __str__(self) -> str:
+        return f'{self.get_transaction_type_display()} #{self.id}: {self.amount} {self.currency}'
+
+
+class AuditLog(models.Model):
+    class Action(models.TextChoices):
+        CREATE = 'create', 'Create'
+        UPDATE = 'update', 'Update'
+        DELETE = 'delete', 'Delete'
+
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='audit_logs',
+    )
+    action = models.CharField(max_length=16, choices=Action.choices)
+    resource = models.CharField(max_length=120)
+    target_id = models.CharField(max_length=64, blank=True, default='')
+    endpoint = models.CharField(max_length=255)
+    status_code = models.PositiveSmallIntegerField()
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-created_at', '-id')
+        indexes = [
+            models.Index(fields=('created_at',), name='audit_log_created_idx'),
+            models.Index(fields=('actor', 'created_at'), name='audit_log_actor_created_idx'),
+            models.Index(fields=('resource', 'created_at'), name='audit_log_resource_created_idx'),
+        ]
+
+    def __str__(self) -> str:
+        target = f' #{self.target_id}' if self.target_id else ''
+        return f'{self.get_action_display()} {self.resource}{target}'
+
+
+class ExpenseCategory(TimestampedModel):
+    title_dari = models.CharField(max_length=180, blank=True)
+    title_pashto = models.CharField(max_length=180, blank=True)
+    title_english = models.CharField(max_length=180, blank=True)
+
+    class Meta:
+        ordering = ('title_english', 'title_dari', 'title_pashto', 'id')
+        verbose_name_plural = 'expense categories'
+
+    @property
+    def display_title(self) -> str:
+        return self.title_english or self.title_dari or self.title_pashto or f'Category {self.id}'
+
+    def __str__(self) -> str:
+        return self.display_title
+
+
+class ExpenseSubcategory(TimestampedModel):
+    category = models.ForeignKey(ExpenseCategory, on_delete=models.CASCADE, related_name='subcategories')
+    code = models.CharField(max_length=80, unique=True)
+    title_dari = models.CharField(max_length=180, blank=True)
+    title_pashto = models.CharField(max_length=180, blank=True)
+    title_english = models.CharField(max_length=180, blank=True)
+
+    class Meta:
+        ordering = ('category__title_english', 'category__title_dari', 'category__title_pashto', 'code')
+        verbose_name_plural = 'expense subcategories'
+
+    @property
+    def display_title(self) -> str:
+        return self.title_english or self.title_dari or self.title_pashto or self.code
+
+    def __str__(self) -> str:
+        return f'{self.category}: {self.display_title}'
 
 
 class ClinicalDocument(TimestampedModel, SoftDeleteModel):

@@ -2,10 +2,10 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import type { FormEvent, UIEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { ApiError, apiFetch } from '../../api/client'
+import { ApiError, apiDownload, apiFetch } from '../../api/client'
 import { buttonClassName, Field, ghostButtonClassName, inputClassName, PaginationControls, Panel, SectionHeader } from '../../components/ui'
 import { LabPanelComponents } from '../../components/LabPanelComponents'
-import type { ClinicalDocument, DashboardStats, DoctorOption, DocumentType, DocumentTypeDefinition, EmployeeSearchOption, Expense, ExpenseCategoryOption, LabTest, Medicine, PaginatedResponse, Patient, Payment, SalaryAdvance, SalaryPayment, SearchResponse } from '../../types/domain'
+import type { ClinicalDocument, DashboardStats, DoctorOption, DocumentType, DocumentTypeDefinition, EmployeeSearchOption, Expense, ExpenseCategory, LabTest, Medicine, PaginatedResponse, Patient, Payment, SalaryAdvance, SalaryPayment, SearchResponse } from '../../types/domain'
 import { useAuth } from '../auth/useAuth'
 import { FamilyPlanningOrderSection } from '../familyPlanning/FamilyPlanningOrderSection'
 import { PharmacyMedicineStockSection } from '../pharmacy/PharmacyMedicineStockSection'
@@ -34,7 +34,40 @@ type ReceptionReportSummary = {
 }
 type ExpenseCategorySummary = {
   category: string
+  title: string
   amount: string
+}
+type ExpenseFormState = {
+  category: string
+  amount: string
+  description: string
+  payment_method: Expense['payment_method']
+  bank_name: string
+  bank_account: string
+  transfer_reference_number: string
+  transfer_date: string
+  cheque_number: string
+  cheque_date: string
+  cheque_status: Expense['cheque_status']
+  paid_to_received_from: string
+  funding_source: string
+  project_activity: string
+  department: string
+}
+type VehicleExpenseFormState = {
+  number_plate: string
+  driver_name: string
+  source: string
+  destination: string
+  travel_purpose: string
+  expense_type: 'fuel' | 'maintenance'
+  fuel_type: 'diesel' | 'petrol' | 'gas' | ''
+  quantity_liters: string
+  price_per_liter: string
+  vehicle_odometer_km: string
+  fuel_station_supplier: string
+  invoice_number: string
+  workshop: string
 }
 type GynecologyUltrasoundFormState = {
   patient_status: 'new' | 'follow_up'
@@ -97,6 +130,18 @@ const documentTemplates: Record<DocumentType, Record<string, unknown>> = {
 }
 
 const departmentOptions = ['Midwifery', 'Pediatrics', 'OPD', 'Gynecology', 'Psychology', 'Emergency', 'Laboratory', 'Ultrasound', 'Vaccination', 'Malnutrition']
+const midwiferyServiceOptions = [
+  { value: 'iud_insertion', label: 'Insertion of IUD' },
+  { value: 'iud_removal', label: 'Removal of IUD' },
+  { value: 'implant_insertion', label: 'Insertion of implant' },
+  { value: 'implant_removal', label: 'Removal of implant' },
+  { value: 'coc_tablet', label: 'COC tablet' },
+  { value: 'pop_tablet', label: 'POP tablet' },
+  { value: 'condom', label: 'Condom' },
+  { value: 'dmpa', label: 'DMPA' },
+  { value: 'emergency_tablets', label: 'Emergency Tablets' },
+  { value: 'delivery', label: 'Delivery' },
+]
 const freeDepartments = new Set(['vaccination', 'malnutrition'])
 const receptionDoctorDepartments = new Set(['midwifery', 'ultrasound', 'opd', 'pediatrics', 'gynecology'])
 const dashboardPeriodOptions: Array<{ value: DashboardStats['period']; label: string }> = [
@@ -107,6 +152,38 @@ const dashboardPeriodOptions: Array<{ value: DashboardStats['period']; label: st
   { value: 'custom', label: 'Custom' },
 ]
 const afghanMonthOptions = ['Hamal', 'Sawr', 'Jawza', 'Saratan', 'Asad', 'Sonbola', 'Mizan', 'Aqrab', 'Qaws', 'Jadi', 'Dalwa', 'Hut']
+const emptyExpenseForm: ExpenseFormState = {
+  category: '',
+  amount: '',
+  description: '',
+  payment_method: 'cash',
+  bank_name: '',
+  bank_account: '',
+  transfer_reference_number: '',
+  transfer_date: '',
+  cheque_number: '',
+  cheque_date: '',
+  cheque_status: 'pending',
+  paid_to_received_from: '',
+  funding_source: '',
+  project_activity: '',
+  department: '',
+}
+const emptyVehicleExpenseForm: VehicleExpenseFormState = {
+  number_plate: '',
+  driver_name: '',
+  source: '',
+  destination: '',
+  travel_purpose: '',
+  expense_type: 'fuel',
+  fuel_type: '',
+  quantity_liters: '',
+  price_per_liter: '',
+  vehicle_odometer_km: '',
+  fuel_station_supplier: '',
+  invoice_number: '',
+  workshop: '',
+}
 
 function todayDateInputValue(): string {
   const now = new Date()
@@ -255,6 +332,10 @@ function isFreeDepartment(department: string): boolean {
 
 function needsReceptionDoctor(department: string): boolean {
   return receptionDoctorDepartments.has(department.trim().toLowerCase())
+}
+
+function isMidwiferyDepartment(department: string): boolean {
+  return department.trim().toLowerCase() === 'midwifery'
 }
 
 function flattenValidationDetails(value: unknown, prefix = ''): string[] {
@@ -719,6 +800,20 @@ function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
                   </div>
                   <DepartmentBar label={`${department.patients} patient(s)`} percent={(department.patients / maxDepartmentPatients) * 100} className="bg-sky-500" />
                   <DepartmentBar label={`${formatStatMoney(amount)} money`} percent={(amount / maxDepartmentAmount) * 100} className="bg-pink-500" />
+                  {department.midwifery_services.length ? (
+                    <div className="border-t border-sky-100 pt-3 md:col-span-3">
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-sky-700">Midwifery service breakdown</p>
+                      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                        {department.midwifery_services.map((service) => (
+                          <div key={service.service || 'unspecified'} className="rounded border border-sky-100 bg-sky-50/60 px-3 py-2 text-sm">
+                            <p className="font-medium text-slate-900">{service.service_label}</p>
+                            <p className="mt-1 text-xs text-zinc-600">{service.patients} patient(s) · {service.payments} payment(s)</p>
+                            <p className="mt-1 font-semibold text-pink-700">{formatStatMoney(service.amount)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               )
             }) : (
@@ -1177,6 +1272,7 @@ function Payments({
     age_unit: 'year' as AgeUnit,
     age: '',
     department: departmentOptions[0],
+    midwifery_service: '',
     doctor_fee: '',
     payment_type: 'full' as Payment['payment_type'],
     discount_percentage: '',
@@ -1197,6 +1293,7 @@ function Payments({
     age_unit: 'year' as AgeUnit,
     age: '',
     department: departmentOptions[0],
+    midwifery_service: '',
     doctor_fee: '',
     payment_type: 'full' as Payment['payment_type'],
     discount_percentage: '',
@@ -1295,6 +1392,10 @@ function Payments({
       setFormError('Select a doctor assigned to this department.')
       return
     }
+    if (isMidwiferyDepartment(form.department) && !form.midwifery_service) {
+      setFormError('Select a Midwifery service.')
+      return
+    }
     setSubmitting(true)
     try {
       const payment = await apiFetch<Payment>('/payments/reception-bill/', {
@@ -1314,6 +1415,7 @@ function Payments({
           payment: {
             service: `${form.department} consultation`,
             department: form.department,
+            midwifery_service: form.midwifery_service,
             doctor_name: selectedDoctorUsername,
             patient_age: Number(form.age),
             patient_age_unit: form.age_unit,
@@ -1324,7 +1426,7 @@ function Payments({
           },
         }),
       })
-      setForm({ patient_name: '', age_unit: 'year', age: '', department: departmentOptions[0], doctor_fee: '', payment_type: 'full', discount_percentage: '', notes: '' })
+      setForm({ patient_name: '', age_unit: 'year', age: '', department: departmentOptions[0], midwifery_service: '', doctor_fee: '', payment_type: 'full', discount_percentage: '', notes: '' })
       setSelectedDoctorUsername('')
       onCreated(payment)
     } catch (caught) {
@@ -1349,6 +1451,7 @@ function Payments({
       age_unit: 'year',
       age: '',
       department: departmentOptions[0],
+      midwifery_service: '',
       doctor_fee: '',
       payment_type: 'full',
       discount_percentage: '',
@@ -1366,6 +1469,7 @@ function Payments({
       age_unit: payment.patient_age_unit || 'year',
       age: payment.patient_age === null ? '' : String(payment.patient_age),
       department: payment.department || departmentOptions[0],
+      midwifery_service: payment.midwifery_service || '',
       doctor_fee: payment.doctor_fee,
       payment_type: payment.payment_type,
       discount_percentage: payment.payment_type === 'discount' ? payment.discount_percentage : '',
@@ -1379,6 +1483,10 @@ function Payments({
     setPatientError('')
     if (needsReceptionDoctor(patientForm.department) && !editingDoctorUsername) {
       setPatientError('Select a doctor assigned to this department.')
+      return
+    }
+    if (isMidwiferyDepartment(patientForm.department) && !patientForm.midwifery_service) {
+      setPatientError('Select a Midwifery service.')
       return
     }
     setPatientSubmitting(true)
@@ -1397,6 +1505,7 @@ function Payments({
         body: JSON.stringify({
           service: `${patientForm.department} consultation`,
           department: patientForm.department,
+          midwifery_service: patientForm.midwifery_service,
           doctor_name: editingDoctorUsername,
           patient_age: patientForm.age === '' ? null : Number(patientForm.age),
           patient_age_unit: patientForm.age_unit,
@@ -1456,6 +1565,7 @@ function Payments({
                   setForm((current) => ({
                     ...current,
                     department: e.target.value,
+                    midwifery_service: isMidwiferyDepartment(e.target.value) ? current.midwifery_service : '',
                     payment_type: isFreeDepartment(e.target.value) ? 'free' : (isFreeDepartment(current.department) ? 'full' : current.payment_type),
                   }))
                 }
@@ -1464,6 +1574,14 @@ function Payments({
               {departmentOptions.map((department) => <option key={department} value={department}>{department}</option>)}
             </select>
           </Field>
+          {isMidwiferyDepartment(form.department) ? (
+            <Field label="Midwifery service">
+              <select className={inputClassName} value={form.midwifery_service} onChange={(e) => setForm((current) => ({ ...current, midwifery_service: e.target.value }))} required>
+                <option value="">Select a service</option>
+                {midwiferyServiceOptions.map((service) => <option key={service.value} value={service.value}>{service.label}</option>)}
+              </select>
+            </Field>
+          ) : null}
           {needsReceptionDoctor(form.department) ? <ReceptionDepartmentDoctorCombo department={form.department} selectedUsername={selectedDoctorUsername} onSelect={setSelectedDoctorUsername} /> : null}
           <Field label="Doctor fee">
             <input className={inputClassName} type="number" min="0" step="0.01" value={departmentIsFree ? '0.00' : form.doctor_fee} onChange={(e) => setForm({ ...form, doctor_fee: e.target.value })} disabled={departmentIsFree} required={!departmentIsFree} />
@@ -1552,7 +1670,7 @@ function Payments({
                     <td>{payment.patient}</td>
                     <td className="py-2">{payment.patient_full_name || payment.patient_name}</td>
                     <td>{formatAgeWithUnit(payment.patient_age, payment.patient_age_unit)}</td>
-                    <td>{payment.department || payment.service}</td>
+                    <td>{payment.department || payment.service}{payment.midwifery_service ? <p className="text-xs text-zinc-500">{payment.midwifery_service_label}</p> : null}</td>
                     <td>{payment.doctor_fee}</td>
                     <td>{payment.payment_type === 'free' ? 'Free' : payment.payment_type === 'discount' ? `${payment.discount_percentage}% discount` : 'Full payment'}</td>
                     <td>{payment.payment_type === 'free' ? 'Free' : payment.amount}</td>
@@ -1606,6 +1724,7 @@ function Payments({
                       setPatientForm((current) => ({
                         ...current,
                         department: event.target.value,
+                        midwifery_service: isMidwiferyDepartment(event.target.value) ? current.midwifery_service : '',
                         payment_type: isFreeDepartment(event.target.value) ? 'free' : (isFreeDepartment(current.department) ? 'full' : current.payment_type),
                       }))
                     }
@@ -1614,6 +1733,14 @@ function Payments({
                   {departmentOptions.map((department) => <option key={department} value={department}>{department}</option>)}
                 </select>
               </Field>
+              {isMidwiferyDepartment(patientForm.department) ? (
+                <Field label="Midwifery service">
+                  <select className={inputClassName} value={patientForm.midwifery_service} onChange={(event) => setPatientForm((current) => ({ ...current, midwifery_service: event.target.value }))} required>
+                    <option value="">Select a service</option>
+                    {midwiferyServiceOptions.map((service) => <option key={service.value} value={service.value}>{service.label}</option>)}
+                  </select>
+                </Field>
+              ) : null}
               {needsReceptionDoctor(patientForm.department) ? <ReceptionDepartmentDoctorCombo department={patientForm.department} selectedUsername={editingDoctorUsername} onSelect={setEditingDoctorUsername} /> : null}
               <Field label="Doctor fee">
                 <input className={inputClassName} type="number" min="0" step="0.01" value={editDepartmentIsFree ? '0.00' : patientForm.doctor_fee} onChange={(event) => setPatientForm((current) => ({ ...current, doctor_fee: event.target.value }))} disabled={editDepartmentIsFree} required={!editDepartmentIsFree} />
@@ -1781,6 +1908,191 @@ function SearchCombo<T extends { id: number }>({
   )
 }
 
+type ExpenseCategoryLanguage = 'dari' | 'pashto' | 'english'
+
+function localizedExpenseCategoryTitle(category: ExpenseCategory, language: ExpenseCategoryLanguage): string {
+  const localizedTitle = language === 'dari'
+    ? category.title_dari
+    : language === 'pashto'
+      ? category.title_pashto
+      : category.title_english
+  return localizedTitle || category.title_english || category.title_dari || category.title_pashto || category.display_title
+}
+
+function localizedExpenseSubcategoryTitle(subcategory: ExpenseCategory['subcategories'][number], language: ExpenseCategoryLanguage): string {
+  const localizedTitle = language === 'dari'
+    ? subcategory.title_dari
+    : language === 'pashto'
+      ? subcategory.title_pashto
+      : subcategory.title_english
+  return localizedTitle || subcategory.title_english || subcategory.title_dari || subcategory.title_pashto || subcategory.display_title || subcategory.code
+}
+
+function expenseSubcategoryLabel(category: ExpenseCategory, subcategory: ExpenseCategory['subcategories'][number], language: ExpenseCategoryLanguage): string {
+  return `${localizedExpenseCategoryTitle(category, language)} — ${localizedExpenseSubcategoryTitle(subcategory, language)} (${subcategory.code})`
+}
+
+function ExpenseCategoryPicker({
+  selectedLabel,
+  selectedCode,
+  onInputChange,
+  onSelect,
+}: {
+  selectedLabel: string
+  selectedCode: string
+  onInputChange: (value: string) => void
+  onSelect: (code: string, label: string) => void
+}) {
+  const [query, setQuery] = useState(selectedLabel)
+  const [categories, setCategories] = useState<ExpenseCategory[]>([])
+  const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<number>>(new Set())
+  const [subcategoryPages, setSubcategoryPages] = useState<Record<number, number>>({})
+  const [language, setLanguage] = useState<ExpenseCategoryLanguage>('english')
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (selectedCode) setQuery(selectedLabel)
+  }, [selectedCode])
+
+  const filterQuery = query === selectedLabel && Boolean(selectedCode) ? '' : query
+
+  useEffect(() => {
+    if (!open) return
+    let ignore = false
+    const timer = window.setTimeout(() => {
+      setLoading(true)
+      void apiFetch<ExpenseCategory[]>(`/expense-categories/options/?q=${encodeURIComponent(filterQuery)}`)
+        .then((response) => {
+          if (!ignore) setCategories(response)
+        })
+        .catch(() => {
+          if (!ignore) setCategories([])
+        })
+        .finally(() => {
+          if (!ignore) setLoading(false)
+        })
+    }, 200)
+    return () => {
+      ignore = true
+      window.clearTimeout(timer)
+    }
+  }, [filterQuery, open])
+
+  function toggleCategory(categoryId: number) {
+    const willExpand = !expandedCategoryIds.has(categoryId)
+    setExpandedCategoryIds((current) => {
+      const next = new Set(current)
+      if (next.has(categoryId)) next.delete(categoryId)
+      else next.add(categoryId)
+      return next
+    })
+    if (willExpand) setSubcategoryPages((pages) => ({ ...pages, [categoryId]: 1 }))
+  }
+
+  function categoryMatchesSearch(category: ExpenseCategory): boolean {
+    const search = filterQuery.trim().toLocaleLowerCase()
+    if (!search) return true
+    return [category.title_dari, category.title_pashto, category.title_english, category.display_title]
+      .some((value) => value.toLocaleLowerCase().includes(search))
+  }
+
+  function subcategoryMatchesSearch(subcategory: ExpenseCategory['subcategories'][number]): boolean {
+    const search = filterQuery.trim().toLocaleLowerCase()
+    if (!search) return true
+    return [subcategory.code, subcategory.title_dari, subcategory.title_pashto, subcategory.title_english, subcategory.display_title ?? '']
+      .some((value) => value.toLocaleLowerCase().includes(search))
+  }
+
+  return (
+    <div className="space-y-2">
+      <Field label="Category of expense">
+        <input
+          className={inputClassName}
+          value={query}
+          onChange={(event) => {
+            const value = event.target.value
+            setQuery(value)
+            onInputChange(value)
+            setOpen(true)
+          }}
+          onClick={() => setOpen(true)}
+          onFocus={() => setOpen(true)}
+          placeholder="Search categories or subcategories"
+        />
+      </Field>
+      {open ? <div className="max-h-72 overflow-y-auto rounded border border-sky-100 bg-white">
+        <div className="sticky top-0 z-10 flex gap-2 border-b border-sky-100 bg-white p-2">
+          {(['dari', 'pashto', 'english'] as const).map((option) => (
+            <button
+              key={option}
+              className={`rounded px-3 py-1.5 text-xs font-semibold ${language === option ? 'bg-sky-500 text-white' : 'border border-sky-200 bg-white text-sky-800 hover:bg-sky-50'}`}
+              type="button"
+              onClick={() => setLanguage(option)}
+            >
+              {option === 'dari' ? 'Dari' : option === 'pashto' ? 'Pashto' : 'English'}
+            </button>
+          ))}
+        </div>
+        {categories.map((category) => {
+          const expanded = expandedCategoryIds.has(category.id) || Boolean(filterQuery.trim())
+          const matchingSubcategories = categoryMatchesSearch(category)
+            ? category.subcategories
+            : category.subcategories.filter(subcategoryMatchesSearch)
+          const page = subcategoryPages[category.id] ?? 1
+          const totalPages = Math.max(1, Math.ceil(matchingSubcategories.length / 5))
+          const currentPage = Math.min(page, totalPages)
+          const visibleSubcategories = matchingSubcategories.slice((currentPage - 1) * 5, currentPage * 5)
+          return (
+            <div key={category.id} className="border-b border-sky-100 last:border-b-0">
+              <button
+                className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm font-semibold text-slate-900 hover:bg-sky-50"
+                type="button"
+                onClick={() => toggleCategory(category.id)}
+                aria-expanded={expanded}
+              >
+                <span>{localizedExpenseCategoryTitle(category, language)}</span>
+                <span className="rounded border border-sky-200 px-2 py-0.5 text-xs font-medium text-sky-700">{expanded ? 'Hide' : 'Expand'}</span>
+              </button>
+              {expanded ? (
+                <div className="border-t border-sky-50 bg-sky-50/40 p-2">
+                  {visibleSubcategories.map((subcategory) => (
+                    <button
+                      key={subcategory.id}
+                      className="block w-full rounded px-3 py-2 text-left text-sm text-slate-700 hover:bg-white hover:text-sky-800"
+                      type="button"
+                      onClick={() => {
+                        const label = expenseSubcategoryLabel(category, subcategory, language)
+                        setQuery(label)
+                        onSelect(subcategory.code, label)
+                        setOpen(false)
+                      }}
+                    >
+                      {expenseSubcategoryLabel(category, subcategory, language)}
+                    </button>
+                  ))}
+                  {!matchingSubcategories.length ? <p className="px-3 py-2 text-sm text-zinc-500">No matching subcategories.</p> : null}
+                  {matchingSubcategories.length > 5 ? (
+                    <div className="mt-2 flex items-center justify-between gap-2 px-1 text-xs text-slate-600">
+                      <span>Page {currentPage} of {totalPages}</span>
+                      <div className="flex gap-2">
+                        <button className={ghostButtonClassName} type="button" disabled={currentPage === 1} onClick={() => setSubcategoryPages((pages) => ({ ...pages, [category.id]: currentPage - 1 }))}>Previous</button>
+                        <button className={ghostButtonClassName} type="button" disabled={currentPage === totalPages} onClick={() => setSubcategoryPages((pages) => ({ ...pages, [category.id]: currentPage + 1 }))}>Next</button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          )
+        })}
+        {loading ? <p className="px-3 py-3 text-sm text-zinc-500">Loading categories...</p> : null}
+        {!loading && !categories.length ? <p className="px-3 py-3 text-sm text-zinc-500">No categories found.</p> : null}
+      </div> : null}
+    </div>
+  )
+}
+
 function MonthMultiSelect({
   value,
   onChange,
@@ -1844,15 +2156,20 @@ function ExpensesSection() {
   const [search, setSearch] = useState('')
   const deferredSearch = useDeferredValue(search)
   const [editingId, setEditingId] = useState<number | null>(null)
-  const [form, setForm] = useState({ category: '', amount: '', description: '' })
+  const [form, setForm] = useState<ExpenseFormState>({ ...emptyExpenseForm })
+  const [vehicleForm, setVehicleForm] = useState<VehicleExpenseFormState>({ ...emptyVehicleExpenseForm })
   const [categoryInput, setCategoryInput] = useState('')
   const [summaryFromDate, setSummaryFromDate] = useState('')
   const [summaryToDate, setSummaryToDate] = useState('')
   const [categorySummary, setCategorySummary] = useState<ExpenseCategorySummary[]>([])
   const [summaryError, setSummaryError] = useState('')
+  const [summaryExpanded, setSummaryExpanded] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const isVehicleExpense = form.category === 'E-06'
+  const fuelCost = Number(vehicleForm.quantity_liters || 0) * Number(vehicleForm.price_per_liter || 0)
 
   useEffect(() => {
     setPage(1)
@@ -1882,6 +2199,29 @@ function ExpensesSection() {
     }
   }, [summaryFromDate, summaryToDate])
 
+  async function exportExpenses() {
+    setSummaryError('')
+    setExporting(true)
+    try {
+      const params = new URLSearchParams()
+      if (summaryFromDate) params.set('from', summaryFromDate)
+      if (summaryToDate) params.set('to', summaryToDate)
+      const { blob, filename } = await apiDownload(`/expenses/export-xlsx/?${params.toString()}`)
+      const downloadUrl = window.URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = downloadUrl
+      anchor.download = filename || 'expenses.xlsx'
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.URL.revokeObjectURL(downloadUrl)
+    } catch (caught) {
+      setSummaryError(describeApiError(caught, 'Unable to export expenses.'))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   useEffect(() => {
     void loadExpenses(page, deferredSearch)
   }, [deferredSearch, loadExpenses, page])
@@ -1890,9 +2230,14 @@ function ExpensesSection() {
     void loadCategorySummary()
   }, [loadCategorySummary])
 
+  useEffect(() => {
+    setSummaryExpanded(false)
+  }, [summaryFromDate, summaryToDate])
+
   function resetForm() {
     setEditingId(null)
-    setForm({ category: '', amount: '', description: '' })
+    setForm({ ...emptyExpenseForm })
+    setVehicleForm({ ...emptyVehicleExpenseForm })
     setCategoryInput('')
   }
 
@@ -1904,6 +2249,10 @@ function ExpensesSection() {
       setError('Select an expense category from the list.')
       return
     }
+    if (isVehicleExpense && vehicleForm.expense_type === 'fuel' && (!Number.isFinite(fuelCost) || fuelCost <= 0)) {
+      setError('Fuel quantity and price per liter must produce a cost greater than zero.')
+      return
+    }
     setSubmitting(true)
     try {
       await apiFetch<Expense>(editingId ? `/expenses/${editingId}/` : '/expenses/', {
@@ -1911,8 +2260,36 @@ function ExpensesSection() {
         body: JSON.stringify({
           name: '',
           category: form.category.trim(),
-          amount: form.amount,
+          amount: isVehicleExpense && vehicleForm.expense_type === 'fuel' ? fuelCost.toFixed(2) : form.amount,
           description: form.description.trim(),
+          payment_method: form.payment_method,
+          bank_name: form.bank_name.trim(),
+          bank_account: form.bank_account.trim(),
+          transfer_reference_number: form.transfer_reference_number.trim(),
+          transfer_date: form.transfer_date || null,
+          cheque_number: form.cheque_number.trim(),
+          cheque_date: form.cheque_date || null,
+          cheque_status: form.cheque_status,
+          paid_to_received_from: form.paid_to_received_from.trim(),
+          funding_source: form.funding_source.trim(),
+          project_activity: form.project_activity.trim(),
+          department: form.department.trim(),
+          ...(isVehicleExpense ? {
+            vehicle_details: {
+              ...vehicleForm,
+              number_plate: vehicleForm.number_plate.trim(),
+              driver_name: vehicleForm.driver_name.trim(),
+              source: vehicleForm.source.trim(),
+              destination: vehicleForm.destination.trim(),
+              travel_purpose: vehicleForm.travel_purpose.trim(),
+              quantity_liters: vehicleForm.quantity_liters || null,
+              price_per_liter: vehicleForm.price_per_liter || null,
+              vehicle_odometer_km: Number(vehicleForm.vehicle_odometer_km),
+              fuel_station_supplier: vehicleForm.fuel_station_supplier.trim(),
+              invoice_number: vehicleForm.invoice_number.trim(),
+              workshop: vehicleForm.workshop.trim(),
+            },
+          } : {}),
         }),
       })
       setNotice(editingId ? 'Expense updated.' : 'Expense created.')
@@ -1943,8 +2320,35 @@ function ExpensesSection() {
       category: expense.category,
       amount: expense.amount,
       description: expense.description,
+      payment_method: expense.payment_method,
+      bank_name: expense.bank_name,
+      bank_account: expense.bank_account,
+      transfer_reference_number: expense.transfer_reference_number,
+      transfer_date: expense.transfer_date || '',
+      cheque_number: expense.cheque_number,
+      cheque_date: expense.cheque_date || '',
+      cheque_status: expense.cheque_status,
+      paid_to_received_from: expense.paid_to_received_from,
+      funding_source: expense.funding_source,
+      project_activity: expense.project_activity,
+      department: expense.department,
     })
-    setCategoryInput(expense.category)
+    setVehicleForm(expense.vehicle_details ? {
+      number_plate: expense.vehicle_details.number_plate,
+      driver_name: expense.vehicle_details.driver_name,
+      source: expense.vehicle_details.source,
+      destination: expense.vehicle_details.destination,
+      travel_purpose: expense.vehicle_details.travel_purpose,
+      expense_type: expense.vehicle_details.expense_type,
+      fuel_type: expense.vehicle_details.fuel_type,
+      quantity_liters: expense.vehicle_details.quantity_liters || '',
+      price_per_liter: expense.vehicle_details.price_per_liter || '',
+      vehicle_odometer_km: String(expense.vehicle_details.vehicle_odometer_km),
+      fuel_station_supplier: expense.vehicle_details.fuel_station_supplier,
+      invoice_number: expense.vehicle_details.invoice_number,
+      workshop: expense.vehicle_details.workshop,
+    } : { ...emptyVehicleExpenseForm })
+    setCategoryInput(expense.category_label)
     setError('')
     setNotice('')
   }
@@ -1966,17 +2370,27 @@ function ExpensesSection() {
               <span>To</span>
               <input className={inputClassName} type="date" value={summaryToDate} onChange={(event) => setSummaryToDate(event.target.value)} />
             </label>
+            <button className={buttonClassName} type="button" onClick={() => void exportExpenses()} disabled={exporting}>
+              {exporting ? 'Exporting...' : 'Export'}
+            </button>
             <button className={ghostButtonClassName} type="button" onClick={() => void loadCategorySummary()}>Refresh</button>
           </div>
         </div>
         {summaryError ? <div className="mt-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{summaryError}</div> : null}
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {categorySummary.map((item) => (
+          {(summaryExpanded ? categorySummary : categorySummary.slice(0, 5)).map((item) => (
             <div key={item.category} className="rounded border border-sky-100 bg-sky-50 px-3 py-3 text-sm text-slate-700">
-              <span className="font-semibold text-slate-950">{item.category}:</span> {formatAfn(item.amount)}
+              <span className="font-semibold text-slate-950">{item.title}:</span> {formatAfn(item.amount)}
             </div>
           ))}
         </div>
+        {categorySummary.length > 5 ? (
+          <div className="mt-3">
+            <button className={ghostButtonClassName} type="button" onClick={() => setSummaryExpanded((current) => !current)}>
+              {summaryExpanded ? 'Collapse' : 'Expand'}
+            </button>
+          </div>
+        ) : null}
       </Panel>
       <SectionHeader title="Expenses" subtitle="Record clinic operating expenses with a searchable category list, then review, edit, or delete them." />
       <div className="grid gap-4 xl:grid-cols-[1.05fr_1.35fr]">
@@ -1984,24 +2398,83 @@ function ExpensesSection() {
           <form onSubmit={submit} className="grid gap-3">
             {error ? <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
             {notice ? <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div> : null}
-            <SearchCombo<ExpenseCategoryOption>
-              label="Category of expense"
-              placeholder="Search expense category"
-              searchPath="/expenses/categories/"
+            <ExpenseCategoryPicker
               selectedLabel={categoryInput}
+              selectedCode={form.category}
               onInputChange={(value) => {
                 setCategoryInput(value)
                 if (value !== form.category) {
                   setForm((current) => ({ ...current, category: '' }))
                 }
               }}
-              renderOption={(category) => category.name}
-              onSelect={(category) => {
-                setCategoryInput(category.name)
-                setForm((current) => ({ ...current, category: category.name }))
+              onSelect={(code, label) => {
+                setCategoryInput(label)
+                setForm((current) => ({ ...current, category: code }))
               }}
             />
-            <Field label="Amount of expense">
+            {!editingId ? (
+              <div className="rounded border border-sky-100 bg-sky-50 px-3 py-2 text-sm text-slate-700">
+                <strong>Voucher number:</strong> Generated automatically as {isVehicleExpense ? 'VCH-car-XXXXX' : 'VCH-XXXXX'} when this expense is saved.
+              </div>
+            ) : null}
+            {isVehicleExpense ? (
+              <div className="grid gap-3 rounded border border-amber-200 bg-amber-50 p-3 md:grid-cols-2">
+                <div className="md:col-span-2"><p className="text-sm font-semibold text-slate-950">Vehicle expense details</p><p className="text-xs text-slate-600">Transport and work travel expenses receive a separate vehicle record.</p></div>
+                <Field label="Number plate"><input className={inputClassName} value={vehicleForm.number_plate} onChange={(event) => setVehicleForm((current) => ({ ...current, number_plate: event.target.value }))} required /></Field>
+                <Field label="Driver name"><input className={inputClassName} value={vehicleForm.driver_name} onChange={(event) => setVehicleForm((current) => ({ ...current, driver_name: event.target.value }))} required /></Field>
+                <Field label="Source"><input className={inputClassName} value={vehicleForm.source} onChange={(event) => setVehicleForm((current) => ({ ...current, source: event.target.value }))} /></Field>
+                <Field label="Destination"><input className={inputClassName} value={vehicleForm.destination} onChange={(event) => setVehicleForm((current) => ({ ...current, destination: event.target.value }))} /></Field>
+                <div className="md:col-span-2"><Field label="Travel purpose"><input className={inputClassName} value={vehicleForm.travel_purpose} onChange={(event) => setVehicleForm((current) => ({ ...current, travel_purpose: event.target.value }))} /></Field></div>
+                <Field label="Expense type"><select className={inputClassName} value={vehicleForm.expense_type} onChange={(event) => setVehicleForm((current) => ({ ...current, expense_type: event.target.value as VehicleExpenseFormState['expense_type'] }))}><option value="fuel">Fuel</option><option value="maintenance">Vehicle Maintenance</option></select></Field>
+                {vehicleForm.expense_type === 'fuel' ? <>
+                  <Field label="Fuel type"><select className={inputClassName} value={vehicleForm.fuel_type} onChange={(event) => setVehicleForm((current) => ({ ...current, fuel_type: event.target.value as VehicleExpenseFormState['fuel_type'] }))} required><option value="">Select fuel type</option><option value="diesel">Diesel</option><option value="petrol">Petrol</option><option value="gas">Gas</option></select></Field>
+                  <Field label="Quantity (Liters)"><input className={inputClassName} type="number" min="0.01" step="0.01" value={vehicleForm.quantity_liters} onChange={(event) => setVehicleForm((current) => ({ ...current, quantity_liters: event.target.value }))} required /></Field>
+                  <Field label="Price per liter"><input className={inputClassName} type="number" min="0.01" step="0.01" value={vehicleForm.price_per_liter} onChange={(event) => setVehicleForm((current) => ({ ...current, price_per_liter: event.target.value }))} required /></Field>
+                  <Field label="Vehicle odometer (KM)"><input className={inputClassName} type="number" min="0" step="1" value={vehicleForm.vehicle_odometer_km} onChange={(event) => setVehicleForm((current) => ({ ...current, vehicle_odometer_km: event.target.value }))} required /></Field>
+                  <Field label="Fuel station / supplier"><input className={inputClassName} value={vehicleForm.fuel_station_supplier} onChange={(event) => setVehicleForm((current) => ({ ...current, fuel_station_supplier: event.target.value }))} required /></Field>
+                  <Field label="Invoice number"><input className={inputClassName} value={vehicleForm.invoice_number} onChange={(event) => setVehicleForm((current) => ({ ...current, invoice_number: event.target.value }))} required /></Field>
+                  <div className="rounded border border-amber-200 bg-white px-3 py-2 text-sm text-slate-700"><strong>Total fuel cost:</strong> {formatAfn(fuelCost)}</div>
+                </> : <>
+                  <Field label="Vehicle odometer (KM)"><input className={inputClassName} type="number" min="0" step="1" value={vehicleForm.vehicle_odometer_km} onChange={(event) => setVehicleForm((current) => ({ ...current, vehicle_odometer_km: event.target.value }))} required /></Field>
+                  <Field label="Workshop"><input className={inputClassName} value={vehicleForm.workshop} onChange={(event) => setVehicleForm((current) => ({ ...current, workshop: event.target.value }))} required /></Field>
+                </>}
+              </div>
+            ) : null}
+            <Field label="Payment method">
+              <select
+                className={inputClassName}
+                value={form.payment_method}
+                onChange={(event) => setForm((current) => ({ ...current, payment_method: event.target.value as Expense['payment_method'] }))}
+              >
+                <option value="cash">Cash</option>
+                <option value="bank_transfer">Bank Transfer</option>
+                <option value="cheque">Cheque</option>
+              </select>
+            </Field>
+            {form.payment_method === 'bank_transfer' ? (
+              <div className="grid gap-3 rounded border border-sky-100 bg-sky-50 p-3 md:grid-cols-2">
+                <Field label="Bank name"><input className={inputClassName} value={form.bank_name} onChange={(event) => setForm((current) => ({ ...current, bank_name: event.target.value }))} required /></Field>
+                <Field label="Bank account"><input className={inputClassName} value={form.bank_account} onChange={(event) => setForm((current) => ({ ...current, bank_account: event.target.value }))} required /></Field>
+                <Field label="Transfer reference no."><input className={inputClassName} value={form.transfer_reference_number} onChange={(event) => setForm((current) => ({ ...current, transfer_reference_number: event.target.value }))} required /></Field>
+                <Field label="Transfer date"><input className={inputClassName} type="date" value={form.transfer_date} onChange={(event) => setForm((current) => ({ ...current, transfer_date: event.target.value }))} required /></Field>
+                <div className="md:col-span-2"><Field label="Paid to / received from"><input className={inputClassName} value={form.paid_to_received_from} onChange={(event) => setForm((current) => ({ ...current, paid_to_received_from: event.target.value }))} required /></Field></div>
+              </div>
+            ) : null}
+            {form.payment_method === 'cheque' ? (
+              <div className="grid gap-3 rounded border border-sky-100 bg-sky-50 p-3 md:grid-cols-2">
+                <Field label="Bank name"><input className={inputClassName} value={form.bank_name} onChange={(event) => setForm((current) => ({ ...current, bank_name: event.target.value }))} required /></Field>
+                <Field label="Cheque number"><input className={inputClassName} value={form.cheque_number} onChange={(event) => setForm((current) => ({ ...current, cheque_number: event.target.value }))} required /></Field>
+                <Field label="Cheque date"><input className={inputClassName} type="date" value={form.cheque_date} onChange={(event) => setForm((current) => ({ ...current, cheque_date: event.target.value }))} required /></Field>
+                <Field label="Cheque status"><select className={inputClassName} value={form.cheque_status} onChange={(event) => setForm((current) => ({ ...current, cheque_status: event.target.value as Expense['cheque_status'] }))}><option value="pending">Pending</option><option value="cleared">Cleared</option><option value="bounced">Bounced</option><option value="cancelled">Cancelled</option></select></Field>
+                <div className="md:col-span-2"><Field label="Paid to / received from"><input className={inputClassName} value={form.paid_to_received_from} onChange={(event) => setForm((current) => ({ ...current, paid_to_received_from: event.target.value }))} required /></Field></div>
+              </div>
+            ) : null}
+            <div className="grid gap-3 md:grid-cols-3">
+              <Field label="Funding source"><input className={inputClassName} value={form.funding_source} onChange={(event) => setForm((current) => ({ ...current, funding_source: event.target.value }))} /></Field>
+              <Field label="Project / activity"><input className={inputClassName} value={form.project_activity} onChange={(event) => setForm((current) => ({ ...current, project_activity: event.target.value }))} /></Field>
+              <Field label="Department"><input className={inputClassName} value={form.department} onChange={(event) => setForm((current) => ({ ...current, department: event.target.value }))} /></Field>
+            </div>
+            {(!isVehicleExpense || vehicleForm.expense_type === 'maintenance') ? <Field label={isVehicleExpense ? 'Cost' : 'Amount of expense'}>
               <input
                 className={inputClassName}
                 type="number"
@@ -2012,7 +2485,7 @@ function ExpensesSection() {
                 placeholder="Type amount in AFN"
                 required
               />
-            </Field>
+            </Field> : null}
             <p className="text-sm font-medium text-red-600">The amount must be written in Afghani currency.</p>
             <Field label="Description">
               <textarea
@@ -2023,7 +2496,7 @@ function ExpensesSection() {
               />
             </Field>
             <div className="rounded border border-sky-100 bg-sky-50 px-3 py-2 text-sm text-slate-700">
-              <strong>Selected category:</strong> {form.category || 'Choose one category from the searchable list.'}
+              <strong>Selected subcategory:</strong> {categoryInput || 'Choose one subcategory from the searchable list.'}
             </div>
             <div className="flex flex-wrap gap-2">
               <button className={buttonClassName} disabled={submitting}>{submitting ? 'Saving...' : editingId ? 'Update expense' : 'Create expense'}</button>
@@ -2059,14 +2532,24 @@ function ExpensesSection() {
               <div key={expense.id} className="rounded border border-sky-100 bg-white p-4 shadow-sm shadow-sky-100/60">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-lg font-semibold text-slate-950">{expense.name || expense.category}</p>
-                    <p className="text-sm font-medium text-sky-700">{expense.category}</p>
+                    <p className="text-lg font-semibold text-slate-950">{expense.name || expense.category_label}</p>
+                    <p className="mt-1 text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">{expense.voucher_number}</p>
+                    <p className="text-sm font-medium text-sky-700">{expense.category_label}</p>
                     <p className="mt-2 text-sm font-semibold text-slate-900">{formatAfn(expense.amount)}</p>
                     <p className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-400">{new Date(expense.created_at).toLocaleString()}</p>
                   </div>
                   <div className="rounded-full bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700">
                     {expense.salary_payment ? 'Generated from salary settlement' : expense.salary_advance ? 'Generated from salary advance' : (expense.created_by_name || 'Reception')}
                   </div>
+                </div>
+                <div className="mt-3 grid gap-2 text-sm text-slate-700 md:grid-cols-2">
+                  <p><strong>Payment method:</strong> {expense.payment_method === 'bank_transfer' ? 'Bank Transfer' : expense.payment_method === 'cheque' ? 'Cheque' : 'Cash'}</p>
+                  {expense.funding_source ? <p><strong>Funding source:</strong> {expense.funding_source}</p> : null}
+                  {expense.project_activity ? <p><strong>Project / activity:</strong> {expense.project_activity}</p> : null}
+                  {expense.department ? <p><strong>Department:</strong> {expense.department}</p> : null}
+                  {expense.vehicle_details ? <><p><strong>Vehicle:</strong> {expense.vehicle_details.number_plate} — {expense.vehicle_details.expense_type === 'fuel' ? 'Fuel' : 'Vehicle Maintenance'}</p><p><strong>Driver:</strong> {expense.vehicle_details.driver_name}</p>{expense.vehicle_details.source || expense.vehicle_details.destination ? <p><strong>Route:</strong> {expense.vehicle_details.source || '—'} → {expense.vehicle_details.destination || '—'}</p> : null}{expense.vehicle_details.travel_purpose ? <p><strong>Travel purpose:</strong> {expense.vehicle_details.travel_purpose}</p> : null}<p><strong>Odometer:</strong> {expense.vehicle_details.vehicle_odometer_km.toLocaleString()} KM</p>{expense.vehicle_details.expense_type === 'fuel' ? <><p><strong>Fuel:</strong> {expense.vehicle_details.fuel_type} — {expense.vehicle_details.quantity_liters} liters × {formatAfn(expense.vehicle_details.price_per_liter || '0')}</p><p><strong>Supplier / invoice:</strong> {expense.vehicle_details.fuel_station_supplier} / {expense.vehicle_details.invoice_number}</p></> : <p><strong>Workshop:</strong> {expense.vehicle_details.workshop}</p>}</> : null}
+                  {expense.payment_method === 'bank_transfer' ? <><p><strong>Bank:</strong> {expense.bank_name} — {expense.bank_account}</p><p><strong>Transfer:</strong> {expense.transfer_reference_number} {expense.transfer_date ? `(${expense.transfer_date})` : ''}</p><p><strong>Paid to / received from:</strong> {expense.paid_to_received_from}</p></> : null}
+                  {expense.payment_method === 'cheque' ? <><p><strong>Bank:</strong> {expense.bank_name}</p><p><strong>Cheque:</strong> {expense.cheque_number} ({expense.cheque_date || 'No date'}) — {expense.cheque_status}</p><p><strong>Paid to / received from:</strong> {expense.paid_to_received_from}</p></> : null}
                 </div>
                 <p className="mt-3 text-sm text-slate-700">{expense.description || 'No description provided.'}</p>
                 {expense.salary_payment || expense.salary_advance ? (

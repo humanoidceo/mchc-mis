@@ -1280,24 +1280,24 @@ function PrintLaboratoryBill({ bill }: { bill: LaboratoryBill }) {
       <BillTitle title="Mother and Child Health Support Center" subtitle="Laboratory bill" />
 
       <div className="receipt-meta">
-        <div className="receipt-meta-row"><span>Date</span><strong>{formatDate(document.created_at)}</strong></div>
-        <div className="receipt-meta-row"><span>Reception</span><strong>{bill.payment_status ?? 'pending'}</strong></div>
-        <div className="receipt-meta-row"><span>Patient</span><strong>{billCustomerLabel(bill)}</strong></div>
-        <div className="receipt-meta-row"><span>Patient ID</span><strong>{bill.patient}</strong></div>
-        <div className="receipt-meta-row"><span>Customer type</span><strong>{bill.customer_type_label}</strong></div>
+            <div className="receipt-meta-row"><span>Date</span><strong>{formatDate(document.created_at)}</strong></div>
+            <div className="receipt-meta-row"><span>Reception</span><strong>{bill.payment_status ?? 'pending'}</strong></div>
+            <div className="receipt-meta-row"><span>Patient</span><strong>{billCustomerLabel(bill)}</strong></div>
+            <div className="receipt-meta-row"><span>Patient ID</span><strong>{bill.patient}</strong></div>
+            <div className="receipt-meta-row"><span>Customer type</span><strong>{bill.customer_type_label}</strong></div>
       </div>
 
       <div className="receipt-text-list">
-        {items.map((item, index) => (
-          <div className="receipt-text-item" key={index}>
-            <p>Test: <strong>{String(item.test_name ?? item.test ?? 'Test')}</strong></p>
-            {item.instructions ? <p>Instructions: <strong>{String(item.instructions)}</strong></p> : null}
-            <p>Cost: <strong>{formatReceiptAmount(String(item.cost ?? ''))} AFN</strong></p>
-            <p aria-hidden="true">.........................</p>
-          </div>
-        ))}
-        <p className="receipt-total-line">Total cost: <strong>{formatReceiptAmount(bill.total_amount)} AFN</strong></p>
-        <p className="receipt-total-line">Final amount: <strong>{formatReceiptAmount(finalAmount)} AFN</strong></p>
+            {items.map((item, index) => (
+              <div className="receipt-text-item" key={index}>
+                <p>Test: <strong>{String(item.test_name ?? item.test ?? 'Test')}</strong></p>
+                {item.instructions ? <p>Instructions: <strong>{String(item.instructions)}</strong></p> : null}
+                <p>Cost: <strong>{formatReceiptAmount(String(item.cost ?? ''))} AFN</strong></p>
+                <p aria-hidden="true">.........................</p>
+              </div>
+            ))}
+            <p className="receipt-total-line">Total cost: <strong>{formatReceiptAmount(bill.total_amount)} AFN</strong></p>
+            <p className="receipt-total-line">Final amount: <strong>{formatReceiptAmount(finalAmount)} AFN</strong></p>
       </div>
 
       <BillReceiptNote receivedFrom={bill.receptionist_name || 'Reception pending approval'} amount={formatReceiptAmount(finalAmount)} />

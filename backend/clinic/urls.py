@@ -2,10 +2,13 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    AuditLogViewSet,
+    CashBankTransactionViewSet,
     ClinicalDocumentViewSet,
     DashboardViewSet,
     database_backup,
     DoctorDepartmentAssignmentViewSet,
+    ExpenseCategoryViewSet,
     ExpenseViewSet,
     LabTestViewSet,
     MedicineStockMovementViewSet,
@@ -31,7 +34,10 @@ router.register('dashboard', DashboardViewSet, basename='dashboard')
 router.register('doctor-departments', DoctorDepartmentAssignmentViewSet, basename='doctor-departments')
 router.register('patients', PatientViewSet, basename='patients')
 router.register('payments', PaymentViewSet, basename='payments')
+router.register('expense-categories', ExpenseCategoryViewSet, basename='expense-categories')
 router.register('expenses', ExpenseViewSet, basename='expenses')
+router.register('cash-bank-transactions', CashBankTransactionViewSet, basename='cash-bank-transactions')
+router.register('audit-logs', AuditLogViewSet, basename='audit-logs')
 router.register('salary-advances', SalaryAdvanceViewSet, basename='salary-advances')
 router.register('salaries', SalaryPaymentViewSet, basename='salaries')
 router.register('documents', ClinicalDocumentViewSet, basename='documents')

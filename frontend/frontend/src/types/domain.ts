@@ -90,6 +90,8 @@ export type Payment = {
   patient_full_name: string
   service: string
   department: string
+  midwifery_service: string
+  midwifery_service_label: string
   doctor_name: string
   patient_age: number | null
   patient_age_unit: 'month' | 'year'
@@ -350,10 +352,25 @@ export type StockMovement = {
 
 export type Expense = {
   id: number
+  voucher_number: string
   name: string
   category: string
+  category_label: string
   amount: string
   description: string
+  payment_method: 'cash' | 'bank_transfer' | 'cheque'
+  bank_name: string
+  bank_account: string
+  transfer_reference_number: string
+  transfer_date: string | null
+  cheque_number: string
+  cheque_date: string | null
+  cheque_status: 'pending' | 'cleared' | 'bounced' | 'cancelled'
+  paid_to_received_from: string
+  funding_source: string
+  project_activity: string
+  department: string
+  vehicle_details: VehicleExpenseDetails | null
   salary_payment: number | null
   salary_advance: number | null
   created_by: number
@@ -362,9 +379,84 @@ export type Expense = {
   updated_at: string
 }
 
+export type VehicleExpenseDetails = {
+  id: number
+  number_plate: string
+  driver_name: string
+  source: string
+  destination: string
+  travel_purpose: string
+  expense_type: 'fuel' | 'maintenance'
+  fuel_type: 'diesel' | 'petrol' | 'gas' | ''
+  quantity_liters: string | null
+  price_per_liter: string | null
+  vehicle_odometer_km: number
+  fuel_station_supplier: string
+  invoice_number: string
+  workshop: string
+}
+
+export type CashBankTransaction = {
+  id: number
+  transaction_type: 'deposit' | 'withdrawal'
+  transaction_type_label: string
+  amount: string
+  currency: 'USD' | 'AFN'
+  depositor_name: string
+  withdrawer_name: string
+  reason: string
+  slip: string
+  slip_url: string
+  slip_name: string
+  created_by: number
+  created_by_name: string
+  created_at: string
+  updated_at: string
+}
+
+export type CashBankBalance = {
+  currency: 'USD' | 'AFN'
+  balance: string
+}
+
+export type AuditLog = {
+  id: number
+  actor: number | null
+  actor_name: string
+  action: 'create' | 'update' | 'delete'
+  resource: string
+  target_id: string
+  endpoint: string
+  status_code: number
+  ip_address: string | null
+  created_at: string
+}
+
 export type ExpenseCategoryOption = {
   id: number
   name: string
+  code: string
+  category_title: string
+}
+
+export type ExpenseSubcategory = {
+  id?: number
+  code: string
+  title_dari: string
+  title_pashto: string
+  title_english: string
+  display_title?: string
+}
+
+export type ExpenseCategory = {
+  id: number
+  title_dari: string
+  title_pashto: string
+  title_english: string
+  display_title: string
+  subcategories: ExpenseSubcategory[]
+  created_at: string
+  updated_at: string
 }
 
 export type DashboardStats = {
@@ -389,6 +481,13 @@ export type DashboardStats = {
     patients: number
     payments: number
     amount: string
+    midwifery_services: Array<{
+      service: string
+      service_label: string
+      patients: number
+      payments: number
+      amount: string
+    }>
   }>
   documents: number
   low_stock_medicines: number

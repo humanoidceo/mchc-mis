@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+from xml.sax.saxutils import escape
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from django.conf import settings
 from django.http import FileResponse
@@ -25,14 +27,16 @@ from accounts.models import Employee, StaffProfile
 from accounts.permissions import Role
 from config.pagination import StandardResultsSetPagination
 from pharmacy.models import Medicine as PharmacyMedicine
-from .expense_categories import EXPENSE_CATEGORIES
-from .models import ClinicalDocument, DoctorDepartmentAssignment, Expense, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, WebsitePageContent, WebsiteSettings
+from .models import AuditLog, CashBankTransaction, ClinicalDocument, DoctorDepartmentAssignment, Expense, ExpenseCategory, ExpenseSubcategory, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, WebsitePageContent, WebsiteSettings
 from .salary_rules import AFGHAN_MONTHS, current_afghan_date, money
 from .serializers import (
     ClinicalDocumentSerializer,
+    CashBankTransactionSerializer,
+    AuditLogSerializer,
     ASSIGNABLE_CLINICAL_ROLES,
     DoctorDepartmentAssignmentSerializer,
     ExpenseSerializer,
+    ExpenseCategorySerializer,
     LabTestSerializer,
     MedicineSerializer,
     MedicineStockMovementSerializer,
@@ -79,6 +83,120 @@ class DeleteAfterClose:
                 os.unlink(self.path)
             except FileNotFoundError:
                 pass
+
+
+def xlsx_column_name(column_index: int) -> str:
+    """Return an Excel column name for a one-based column index."""
+    result = ''
+    while column_index:
+        column_index, remainder = divmod(column_index - 1, 26)
+        result = chr(65 + remainder) + result
+    return result
+
+
+def xlsx_safe_text(value) -> str:
+    value = '' if value is None else str(value)
+    # Prevent text entered in the application from becoming an Excel formula.
+    return f"'{value}" if value.startswith(('=', '+', '-', '@')) else value
+
+
+def build_xlsx_cell(cell_reference: str, value, *, is_header: bool = False) -> str:
+    style_attribute = ' s="1"' if is_header else ''
+    if isinstance(value, (Decimal, int, float)) and not isinstance(value, bool):
+        numeric_value = format(value, 'f') if isinstance(value, Decimal) else str(value)
+        return f'<c r="{cell_reference}"{style_attribute}><v>{numeric_value}</v></c>'
+    return (
+        f'<c r="{cell_reference}" t="inlineStr"{style_attribute}>'
+        f'<is><t>{escape(xlsx_safe_text(value))}</t></is>'
+        '</c>'
+    )
+
+
+def write_xlsx_workbook(path: str, worksheet_name: str, rows) -> None:
+    """Write an XLSX file without retaining its data rows in application memory."""
+    safe_sheet_name = ''.join(character for character in worksheet_name if character not in '\\/*?:[]')[:31] or 'Sheet1'
+    content_types_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+        '</Types>'
+    )
+    root_rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+        '</Relationships>'
+    )
+    workbook_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        f'<sheets><sheet name="{escape(safe_sheet_name)}" sheetId="1" r:id="rId1"/></sheets>'
+        '</workbook>'
+    )
+    workbook_rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+        '</Relationships>'
+    )
+    styles_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<fonts count="2"><font><sz val="11"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font></fonts>'
+        '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
+        '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+        '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+        '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>'
+        '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+        '</styleSheet>'
+    )
+
+    with ZipFile(path, 'w', compression=ZIP_DEFLATED, allowZip64=True) as workbook:
+        workbook.writestr('[Content_Types].xml', content_types_xml)
+        workbook.writestr('_rels/.rels', root_rels_xml)
+        workbook.writestr('xl/workbook.xml', workbook_xml)
+        workbook.writestr('xl/_rels/workbook.xml.rels', workbook_rels_xml)
+        workbook.writestr('xl/styles.xml', styles_xml)
+        with workbook.open('xl/worksheets/sheet1.xml', 'w') as worksheet:
+            worksheet.write(
+                b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                b'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+            )
+            for row_index, row in enumerate(rows, start=1):
+                cells = ''.join(
+                    build_xlsx_cell(
+                        f'{xlsx_column_name(column_index)}{row_index}',
+                        value,
+                        is_header=row_index == 1,
+                    )
+                    for column_index, value in enumerate(row, start=1)
+                )
+                worksheet.write(f'<row r="{row_index}">{cells}</row>'.encode('utf-8'))
+            worksheet.write(b'</sheetData></worksheet>')
+
+
+def parse_expense_date_range(request):
+    raw_from = request.query_params.get('from', '').strip()
+    raw_to = request.query_params.get('to', '').strip()
+    date_from = parse_date(raw_from) if raw_from else None
+    date_to = parse_date(raw_to) if raw_to else None
+    if raw_from and date_from is None:
+        raise serializers.ValidationError({'from': 'Use a valid From date.'})
+    if raw_to and date_to is None:
+        raise serializers.ValidationError({'to': 'Use a valid To date.'})
+    if date_from and date_to and date_from > date_to:
+        raise serializers.ValidationError({'to': 'The To date must be on or after the From date.'})
+
+    current_timezone = timezone.get_current_timezone()
+    start_at = timezone.make_aware(datetime.combine(date_from, datetime.min.time()), current_timezone) if date_from else None
+    end_at = timezone.make_aware(datetime.combine(date_to + timedelta(days=1), datetime.min.time()), current_timezone) if date_to else None
+    return date_from, date_to, start_at, end_at
 
 
 def can_download_database_backup(user) -> bool:
@@ -492,6 +610,7 @@ class PaymentViewSet(PermissionedModelViewSet):
         queryset = super().get_queryset().filter(
             created_at__date__gte=from_date,
             created_at__date__lte=to_date,
+            status=Payment.Status.APPROVED,
         )
         patient_count = queryset.values('patient_id').distinct().count()
         department_buckets: dict[str, dict[str, object]] = defaultdict(lambda: {
@@ -605,8 +724,35 @@ class PaymentViewSet(PermissionedModelViewSet):
         return Response(self.get_serializer(payment).data)
 
 
+class ExpenseCategoryViewSet(PermissionedModelViewSet):
+    queryset = ExpenseCategory.objects.prefetch_related('subcategories')
+    serializer_class = ExpenseCategorySerializer
+    permission_map = {'*': 'expenses.manage'}
+    pagination_class = StandardResultsSetPagination
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        search = self.request.query_params.get('q', '').strip()
+        if search:
+            queryset = queryset.filter(
+                Q(title_dari__icontains=search)
+                | Q(title_pashto__icontains=search)
+                | Q(title_english__icontains=search)
+                | Q(subcategories__code__icontains=search)
+                | Q(subcategories__title_dari__icontains=search)
+                | Q(subcategories__title_pashto__icontains=search)
+                | Q(subcategories__title_english__icontains=search)
+            ).distinct()
+        return queryset
+
+    @action(detail=False, methods=['get'])
+    def options(self, request):
+        """Return the complete category tree for the expense entry picker."""
+        return Response(self.get_serializer(self.get_queryset(), many=True).data)
+
+
 class ExpenseViewSet(PermissionedModelViewSet):
-    queryset = Expense.objects.select_related('created_by')
+    queryset = Expense.objects.select_related('created_by', 'vehicle_details')
     serializer_class = ExpenseSerializer
     permission_map = {'*': 'expenses.manage'}
 
@@ -618,6 +764,19 @@ class ExpenseViewSet(PermissionedModelViewSet):
                 Q(name__icontains=search)
                 | Q(category__icontains=search)
                 | Q(description__icontains=search)
+                | Q(voucher_number__icontains=search)
+                | Q(funding_source__icontains=search)
+                | Q(project_activity__icontains=search)
+                | Q(department__icontains=search)
+                | Q(paid_to_received_from__icontains=search)
+                | Q(vehicle_details__number_plate__icontains=search)
+                | Q(vehicle_details__driver_name__icontains=search)
+                | Q(vehicle_details__source__icontains=search)
+                | Q(vehicle_details__destination__icontains=search)
+                | Q(vehicle_details__travel_purpose__icontains=search)
+                | Q(vehicle_details__fuel_station_supplier__icontains=search)
+                | Q(vehicle_details__invoice_number__icontains=search)
+                | Q(vehicle_details__workshop__icontains=search)
             )
         return queryset
 
@@ -638,32 +797,374 @@ class ExpenseViewSet(PermissionedModelViewSet):
 
     @action(detail=False, methods=['get'])
     def summary(self, request):
-        raw_from = request.query_params.get('from', '').strip()
-        raw_to = request.query_params.get('to', '').strip()
-        date_from = parse_date(raw_from) if raw_from else None
-        date_to = parse_date(raw_to) if raw_to else None
-        if raw_from and date_from is None:
-            raise serializers.ValidationError({'from': 'Use a valid From date.'})
-        if raw_to and date_to is None:
-            raise serializers.ValidationError({'to': 'Use a valid To date.'})
-        if date_from and date_to and date_from > date_to:
-            raise serializers.ValidationError({'to': 'The To date must be on or after the From date.'})
+        _date_from, _date_to, start_at, end_at = parse_expense_date_range(request)
 
         queryset = self.get_queryset()
-        if date_from is not None:
-            queryset = queryset.filter(created_at__date__gte=date_from)
-        if date_to is not None:
-            queryset = queryset.filter(created_at__date__lte=date_to)
+        if start_at is not None:
+            queryset = queryset.filter(created_at__gte=start_at)
+        if end_at is not None:
+            queryset = queryset.filter(created_at__lt=end_at)
         totals = {
             row['category']: row['total']
             for row in queryset.values('category').annotate(total=Sum('amount'))
         }
+        subcategories = list(ExpenseSubcategory.objects.select_related('category').all())
+        known_codes = {subcategory.code for subcategory in subcategories}
+        results = [
+            {
+                'category': subcategory.code,
+                'title': f'{subcategory.category.display_title} — {subcategory.display_title}',
+                'amount': str(totals.pop(subcategory.code, Decimal('0.00')) or Decimal('0.00')),
+            }
+            for subcategory in subcategories
+        ]
+        results.extend(
+            {
+                'category': code,
+                'title': code,
+                'amount': str(amount or Decimal('0.00')),
+            }
+            for code, amount in totals.items()
+            if code not in known_codes
+        )
         return Response({
-            'results': [
-                {'category': category, 'amount': str(totals.get(category) or Decimal('0.00'))}
-                for category in EXPENSE_CATEGORIES
-            ]
+            'results': results,
         })
+
+    @action(detail=False, methods=['get'])
+    def report(self, request):
+        """Detailed, date-filtered expense report for printing.
+
+        Expense figures remain AFN. Cash and bank withdrawals are reported
+        separately by currency so they are never mixed into expense totals.
+        """
+        date_from, date_to, start_at, end_at = parse_expense_date_range(request)
+        report_page_size = 16
+        try:
+            expense_page_number = max(1, int(request.query_params.get('page', '1')))
+        except (TypeError, ValueError):
+            expense_page_number = 1
+        try:
+            withdrawal_page_number = max(1, int(request.query_params.get('withdrawal_page', '1')))
+        except (TypeError, ValueError):
+            withdrawal_page_number = 1
+        category_records = list(ExpenseCategory.objects.prefetch_related('subcategories').all())
+
+        def titles(item):
+            return {
+                'dari': item.title_dari or item.title_english or item.title_pashto or '',
+                'pashto': item.title_pashto or item.title_dari or item.title_english or '',
+                'english': item.title_english or item.title_dari or item.title_pashto or '',
+            }
+
+        category_groups = []
+        category_by_code = {}
+        for category in category_records:
+            group = {
+                'id': category.id,
+                'titles': titles(category),
+                'subcategories': [],
+                'total': Decimal('0.00'),
+            }
+            category_groups.append(group)
+            for subcategory in category.subcategories.all():
+                subcategory_group = {
+                    'code': subcategory.code,
+                    'titles': titles(subcategory),
+                    'entries': [],
+                    'total': Decimal('0.00'),
+                }
+                group['subcategories'].append(subcategory_group)
+                category_by_code[subcategory.code] = (group, subcategory_group)
+
+        expenses = Expense.objects.order_by('created_at', 'id')
+        if start_at is not None:
+            expenses = expenses.filter(created_at__gte=start_at)
+        if end_at is not None:
+            expenses = expenses.filter(created_at__lt=end_at)
+
+        expense_count = expenses.count()
+        expense_page_count = max(1, (expense_count + report_page_size - 1) // report_page_size)
+        if expense_page_number > expense_page_count:
+            expense_page_number = expense_page_count
+        expense_start = (expense_page_number - 1) * report_page_size
+        totals_by_code = {
+            row['category']: row['total'] or Decimal('0.00')
+            for row in expenses.values('category').annotate(total=Sum('amount'))
+        }
+        total_expenses = expenses.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+
+        for group in category_groups:
+            for subcategory in group['subcategories']:
+                subcategory['total'] = totals_by_code.pop(subcategory['code'], Decimal('0.00'))
+                group['total'] += subcategory['total']
+
+        other_group = {
+            'id': None,
+            'titles': {'dari': 'سایر مصارف', 'pashto': 'نور لګښتونه', 'english': 'Other expenses'},
+            'subcategories': [],
+            'total': Decimal('0.00'),
+        }
+        for code, total in totals_by_code.items():
+            subcategory_group = {
+                'code': code,
+                'titles': {'dari': code, 'pashto': code, 'english': code},
+                'entries': [],
+                'total': total,
+            }
+            other_group['subcategories'].append(subcategory_group)
+            other_group['total'] += total
+            category_by_code[code] = (other_group, subcategory_group)
+
+        salary_entries = []
+        for row in expenses[expense_start:expense_start + report_page_size].values(
+            'id', 'voucher_number', 'created_at', 'name', 'category', 'amount', 'description',
+            'payment_method', 'funding_source', 'department', 'salary_payment_id', 'salary_advance_id',
+        ):
+            group_and_subcategory = category_by_code.get(row['category'])
+            if group_and_subcategory is None:
+                continue
+            group, subcategory = group_and_subcategory
+
+            amount = row['amount'] or Decimal('0.00')
+            is_salary = bool(row['salary_payment_id'] or row['salary_advance_id'])
+            entry = {
+                'id': row['id'],
+                'voucher_number': row['voucher_number'],
+                'created_at': timezone.localtime(row['created_at']).isoformat(),
+                'name': row['name'],
+                'amount': str(amount),
+                'description': row['description'],
+                'payment_method': row['payment_method'],
+                'funding_source': row['funding_source'],
+                'department': row['department'],
+                'is_salary': is_salary,
+                'salary_type': 'settlement' if row['salary_payment_id'] else ('advance' if row['salary_advance_id'] else ''),
+            }
+            subcategory['entries'].append(entry)
+            if is_salary:
+                salary_entries.append(entry)
+
+        report_categories = category_groups + ([other_group] if other_group['subcategories'] else [])
+        withdrawals = CashBankTransaction.objects.filter(transaction_type=CashBankTransaction.TransactionType.WITHDRAWAL).order_by('created_at', 'id')
+        if start_at is not None:
+            withdrawals = withdrawals.filter(created_at__gte=start_at)
+        if end_at is not None:
+            withdrawals = withdrawals.filter(created_at__lt=end_at)
+        withdrawal_count = withdrawals.count()
+        withdrawal_page_count = max(1, (withdrawal_count + report_page_size - 1) // report_page_size)
+        if withdrawal_page_number > withdrawal_page_count:
+            withdrawal_page_number = withdrawal_page_count
+        withdrawal_start = (withdrawal_page_number - 1) * report_page_size
+        withdrawal_groups = {currency: {'currency': currency, 'entries': [], 'total': Decimal('0.00')} for currency in CashBankTransaction.Currency.values}
+        withdrawal_totals = {
+            row['currency']: row['total'] or Decimal('0.00')
+            for row in withdrawals.values('currency').annotate(total=Sum('amount'))
+        }
+        for currency, group in withdrawal_groups.items():
+            group['total'] = withdrawal_totals.get(currency, Decimal('0.00'))
+        # The report's total is expressed in AFN, so include AFN withdrawals
+        # only. USD remains visible as its own currency total and is never
+        # converted using an assumed exchange rate.
+        total_expenses += withdrawal_totals.get(CashBankTransaction.Currency.AFN, Decimal('0.00'))
+        for row in withdrawals[withdrawal_start:withdrawal_start + report_page_size].values('id', 'created_at', 'amount', 'currency', 'reason', 'withdrawer_name'):
+            group = withdrawal_groups[row['currency']]
+            amount = row['amount'] or Decimal('0.00')
+            group['entries'].append({
+                'id': row['id'],
+                'created_at': timezone.localtime(row['created_at']).isoformat(),
+                'amount': str(amount),
+                'reason': row['reason'],
+                'withdrawer_name': row['withdrawer_name'],
+            })
+
+        def serialize_category(group):
+            return {
+                **group,
+                'total': str(group['total']),
+                'subcategories': [
+                    {**subcategory, 'total': str(subcategory['total'])}
+                    for subcategory in group['subcategories']
+                ],
+            }
+
+        return Response({
+            'from': date_from.isoformat() if date_from else '',
+            'to': date_to.isoformat() if date_to else '',
+            'generated_at': timezone.localtime(timezone.now()).isoformat(),
+            'categories': [serialize_category(group) for group in report_categories],
+            'total_expenses_afn': str(total_expenses),
+            'salary_entries': salary_entries,
+            'salary_total_afn': str(expenses.filter(Q(salary_payment__isnull=False) | Q(salary_advance__isnull=False)).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')),
+            'pagination': {
+                'page': expense_page_number,
+                'page_size': report_page_size,
+                'total_count': expense_count,
+                'total_pages': expense_page_count,
+            },
+            'withdrawal_pagination': {
+                'page': withdrawal_page_number,
+                'page_size': report_page_size,
+                'total_count': withdrawal_count,
+                'total_pages': withdrawal_page_count,
+            },
+            'withdrawals': [
+                {**group, 'total': str(group['total'])}
+                for group in withdrawal_groups.values()
+            ],
+        })
+
+    @action(detail=False, methods=['get'], url_path='export-xlsx')
+    def export_xlsx(self, request):
+        date_from, date_to, start_at, end_at = parse_expense_date_range(request)
+        expenses = Expense.objects.order_by('created_at', 'id')
+        if start_at is not None:
+            expenses = expenses.filter(created_at__gte=start_at)
+        if end_at is not None:
+            expenses = expenses.filter(created_at__lt=end_at)
+        subcategory_labels = {
+            subcategory.code: f'{subcategory.category.display_title} — {subcategory.display_title}'
+            for subcategory in ExpenseSubcategory.objects.select_related('category').all()
+        }
+        payment_method_labels = dict(Expense.PaymentMethod.choices)
+        cheque_status_labels = dict(Expense.ChequeStatus.choices)
+
+        def expense_rows():
+            yield [
+                'Voucher number', 'Date and time', 'Expense', 'Category', 'Payment method',
+                'Bank name', 'Bank account', 'Transfer reference no.', 'Transfer date',
+                'Cheque number', 'Cheque date', 'Cheque status', 'Paid to / received from',
+                'Funding source', 'Project/activity', 'Department', 'Description',
+                'Number plate', 'Driver name', 'Source', 'Destination', 'Travel purpose',
+                'Vehicle expense type', 'Fuel type', 'Quantity (liters)',
+                'Price per liter', 'Vehicle odometer (KM)', 'Fuel station / supplier',
+                'Invoice number', 'Workshop', 'Amount (AFN)', 'Recorded by',
+            ]
+            total = Decimal('0.00')
+            last_created_at = None
+            last_id = None
+            while True:
+                page = expenses
+                if last_created_at is not None and last_id is not None:
+                    page = page.filter(
+                        Q(created_at__gt=last_created_at)
+                        | Q(created_at=last_created_at, id__gt=last_id)
+                    )
+                # Keyset pagination keeps each MySQL result set bounded. Some MySQL
+                # drivers buffer a full query result even when QuerySet.iterator() is used.
+                batch = list(page.values_list(
+                    'id',
+                    'voucher_number',
+                    'created_at',
+                    'name',
+                    'category',
+                    'payment_method',
+                    'bank_name',
+                    'bank_account',
+                    'transfer_reference_number',
+                    'transfer_date',
+                    'cheque_number',
+                    'cheque_date',
+                    'cheque_status',
+                    'paid_to_received_from',
+                    'funding_source',
+                    'project_activity',
+                    'department',
+                    'description',
+                    'vehicle_details__number_plate',
+                    'vehicle_details__driver_name',
+                    'vehicle_details__source',
+                    'vehicle_details__destination',
+                    'vehicle_details__travel_purpose',
+                    'vehicle_details__expense_type',
+                    'vehicle_details__fuel_type',
+                    'vehicle_details__quantity_liters',
+                    'vehicle_details__price_per_liter',
+                    'vehicle_details__vehicle_odometer_km',
+                    'vehicle_details__fuel_station_supplier',
+                    'vehicle_details__invoice_number',
+                    'vehicle_details__workshop',
+                    'amount',
+                    'created_by__first_name',
+                    'created_by__last_name',
+                    'created_by__username',
+                )[:1000])
+                if not batch:
+                    break
+                for (
+                    expense_id, voucher_number, created_at, name, category, payment_method,
+                    bank_name, bank_account, transfer_reference_number, transfer_date,
+                    cheque_number, cheque_date, cheque_status, paid_to_received_from,
+                    funding_source, project_activity, department, description, number_plate, driver_name,
+                    source, destination, travel_purpose,
+                    vehicle_expense_type, fuel_type, quantity_liters, price_per_liter,
+                    vehicle_odometer_km, fuel_station_supplier, invoice_number, workshop, amount,
+                    first_name, last_name, username,
+                ) in batch:
+                    total += amount
+                    recorded_by = ' '.join(part for part in (first_name, last_name) if part).strip() or username
+                    yield [
+                        voucher_number,
+                        timezone.localtime(created_at).strftime('%Y-%m-%d %H:%M:%S'),
+                        name or subcategory_labels.get(category, category),
+                        subcategory_labels.get(category, category),
+                        payment_method_labels.get(payment_method, payment_method),
+                        bank_name,
+                        bank_account,
+                        transfer_reference_number,
+                        transfer_date.isoformat() if transfer_date else '',
+                        cheque_number,
+                        cheque_date.isoformat() if cheque_date else '',
+                        cheque_status_labels.get(cheque_status, cheque_status),
+                        paid_to_received_from,
+                        funding_source,
+                        project_activity,
+                        department,
+                        description,
+                        number_plate or '',
+                        driver_name or '',
+                        source or '',
+                        destination or '',
+                        travel_purpose or '',
+                        {'fuel': 'Fuel', 'maintenance': 'Vehicle maintenance'}.get(vehicle_expense_type, vehicle_expense_type or ''),
+                        {'diesel': 'Diesel', 'petrol': 'Petrol', 'gas': 'Gas'}.get(fuel_type, fuel_type or ''),
+                        quantity_liters if quantity_liters is not None else '',
+                        price_per_liter if price_per_liter is not None else '',
+                        vehicle_odometer_km if vehicle_odometer_km is not None else '',
+                        fuel_station_supplier or '',
+                        invoice_number or '',
+                        workshop or '',
+                        amount,
+                        recorded_by,
+                    ]
+                    last_created_at = created_at
+                    last_id = expense_id
+            yield ['Grand total'] + [''] * 29 + [total, '']
+
+        temporary_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
+        temporary_path = temporary_file.name
+        temporary_file.close()
+        try:
+            write_xlsx_workbook(temporary_path, 'Expenses', expense_rows())
+        except Exception:
+            try:
+                os.unlink(temporary_path)
+            except FileNotFoundError:
+                pass
+            raise
+
+        range_suffix = (
+            f'{date_from.isoformat() if date_from else "earliest"}-to-'
+            f'{date_to.isoformat() if date_to else "latest"}'
+        )
+        response = FileResponse(
+            DeleteAfterClose(temporary_path),
+            as_attachment=True,
+            filename=f'expenses-{range_suffix}.xlsx',
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Cache-Control'] = 'no-store'
+        return response
 
     @action(detail=False, methods=['get'])
     def categories(self, request):
@@ -673,18 +1174,118 @@ class ExpenseViewSet(PermissionedModelViewSet):
         except ValueError:
             offset = 0
 
-        categories = EXPENSE_CATEGORIES
+        categories = ExpenseSubcategory.objects.select_related('category').order_by('category__title_english', 'category__title_dari', 'category__title_pashto', 'code')
         if search:
-            categories = [category for category in categories if search in category.lower()]
+            categories = categories.filter(
+                Q(code__icontains=search)
+                | Q(title_dari__icontains=search)
+                | Q(title_pashto__icontains=search)
+                | Q(title_english__icontains=search)
+                | Q(category__title_dari__icontains=search)
+                | Q(category__title_pashto__icontains=search)
+                | Q(category__title_english__icontains=search)
+            )
 
         limit = 5
-        total = len(categories)
+        total = categories.count()
         results = [
-            {'id': index + offset + 1, 'name': category}
-            for index, category in enumerate(categories[offset:offset + limit])
+            {
+                'id': category.id,
+                'name': category.display_title,
+                'code': category.code,
+                'category_title': category.category.display_title,
+            }
+            for category in categories[offset:offset + limit]
         ]
         next_offset = offset + limit if offset + limit < total else None
         return Response({'results': results, 'next_offset': next_offset})
+
+
+class AuditLogViewSet(PermissionedModelViewSet):
+    queryset = AuditLog.objects.select_related('actor')
+    serializer_class = AuditLogSerializer
+    pagination_class = StandardResultsSetPagination
+    permission_map = {'*': 'expenses.manage'}
+    http_method_names = ['get', 'head', 'options']
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        profile = getattr(request.user, 'staff_profile', None)
+        if profile is None or profile.role not in {Role.RECEPTIONIST, Role.SUPER_ADMIN}:
+            self.permission_denied(request, message='Audit log is available to Reception and Super Admin only.')
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        search = self.request.query_params.get('q', '').strip()
+        action = self.request.query_params.get('action', '').strip().lower()
+        if search:
+            queryset = queryset.filter(
+                Q(resource__icontains=search)
+                | Q(target_id__icontains=search)
+                | Q(endpoint__icontains=search)
+                | Q(actor__username__icontains=search)
+                | Q(actor__first_name__icontains=search)
+                | Q(actor__last_name__icontains=search)
+                | Q(ip_address__icontains=search)
+            )
+        if action in AuditLog.Action.values:
+            queryset = queryset.filter(action=action)
+        return queryset
+
+
+class CashBankTransactionViewSet(PermissionedModelViewSet):
+    """Append-only cash and bank ledger for reception and super-admin users."""
+
+    queryset = CashBankTransaction.objects.select_related('created_by')
+    serializer_class = CashBankTransactionSerializer
+    pagination_class = StandardResultsSetPagination
+    parser_classes = (JSONParser, FormParser, MultiPartParser)
+    permission_map = {'*': 'expenses.manage'}
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        profile = getattr(request.user, 'staff_profile', None)
+        if profile is None or profile.role not in {Role.RECEPTIONIST, Role.SUPER_ADMIN}:
+            self.permission_denied(request, message='Cash and bank accounts are available to Reception and Super Admin only.')
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        search = self.request.query_params.get('q', '').strip()
+        currency = self.request.query_params.get('currency', '').strip().upper()
+        if search:
+            queryset = queryset.filter(
+                Q(reason__icontains=search)
+                | Q(depositor_name__icontains=search)
+                | Q(withdrawer_name__icontains=search)
+                | Q(created_by__first_name__icontains=search)
+                | Q(created_by__last_name__icontains=search)
+                | Q(created_by__username__icontains=search)
+            )
+        if currency in CashBankTransaction.Currency.values:
+            queryset = queryset.filter(currency=currency)
+        return queryset
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+    def perform_destroy(self, instance):
+        soft_delete_instance(instance, self.request.user)
+
+    @action(detail=False, methods=['get'])
+    def balances(self, request):
+        totals = defaultdict(lambda: {'deposit': Decimal('0.00'), 'withdrawal': Decimal('0.00')})
+        for row in self.get_queryset().values('currency', 'transaction_type').annotate(total=Sum('amount')):
+            totals[row['currency']][row['transaction_type']] = row['total'] or Decimal('0.00')
+        return Response({
+            'balances': [
+                {
+                    'currency': currency,
+                    'balance': str(totals[currency]['deposit'] - totals[currency]['withdrawal']),
+                }
+                for currency in CashBankTransaction.Currency.values
+            ],
+        })
 
 
 def build_salary_expense_description(salary_payment: SalaryPayment) -> str:
@@ -706,7 +1307,7 @@ def sync_salary_payment_expense(salary_payment: SalaryPayment):
     employee_name = f'{salary_payment.employee.first_name} {salary_payment.employee.last_name}'.strip()
     expense_defaults = {
         'name': f'Salary payment - {employee_name}',
-        'category': 'Salary payment',
+        'category': 'E-05',
         'amount': salary_payment.payable_amount,
         'description': build_salary_expense_description(salary_payment),
         'created_by': salary_payment.created_by,
@@ -730,7 +1331,7 @@ def sync_salary_advance_expense(salary_advance: SalaryAdvance):
     employee_name = f'{salary_advance.employee.first_name} {salary_advance.employee.last_name}'.strip()
     expense_defaults = {
         'name': f'Salary advance - {employee_name}',
-        'category': 'Salary advance',
+        'category': 'E-05',
         'amount': salary_advance.amount,
         'description': build_salary_advance_expense_description(salary_advance),
         'created_by': salary_advance.created_by,
@@ -1247,12 +1848,29 @@ class DashboardViewSet(viewsets.ViewSet):
         approved_amount = payments.filter(status=Payment.Status.APPROVED).aggregate(total=Sum('amount'))['total'] or 0
         expenses_amount = expenses.aggregate(total=Sum('amount'))['total'] or 0
 
+        midwifery_service_labels = dict(Payment.MidwiferyService.choices)
+        midwifery_services = [
+            {
+                'service': row['midwifery_service'],
+                'service_label': midwifery_service_labels.get(row['midwifery_service'], row['midwifery_service'] or 'Not specified'),
+                'patients': row['patients'],
+                'payments': row['payments'],
+                'amount': str(row['amount'] or 0),
+            }
+            for row in payments.filter(department__iexact='Midwifery').values('midwifery_service').annotate(
+                patients=Count('patient', distinct=True),
+                payments=Count('id'),
+                amount=Sum('amount'),
+            ).order_by('midwifery_service')
+        ]
+
         departments = [
             {
                 'department': row['department'] or 'Unassigned',
                 'patients': row['patients'],
                 'payments': row['payments'],
                 'amount': str(row['amount'] or 0),
+                'midwifery_services': midwifery_services if (row['department'] or '').strip().lower() == 'midwifery' else [],
             }
             for row in payments.values('department').annotate(
                 patients=Count('patient', distinct=True),

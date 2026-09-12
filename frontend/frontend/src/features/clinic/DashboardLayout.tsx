@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { NavLink, Route, Routes, Navigate } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Database, FileText, FolderLock, Globe, HeartPulse, LayoutDashboard, Package, ReceiptText, Shield, Trash2, User, Users, Wallet } from 'lucide-react'
+import { NavLink, Route, Routes, Navigate, useLocation } from 'react-router-dom'
+import { ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Database, FileText, FolderLock, Globe, HeartPulse, LayoutDashboard, Package, ReceiptText, Shield, Trash2, User, Users, Wallet } from 'lucide-react'
 
 import { useAuth } from '../auth/useAuth'
 import { AccountSettingsPage } from '../account/AccountSettingsPage'
@@ -16,6 +16,10 @@ import { TrashBinPage } from '../trash/TrashBinPage'
 import { ClinicWorkspace } from './ClinicWorkspace'
 import { DatabaseBackupPage } from './DatabaseBackupPage'
 import { DoctorDepartmentPage } from './DoctorDepartmentPage'
+import { ExpenseCategoriesPage } from './ExpenseCategoriesPage'
+import { CashBankAccountsPage } from './CashBankAccountsPage'
+import { AuditLogPage } from './AuditLogPage'
+import { ExpensesReportPage } from './ExpensesReportPage'
 import { SectionHeader } from '../../components/ui'
 
 const common = {
@@ -34,8 +38,13 @@ const layoutText = {
   patients: 'Patients',
   reception: 'Reception',
   doctorDepartments: 'Doctor departments',
-  report: 'Report',
+  report: 'Revenue Report',
   expenses: 'Expenses',
+  expenseCategory: 'Expense category',
+  expensesReport: 'Expenses report',
+  staff: 'Staff',
+  cashBankAccounts: 'Cash & Bank Accounts',
+  auditLog: 'Audit Log',
   salaries: 'Salaries',
   clinicalDocuments: 'Clinical documents',
   familyPlanning: 'Family planning',
@@ -50,24 +59,25 @@ const layoutText = {
 
 export function DashboardLayout() {
   const { user, logout, hasPermission } = useAuth()
+  const location = useLocation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [expensesMenuOpen, setExpensesMenuOpen] = useState(() => ['/expenses', '/expense-categories', '/expenses-report', '/salaries'].includes(location.pathname))
+  const [staffMenuOpen, setStaffMenuOpen] = useState(() => ['/doctor-departments', '/employees'].includes(location.pathname))
 
   const links = [
     { to: '/dashboard', label: layoutText.dashboard, permission: null, icon: LayoutDashboard },
     { to: '/patients', label: layoutText.patients, permission: 'patients.view', icon: Users },
     { to: '/payments', label: layoutText.reception, permission: 'payments.view', icon: ReceiptText },
-    { to: '/doctor-departments', label: layoutText.doctorDepartments, permission: 'patients.register', icon: Users },
     { to: '/reception-report', label: layoutText.report, permission: 'payments.view', icon: FileText },
-    { to: '/expenses', label: layoutText.expenses, permission: 'expenses.manage', icon: Wallet },
-    { to: '/salaries', label: layoutText.salaries, permission: 'expenses.manage', icon: Wallet },
+    { to: '/cash-bank-accounts', label: layoutText.cashBankAccounts, permission: 'expenses.manage', icon: Wallet },
+    { to: '/audit-log', label: layoutText.auditLog, permission: 'expenses.manage', icon: ClipboardList },
     { to: '/documents', label: layoutText.clinicalDocuments, permission: null, icon: FileText },
     { to: '/family-planning', label: layoutText.familyPlanning, permission: 'documents.family_planning.create', icon: HeartPulse },
     { to: '/ultrasound-reports', label: layoutText.ultrasoundReports, permission: 'documents.ultrasound.create', icon: FileText },
     { to: '/private-documents', label: layoutText.privateDocuments, permission: 'private_documents.manage', icon: FolderLock },
     { to: '/database-backup', label: layoutText.databaseBackup, permission: null, icon: Database },
     { to: '/stock', label: layoutText.medicineStock, permission: 'stock.manage', icon: Package },
-    { to: '/employees', label: layoutText.employees, permission: 'employees.manage', icon: Users },
     { to: '/website-content', label: layoutText.websiteContent, permission: 'website.content.manage', icon: Globe },
     { to: '/users', label: layoutText.users, permission: 'users.manage', icon: Shield },
     { to: '/account', label: common.myAccount, permission: null, icon: User },
@@ -97,12 +107,22 @@ export function DashboardLayout() {
     if (user?.profile?.role === 'receptionist' && link.to === '/patients') return false
     if (user?.profile?.role === 'receptionist' && link.to === '/documents') return false
     if (link.to === '/reception-report' && !['receptionist', 'super_admin'].includes(user?.profile?.role ?? '')) return false
+    if (link.to === '/cash-bank-accounts' && !['receptionist', 'super_admin'].includes(user?.profile?.role ?? '')) return false
+    if (link.to === '/audit-log' && !['receptionist', 'super_admin'].includes(user?.profile?.role ?? '')) return false
     if (link.to === '/database-backup' && !['receptionist', 'super_admin'].includes(user?.profile?.role ?? '') && !hasPermission('database.backup')) return false
     if (user?.profile?.role === 'gynecologist' && link.to === '/patients') return false
     if (link.to === '/family-planning' && user?.profile?.role !== 'gynecologist') return false
     if (link.to === '/ultrasound-reports' && user?.profile?.role !== 'gynecologist') return false
     return !link.permission || hasPermission(link.permission)
   })
+  const canManageExpenses = hasPermission('expenses.manage')
+  const canManageDoctorDepartments = hasPermission('patients.register')
+  const canManageEmployees = hasPermission('employees.manage')
+  const canManageStaff = canManageDoctorDepartments || canManageEmployees
+  const canManageExpenseCategories = canManageExpenses && ['receptionist', 'super_admin'].includes(user?.profile?.role ?? '')
+  const isStaffRoute = ['/doctor-departments', '/employees'].includes(location.pathname)
+  const isExpenseRoute = ['/expenses', '/expense-categories', '/expenses-report', '/salaries'].includes(location.pathname)
+  const showExpensesMenu = expensesMenuOpen
 
   return (
     <div className="min-h-screen bg-sky-50 text-slate-900">
@@ -136,18 +156,62 @@ export function DashboardLayout() {
         </div>
         <nav className="relative z-10 space-y-1">
           {visibleLinks.map((link) => (
-            <NavLink
-              key={link.to}
-              to={link.to}
-              title={sidebarCollapsed ? link.label : undefined}
-              onClick={() => setMobileMenuOpen(false)}
-              className={({ isActive }) =>
-                `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${sidebarCollapsed ? 'lg:justify-center' : ''} ${isActive ? 'bg-white/50 text-pink-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_8px_24px_rgba(236,72,153,0.14)]' : 'text-slate-700 hover:bg-white/35'}`
-              }
-            >
-              <link.icon className="h-4 w-4 shrink-0" />
-              <span className={sidebarCollapsed ? 'lg:hidden' : ''}>{link.label}</span>
-            </NavLink>
+            <div key={link.to} className="space-y-1">
+              <NavLink
+                to={link.to}
+                title={sidebarCollapsed ? link.label : undefined}
+                onClick={() => setMobileMenuOpen(false)}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${sidebarCollapsed ? 'lg:justify-center' : ''} ${isActive ? 'bg-white/50 text-pink-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_8px_24px_rgba(236,72,153,0.14)]' : 'text-slate-700 hover:bg-white/35'}`
+                }
+              >
+                <link.icon className="h-4 w-4 shrink-0" />
+                <span className={sidebarCollapsed ? 'lg:hidden' : ''}>{link.label}</span>
+              </NavLink>
+              {link.to === '/payments' && canManageStaff ? (
+                <div>
+                  <button
+                    type="button"
+                    title={sidebarCollapsed ? layoutText.staff : undefined}
+                    aria-expanded={staffMenuOpen}
+                    onClick={() => setStaffMenuOpen((current) => !current)}
+                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${sidebarCollapsed ? 'lg:justify-center' : ''} ${isStaffRoute ? 'bg-white/50 text-pink-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_8px_24px_rgba(236,72,153,0.14)]' : 'text-slate-700 hover:bg-white/35'}`}
+                  >
+                    <Users className="h-4 w-4 shrink-0" />
+                    <span className={`flex flex-1 items-center justify-between ${sidebarCollapsed ? 'lg:hidden' : ''}`}>{layoutText.staff}<ChevronDown className={`h-4 w-4 transition-transform ${staffMenuOpen ? 'rotate-180' : ''}`} /></span>
+                  </button>
+                  {staffMenuOpen ? <div className={`ml-5 mt-1 space-y-1 border-l border-sky-200 pl-3 ${sidebarCollapsed ? 'lg:hidden' : ''}`}>
+                    {canManageDoctorDepartments ? <NavLink to="/doctor-departments" onClick={() => { setStaffMenuOpen(false); setMobileMenuOpen(false) }} className={({ isActive }) => `block rounded-lg px-3 py-2 text-sm transition ${isActive ? 'bg-sky-50 font-semibold text-pink-700' : 'text-slate-700 hover:bg-white/35'}`}>{layoutText.doctorDepartments}</NavLink> : null}
+                    {canManageEmployees ? <NavLink to="/employees" onClick={() => { setStaffMenuOpen(false); setMobileMenuOpen(false) }} className={({ isActive }) => `block rounded-lg px-3 py-2 text-sm transition ${isActive ? 'bg-sky-50 font-semibold text-pink-700' : 'text-slate-700 hover:bg-white/35'}`}>{layoutText.employees}</NavLink> : null}
+                  </div> : null}
+                </div>
+              ) : null}
+              {link.to === '/payments' && canManageExpenses ? (
+                <div>
+                  <button
+                    type="button"
+                    title={sidebarCollapsed ? layoutText.expenses : undefined}
+                    aria-expanded={showExpensesMenu}
+                    onClick={() => setExpensesMenuOpen((current) => !current)}
+                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${sidebarCollapsed ? 'lg:justify-center' : ''} ${isExpenseRoute ? 'bg-white/50 text-pink-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_8px_24px_rgba(236,72,153,0.14)]' : 'text-slate-700 hover:bg-white/35'}`}
+                  >
+                    <Wallet className="h-4 w-4 shrink-0" />
+                    <span className={`flex flex-1 items-center justify-between ${sidebarCollapsed ? 'lg:hidden' : ''}`}>
+                      {layoutText.expenses}
+                      <ChevronDown className={`h-4 w-4 transition-transform ${showExpensesMenu ? 'rotate-180' : ''}`} />
+                    </span>
+                  </button>
+                  {showExpensesMenu ? (
+                    <div className={`ml-5 mt-1 space-y-1 border-l border-sky-200 pl-3 ${sidebarCollapsed ? 'lg:hidden' : ''}`}>
+                      <NavLink to="/expenses" onClick={() => { setExpensesMenuOpen(false); setMobileMenuOpen(false) }} className={({ isActive }) => `block rounded-lg px-3 py-2 text-sm transition ${isActive ? 'bg-sky-50 font-semibold text-pink-700' : 'text-slate-700 hover:bg-white/35'}`}>{layoutText.expenses}</NavLink>
+                      {canManageExpenseCategories ? <NavLink to="/expense-categories" onClick={() => { setExpensesMenuOpen(false); setMobileMenuOpen(false) }} className={({ isActive }) => `block rounded-lg px-3 py-2 text-sm transition ${isActive ? 'bg-sky-50 font-semibold text-pink-700' : 'text-slate-700 hover:bg-white/35'}`}>{layoutText.expenseCategory}</NavLink> : null}
+                      <NavLink to="/expenses-report" onClick={() => { setExpensesMenuOpen(false); setMobileMenuOpen(false) }} className={({ isActive }) => `block rounded-lg px-3 py-2 text-sm transition ${isActive ? 'bg-sky-50 font-semibold text-pink-700' : 'text-slate-700 hover:bg-white/35'}`}>{layoutText.expensesReport}</NavLink>
+                      <NavLink to="/salaries" onClick={() => { setExpensesMenuOpen(false); setMobileMenuOpen(false) }} className={({ isActive }) => `block rounded-lg px-3 py-2 text-sm transition ${isActive ? 'bg-sky-50 font-semibold text-pink-700' : 'text-slate-700 hover:bg-white/35'}`}>{layoutText.salaries}</NavLink>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           ))}
         </nav>
       </aside>
@@ -179,6 +243,10 @@ export function DashboardLayout() {
             <Route path="/doctor-departments" element={<DoctorDepartmentPage />} />
             <Route path="/reception-report" element={<ClinicWorkspace view="reception-report" />} />
             <Route path="/expenses" element={<ClinicWorkspace view="expenses" />} />
+            <Route path="/expense-categories" element={<ExpenseCategoriesPage />} />
+            <Route path="/expenses-report" element={<ExpensesReportPage />} />
+            <Route path="/cash-bank-accounts" element={<CashBankAccountsPage />} />
+            <Route path="/audit-log" element={<AuditLogPage />} />
             <Route path="/salaries" element={<ClinicWorkspace view="salaries" />} />
             <Route path="/documents" element={<ClinicWorkspace view="documents" />} />
             <Route path="/private-documents" element={<ClinicWorkspace view="private-documents" />} />

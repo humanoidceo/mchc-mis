@@ -2,11 +2,12 @@ import json
 from pathlib import Path
 from decimal import Decimal, ROUND_HALF_UP
 
+from django.db import transaction
 from django.db.models import Sum
 from rest_framework import serializers
 
 from accounts.permissions import Role
-from .models import ClinicalDocument, DoctorDepartmentAssignment, Expense, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, WebsitePageContent, WebsiteSettings, round_up_to_ten
+from .models import AuditLog, CashBankTransaction, ClinicalDocument, DoctorDepartmentAssignment, Expense, ExpenseCategory, ExpenseSubcategory, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, VehicleExpenseDetails, WebsitePageContent, WebsiteSettings, round_up_to_ten
 from .salary_rules import AFGHAN_MONTHS, calculate_afghanistan_salary_tax, current_afghan_date
 
 
@@ -14,6 +15,7 @@ MONEY_QUANT = Decimal('0.01')
 MAX_WEBSITE_IMAGE_SIZE = 8 * 1024 * 1024
 ALLOWED_WEBSITE_IMAGE_EXTENSIONS = {'.avif', '.gif', '.heic', '.jpeg', '.jpg', '.png', '.webp'}
 ALLOWED_PRIVATE_DOCUMENT_EXTENSIONS = {'.docx', '.pdf', '.png', '.jpg', '.jpeg'}
+ALLOWED_CASH_BANK_SLIP_EXTENSIONS = {'.pdf', '.png', '.jpg', '.jpeg', '.webp'}
 FREE_PAYMENT_DEPARTMENTS = {'vaccination', 'malnutrition'}
 ASSIGNABLE_CLINICAL_ROLES = (Role.DOCTOR, Role.MIDWIFE, Role.GYNECOLOGIST)
 
@@ -44,6 +46,15 @@ def validate_private_document_file(file, *, max_size_mb: Decimal):
     max_size_bytes = int((max_size_mb * Decimal('1024') * Decimal('1024')).quantize(Decimal('1')))
     if file.size > max_size_bytes:
         raise serializers.ValidationError(f'File size must be {max_size_mb} MB or smaller.')
+    return file
+
+
+def validate_cash_bank_slip_file(file):
+    extension = Path(file.name).suffix.lower()
+    if extension not in ALLOWED_CASH_BANK_SLIP_EXTENSIONS:
+        raise serializers.ValidationError('Upload a PDF, PNG, JPG, JPEG, or WEBP slip.')
+    if file.size > 8 * 1024 * 1024:
+        raise serializers.ValidationError('Deposit and withdrawal slips must be 8 MB or smaller.')
     return file
 
 
@@ -114,6 +125,7 @@ class PatientSerializer(serializers.ModelSerializer):
 class PaymentSerializer(serializers.ModelSerializer):
     patient_name = serializers.CharField(source='patient.__str__', read_only=True)
     patient_full_name = serializers.SerializerMethodField()
+    midwifery_service_label = serializers.CharField(source='get_midwifery_service_display', read_only=True)
     created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
     approved_by_name = serializers.CharField(source='approved_by.get_full_name', read_only=True)
@@ -133,6 +145,8 @@ class PaymentSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         attrs = super().validate(attrs)
         department = attrs.get('department', getattr(self.instance, 'department', ''))
+        normalized_department = (department or '').strip().lower()
+        midwifery_service = attrs.get('midwifery_service', getattr(self.instance, 'midwifery_service', ''))
         patient_age = attrs.get('patient_age', getattr(self.instance, 'patient_age', None))
         patient_age_unit = normalize_age_unit(
             attrs.get('patient_age_unit', getattr(self.instance, 'patient_age_unit', Patient.AgeUnit.YEAR)),
@@ -172,24 +186,343 @@ class PaymentSerializer(serializers.ModelSerializer):
         attrs['discount_amount'] = money(discount_amount)
         attrs['amount'] = money(round_up_to_ten(amount))
         attrs['patient_age_unit'] = patient_age_unit
+        if normalized_department == 'midwifery':
+            if (self.instance is None or 'department' in attrs or 'midwifery_service' in attrs) and not midwifery_service:
+                raise serializers.ValidationError({'midwifery_service': 'Select a Midwifery service.'})
+            if midwifery_service:
+                attrs['service'] = f"{department}: {Payment.MidwiferyService(midwifery_service).label}"
+        else:
+            attrs['midwifery_service'] = ''
         if not attrs.get('service') and attrs.get('department'):
             attrs['service'] = f"{attrs['department']} consultation"
         return attrs
 
 
+class AuditLogSerializer(serializers.ModelSerializer):
+    actor_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AuditLog
+        fields = ('id', 'actor', 'actor_name', 'action', 'resource', 'target_id', 'endpoint', 'status_code', 'ip_address', 'created_at')
+        read_only_fields = fields
+
+    def get_actor_name(self, obj) -> str:
+        if obj.actor is None:
+            return 'System'
+        return obj.actor.get_full_name() or obj.actor.username
+
+
+class CashBankTransactionSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
+    transaction_type_label = serializers.CharField(source='get_transaction_type_display', read_only=True)
+    slip_url = serializers.SerializerMethodField()
+    slip_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CashBankTransaction
+        fields = (
+            'id', 'transaction_type', 'transaction_type_label', 'amount', 'currency',
+            'depositor_name', 'withdrawer_name', 'reason', 'slip', 'slip_url', 'slip_name', 'created_by', 'created_by_name',
+            'created_at', 'updated_at',
+        )
+        read_only_fields = ('created_by', 'created_at', 'updated_at')
+
+    def validate_amount(self, value):
+        value = money(value)
+        if value <= 0:
+            raise serializers.ValidationError('Amount must be greater than zero.')
+        return value
+
+    def validate_slip(self, value):
+        return validate_cash_bank_slip_file(value)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        transaction_type = attrs.get('transaction_type', getattr(self.instance, 'transaction_type', None))
+        depositor_name = attrs.get('depositor_name', getattr(self.instance, 'depositor_name', ''))
+        withdrawer_name = attrs.get('withdrawer_name', getattr(self.instance, 'withdrawer_name', ''))
+        if transaction_type == CashBankTransaction.TransactionType.DEPOSIT:
+            if not depositor_name.strip():
+                raise serializers.ValidationError({'depositor_name': 'Depositor name is required for a deposit.'})
+            attrs['withdrawer_name'] = ''
+        elif transaction_type == CashBankTransaction.TransactionType.WITHDRAWAL:
+            if not withdrawer_name.strip():
+                raise serializers.ValidationError({'withdrawer_name': 'Withdrawer name is required for a withdrawal.'})
+            attrs['depositor_name'] = ''
+        return attrs
+
+    def get_slip_url(self, obj) -> str:
+        request = self.context.get('request')
+        if not obj.slip:
+            return ''
+        url = obj.slip.url
+        return request.build_absolute_uri(url) if request else url
+
+    def get_slip_name(self, obj) -> str:
+        return Path(obj.slip.name).name if obj.slip else ''
+
+
+class VehicleExpenseDetailsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = VehicleExpenseDetails
+        exclude = ('expense', 'created_at', 'updated_at')
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        expense_type = attrs.get('expense_type', getattr(self.instance, 'expense_type', None))
+        errors = {}
+
+        def value_for(field):
+            return attrs.get(field, getattr(self.instance, field, None))
+
+        if not value_for('number_plate'):
+            errors['number_plate'] = 'Number plate is required.'
+        if not value_for('driver_name'):
+            errors['driver_name'] = 'Driver name is required.'
+        if value_for('vehicle_odometer_km') is None:
+            errors['vehicle_odometer_km'] = 'Vehicle odometer is required.'
+
+        if expense_type == VehicleExpenseDetails.ExpenseType.FUEL:
+            for field in ('fuel_type', 'quantity_liters', 'price_per_liter', 'fuel_station_supplier', 'invoice_number'):
+                if not value_for(field):
+                    errors[field] = 'This field is required for fuel expenses.'
+            if value_for('quantity_liters') is not None and value_for('quantity_liters') <= 0:
+                errors['quantity_liters'] = 'Quantity must be greater than zero.'
+            if value_for('price_per_liter') is not None and value_for('price_per_liter') <= 0:
+                errors['price_per_liter'] = 'Price per liter must be greater than zero.'
+            attrs.update({'workshop': ''})
+        elif expense_type == VehicleExpenseDetails.ExpenseType.MAINTENANCE:
+            if not value_for('workshop'):
+                errors['workshop'] = 'Workshop is required for vehicle maintenance.'
+            attrs.update({
+                'fuel_type': '',
+                'quantity_liters': None,
+                'price_per_liter': None,
+                'fuel_station_supplier': '',
+                'invoice_number': '',
+            })
+        else:
+            errors['expense_type'] = 'Select Fuel or Vehicle maintenance.'
+
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+
 class ExpenseSerializer(serializers.ModelSerializer):
     created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
+    category_label = serializers.SerializerMethodField()
+    vehicle_details = VehicleExpenseDetailsSerializer(required=False, allow_null=True)
 
     class Meta:
         model = Expense
         fields = '__all__'
-        read_only_fields = ('created_by', 'created_at', 'updated_at', 'salary_payment', 'salary_advance')
+        read_only_fields = ('voucher_number', 'created_by', 'created_at', 'updated_at', 'salary_payment', 'salary_advance')
 
     def validate_amount(self, value):
         value = money(value)
         if value <= 0:
             raise serializers.ValidationError('Expense amount must be greater than zero.')
         return value
+
+    def validate_category(self, value):
+        if not ExpenseSubcategory.objects.filter(code=value).exists():
+            raise serializers.ValidationError('Select a valid expense subcategory.')
+        return value
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        vehicle_details = attrs.get('vehicle_details', serializers.empty)
+        category = attrs.get('category', getattr(self.instance, 'category', ''))
+        payment_method = attrs.get('payment_method', getattr(self.instance, 'payment_method', Expense.PaymentMethod.CASH))
+        errors = {}
+
+        def value_for(field):
+            return attrs.get(field, getattr(self.instance, field, None))
+
+        if payment_method == Expense.PaymentMethod.BANK_TRANSFER:
+            for field in ('bank_name', 'bank_account', 'transfer_reference_number', 'transfer_date', 'paid_to_received_from'):
+                if not value_for(field):
+                    errors[field] = 'This field is required for a bank transfer.'
+            attrs['cheque_number'] = ''
+            attrs['cheque_date'] = None
+            attrs['cheque_status'] = Expense.ChequeStatus.PENDING
+        elif payment_method == Expense.PaymentMethod.CHEQUE:
+            for field in ('bank_name', 'cheque_number', 'cheque_date', 'paid_to_received_from', 'cheque_status'):
+                if not value_for(field):
+                    errors[field] = 'This field is required for a cheque payment.'
+            attrs['bank_account'] = ''
+            attrs['transfer_reference_number'] = ''
+            attrs['transfer_date'] = None
+        else:
+            attrs.update({
+                'bank_name': '',
+                'bank_account': '',
+                'transfer_reference_number': '',
+                'transfer_date': None,
+                'cheque_number': '',
+                'cheque_date': None,
+                'cheque_status': Expense.ChequeStatus.PENDING,
+                'paid_to_received_from': '',
+            })
+
+        if category == Expense.VEHICLE_TRANSPORT_CATEGORY:
+            if vehicle_details is serializers.empty:
+                if self.instance is None or not hasattr(self.instance, 'vehicle_details'):
+                    errors['vehicle_details'] = 'Vehicle details are required for this expense category.'
+            elif vehicle_details is None:
+                errors['vehicle_details'] = 'Vehicle details are required for this expense category.'
+            elif vehicle_details.get('expense_type') == VehicleExpenseDetails.ExpenseType.FUEL:
+                attrs['amount'] = money(vehicle_details['quantity_liters'] * vehicle_details['price_per_liter'])
+        elif vehicle_details not in (serializers.empty, None):
+            errors['vehicle_details'] = 'Vehicle details can only be used for transport and work travel (E-06).'
+
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        vehicle_details = validated_data.pop('vehicle_details', None)
+        expense = super().create(validated_data)
+        if vehicle_details is not None:
+            VehicleExpenseDetails.objects.create(expense=expense, **vehicle_details)
+        return expense
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        vehicle_details = validated_data.pop('vehicle_details', serializers.empty)
+        expense = super().update(instance, validated_data)
+        if expense.category == Expense.VEHICLE_TRANSPORT_CATEGORY:
+            if vehicle_details is not serializers.empty:
+                VehicleExpenseDetails.objects.update_or_create(expense=expense, defaults=vehicle_details)
+        elif hasattr(expense, 'vehicle_details'):
+            expense.vehicle_details.delete()
+        return expense
+
+    def get_category_label(self, obj) -> str:
+        labels = self.context.setdefault('expense_subcategory_labels', {})
+        if obj.category not in labels:
+            subcategory = (
+                ExpenseSubcategory.objects
+                .select_related('category')
+                .filter(code=obj.category)
+                .first()
+            )
+            labels[obj.category] = (
+                f'{subcategory.category.display_title} — {subcategory.display_title}'
+                if subcategory else obj.category
+            )
+        return labels[obj.category]
+
+
+class ExpenseSubcategorySerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(required=False)
+    display_title = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = ExpenseSubcategory
+        fields = ('id', 'code', 'title_dari', 'title_pashto', 'title_english', 'display_title')
+        extra_kwargs = {'code': {'validators': []}}
+
+    def validate_code(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError('Subcategory code is required.')
+        return value
+
+    def validate(self, attrs):
+        titles = (
+            attrs.get('title_dari', '').strip(),
+            attrs.get('title_pashto', '').strip(),
+            attrs.get('title_english', '').strip(),
+        )
+        if not any(titles):
+            raise serializers.ValidationError('Provide a title in at least one language.')
+        return attrs
+
+
+class ExpenseCategorySerializer(serializers.ModelSerializer):
+    subcategories = ExpenseSubcategorySerializer(many=True)
+    display_title = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = ExpenseCategory
+        fields = ('id', 'title_dari', 'title_pashto', 'title_english', 'display_title', 'subcategories', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'created_at', 'updated_at')
+
+    def validate(self, attrs):
+        titles = (
+            attrs.get('title_dari', getattr(self.instance, 'title_dari', '')).strip(),
+            attrs.get('title_pashto', getattr(self.instance, 'title_pashto', '')).strip(),
+            attrs.get('title_english', getattr(self.instance, 'title_english', '')).strip(),
+        )
+        if not any(titles):
+            raise serializers.ValidationError('Provide a category title in at least one language.')
+        return attrs
+
+    def validate_subcategories(self, subcategories):
+        if not subcategories:
+            raise serializers.ValidationError('Add at least one subcategory.')
+
+        seen_codes = set()
+        for subcategory in subcategories:
+            code = subcategory['code']
+            normalized_code = code.casefold()
+            if normalized_code in seen_codes:
+                raise serializers.ValidationError(f'Subcategory code "{code}" is listed more than once.')
+            seen_codes.add(normalized_code)
+
+            existing = ExpenseSubcategory.objects.filter(code__iexact=code)
+            subcategory_id = subcategory.get('id')
+            if subcategory_id:
+                existing = existing.exclude(pk=subcategory_id)
+            if existing.exists():
+                raise serializers.ValidationError(f'Subcategory code "{code}" is already in use.')
+        return subcategories
+
+    def _save_subcategories(self, category, subcategories):
+        existing = {subcategory.id: subcategory for subcategory in category.subcategories.all()}
+        submitted_ids = set()
+        for subcategory_data in subcategories:
+            subcategory_id = subcategory_data.pop('id', None)
+            if subcategory_id is None:
+                ExpenseSubcategory.objects.create(category=category, **subcategory_data)
+                continue
+            subcategory = existing.get(subcategory_id)
+            if subcategory is None:
+                raise serializers.ValidationError({'subcategories': 'A subcategory does not belong to this category.'})
+            submitted_ids.add(subcategory_id)
+            for field, value in subcategory_data.items():
+                setattr(subcategory, field, value)
+            subcategory.save()
+
+        removed_subcategories = [
+            subcategory for subcategory_id, subcategory in existing.items()
+            if subcategory_id not in submitted_ids
+        ]
+        used_codes = [subcategory.code for subcategory in removed_subcategories]
+        if used_codes and Expense.objects.filter(category__in=used_codes).exists():
+            raise serializers.ValidationError({'subcategories': 'A subcategory with recorded expenses cannot be removed.'})
+        if removed_subcategories:
+            ExpenseSubcategory.objects.filter(pk__in=[subcategory.id for subcategory in removed_subcategories]).delete()
+
+    def create(self, validated_data):
+        subcategories = validated_data.pop('subcategories')
+        with transaction.atomic():
+            category = ExpenseCategory.objects.create(**validated_data)
+            self._save_subcategories(category, subcategories)
+        return category
+
+    def update(self, instance, validated_data):
+        subcategories = validated_data.pop('subcategories')
+        with transaction.atomic():
+            instance.title_dari = validated_data.get('title_dari', instance.title_dari)
+            instance.title_pashto = validated_data.get('title_pashto', instance.title_pashto)
+            instance.title_english = validated_data.get('title_english', instance.title_english)
+            instance.save(update_fields=['title_dari', 'title_pashto', 'title_english', 'updated_at'])
+            self._save_subcategories(instance, subcategories)
+        return instance
 
 
 class SalaryPaymentSerializer(serializers.ModelSerializer):

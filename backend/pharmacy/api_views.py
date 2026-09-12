@@ -613,6 +613,7 @@ class PharmacyDashboardViewSet(mixins.ListModelMixin, PharmacyBaseViewSet):
                 pharmacist=request.user,
                 created_at__date__gte=from_date,
                 created_at__date__lte=to_date,
+                payment__status=Payment.Status.APPROVED,
             )
             .select_related("patient", "payment__approved_by", "prescription_document")
             .prefetch_related(Prefetch("items", queryset=SaleItem.objects.select_related("medicine").order_by("id")))

@@ -532,6 +532,7 @@ export function PrintPaymentBill({ payment, printedBy }: { payment: Payment; pri
         <p>Patient ID: <strong>{payment.patient}</strong></p>
         <p>Age: <strong>{formatPaymentAge(payment.patient_age, payment.patient_age_unit)}</strong></p>
         <p>Department: <strong>{payment.department || payment.service}</strong></p>
+        {payment.department.trim().toLowerCase() === 'midwifery' && payment.midwifery_service ? <p>Service type: <strong>{payment.midwifery_service_label}</strong></p> : null}
         <p>Doctor: <strong>{payment.doctor_name || 'Not assigned'}</strong></p>
         <p>Payment: <strong>{isFree ? 'Free' : isDiscount ? `Discount (${payment.discount_percentage}%)` : 'Full payment'}</strong></p>
         <p>Fee: <strong>{formatReceiptAmount(payment.doctor_fee)} AFN</strong></p>

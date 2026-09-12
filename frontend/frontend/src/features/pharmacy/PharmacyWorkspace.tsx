@@ -1949,7 +1949,6 @@ function PrintPharmacyBill({
   sale: PharmacySale
   setting: PharmacySetting
 }) {
-  const billTotal = pharmacyBillTotal(sale)
   const finalAmount = pharmacyBillFinalAmount(sale)
   const hasDiscount = sale.payment_type === 'discount'
 
@@ -1958,40 +1957,39 @@ function PrintPharmacyBill({
       <BillTitle title={setting.pharmacy_name} subtitle="Pharmacy bill" />
 
       <div className="receipt-meta">
-        <div className="receipt-meta-row"><span>Bill no.</span><strong>{sale.bill_no}</strong></div>
-        <div className="receipt-meta-row"><span>Issued</span><strong>{formatDate(sale.created_at)}</strong></div>
-        <div className="receipt-meta-row"><span>Patient</span><strong>{saleCustomerLabel(sale)}</strong></div>
-        <div className="receipt-meta-row"><span>Patient ID</span><strong>{sale.patient ?? 'N/A'}</strong></div>
-        <div className="receipt-meta-row"><span>Type</span><strong>{sale.customer_type_label} customer</strong></div>
-        <div className="receipt-meta-row"><span>Status</span><strong>{sale.payment_status ?? 'pending'}</strong></div>
+            <div className="receipt-meta-row"><span>Bill no.</span><strong>{sale.bill_no}</strong></div>
+            <div className="receipt-meta-row"><span>Issued</span><strong>{formatDate(sale.created_at)}</strong></div>
+            <div className="receipt-meta-row"><span>Patient</span><strong>{saleCustomerLabel(sale)}</strong></div>
+            <div className="receipt-meta-row"><span>Patient ID</span><strong>{sale.patient ?? 'N/A'}</strong></div>
+            <div className="receipt-meta-row"><span>Type</span><strong>{sale.customer_type_label} customer</strong></div>
+            <div className="receipt-meta-row"><span>Status</span><strong>{sale.payment_status ?? 'pending'}</strong></div>
       </div>
 
       <table className="receipt-table">
-        <thead>
-          <tr className="border-b border-black">
-            <th className="w-[10%] border-r border-black">No.</th>
-            <th className="w-[42%] border-r border-black">Med.</th>
-            <th className="w-[18%] border-r border-black text-right">Quantity</th>
-            <th className="w-[30%] text-right">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sale.items.map((item, index) => (
-            <tr className="border-b border-black" key={item.id}>
-              <td className="border-r border-black">{index + 1}</td>
-              <td className="border-r border-black">{item.medicine_name}{item.generic_name ? ` (${item.generic_name})` : ''}</td>
-              <td className="border-r border-black text-right">{formatReceiptAmount(item.quantity)}</td>
-              <td className="text-right">{formatReceiptAmount(item.total_price)} AFN</td>
-            </tr>
-          ))}
-        </tbody>
+            <thead>
+              <tr className="border-b border-black">
+                <th className="w-[10%] border-r border-black">No.</th>
+                <th className="w-[42%] border-r border-black">Med.</th>
+                <th className="w-[18%] border-r border-black text-right">Quantity</th>
+                <th className="w-[30%] text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sale.items.map((item, index) => (
+                <tr className="border-b border-black" key={item.id}>
+                  <td className="border-r border-black">{index + 1}</td>
+                  <td className="border-r border-black">{item.medicine_name}{item.generic_name ? ` (${item.generic_name})` : ''}</td>
+                  <td className="border-r border-black text-right">{formatReceiptAmount(item.quantity)}</td>
+                  <td className="text-right">{formatReceiptAmount(item.total_price)} AFN</td>
+                </tr>
+              ))}
+            </tbody>
       </table>
 
-      <div className="receipt-text-list">
-        <p className="receipt-total-line">Grand total: <strong>{formatReceiptAmount(billTotal)} AFN</strong></p>
-        {hasDiscount ? <p>Discount percentage: <strong>{sale.discount_percentage || '0'}%</strong></p> : null}
-        {hasDiscount ? <p>Discount amount: <strong>{formatReceiptAmount(sale.discount_amount || '0')} AFN</strong></p> : null}
-        <p className="receipt-total-line">Final amount: <strong>{formatReceiptAmount(finalAmount)} AFN</strong></p>
+          <div className="receipt-text-list">
+            {hasDiscount ? <p>Discount percentage: <strong>{sale.discount_percentage || '0'}%</strong></p> : null}
+            {hasDiscount ? <p>Discount amount: <strong>{formatReceiptAmount(sale.discount_amount || '0')} AFN</strong></p> : null}
+            <p className="receipt-total-line">Final amount: <strong>{formatReceiptAmount(finalAmount)} AFN</strong></p>
       </div>
 
       <BillReceiptNote receivedFrom={sale.receptionist_name || 'Reception pending approval'} amount={formatReceiptAmount(finalAmount)} />

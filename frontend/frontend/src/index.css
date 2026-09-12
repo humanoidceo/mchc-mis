@@ -289,13 +289,33 @@ textarea {
     -webkit-print-color-adjust: exact;
   }
 
-  .a4-report {
+.a4-report {
     box-sizing: border-box;
     width: 210mm;
     min-height: 297mm;
     border: 0 !important;
     border-radius: 0 !important;
     padding: 10mm !important;
+  }
+
+  .expense-report-page {
+    box-sizing: border-box;
+    width: 210mm;
+    min-height: 297mm;
+    break-after: page;
+    page-break-after: always;
+    border: 0 !important;
+    border-radius: 0 !important;
+    padding: 10mm !important;
+  }
+
+  .expense-report-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .expense-report-page table {
+    page-break-inside: avoid;
   }
 
   .a4-report,
