@@ -570,7 +570,7 @@ class PaymentViewSet(PermissionedModelViewSet):
         from_date_raw = self.request.query_params.get('from', '').strip()
         to_date_raw = self.request.query_params.get('to', '').strip()
         if search:
-            queryset = queryset.filter(
+            search_condition = (
                 Q(patient__registration_number__icontains=search)
                 | Q(patient__first_name__icontains=search)
                 | Q(patient__last_name__icontains=search)
@@ -580,6 +580,9 @@ class PaymentViewSet(PermissionedModelViewSet):
                 | Q(status__icontains=search)
                 | Q(notes__icontains=search)
             )
+            if search.isdigit():
+                search_condition |= Q(patient__id=int(search))
+            queryset = queryset.filter(search_condition)
         from_date = parse_date(from_date_raw) if from_date_raw else None
         to_date = parse_date(to_date_raw) if to_date_raw else None
         if from_date and to_date and to_date < from_date:

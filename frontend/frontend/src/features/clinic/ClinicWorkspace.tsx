@@ -1318,6 +1318,7 @@ function Payments({
     if (!query) return payments
     return payments.filter((payment) => {
       const haystack = [
+        payment.patient.toString(),
         payment.patient_full_name,
         payment.patient_name,
         payment.department,
@@ -1667,14 +1668,14 @@ function Payments({
                 return (
                   <tr key={payment.id} className="border-b border-zinc-100">
                     <td className="py-2 font-medium text-slate-700">{rowNumber}</td>
-                    <td>{payment.patient}</td>
+                    <td><span className="inline-block rounded bg-pink-600 px-2 py-1 font-medium text-white">{payment.patient}</span></td>
                     <td className="py-2">{payment.patient_full_name || payment.patient_name}</td>
                     <td>{formatAgeWithUnit(payment.patient_age, payment.patient_age_unit)}</td>
                     <td>{payment.department || payment.service}{payment.midwifery_service ? <p className="text-xs text-zinc-500">{payment.midwifery_service_label}</p> : null}</td>
-                    <td>{payment.doctor_fee}</td>
+                    <td>{payment.department.trim().toLowerCase() === 'pharmacy' ? '.' : payment.doctor_fee}</td>
                     <td>{payment.payment_type === 'free' ? 'Free' : payment.payment_type === 'discount' ? `${payment.discount_percentage}% discount` : 'Full payment'}</td>
-                    <td>{payment.payment_type === 'free' ? 'Free' : payment.amount}</td>
-                    <td>{payment.status}</td>
+                    <td><span className="inline-block rounded bg-emerald-600 px-2 py-1 font-medium text-white">{payment.payment_type === 'free' ? 'Free' : `${Number(payment.amount).toFixed(1)} AFN`}</span></td>
+                    <td><span className={`inline-block rounded px-2 py-1 font-medium text-white ${payment.status === 'pending' ? 'bg-orange-500' : 'bg-green-400'}`}>{payment.status}</span></td>
                     <td className="flex gap-2 py-2">
                       <button className={ghostButtonClassName} onClick={() => onPrint(payment)}>Print</button>
                       {canEdit ? <button className={ghostButtonClassName} onClick={() => startPatientEdit(payment)}>Edit</button> : null}
