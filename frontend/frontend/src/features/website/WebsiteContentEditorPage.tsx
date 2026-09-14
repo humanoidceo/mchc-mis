@@ -3,9 +3,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { ApiError, apiFetch } from '../../api/client'
 import { buttonClassName, Field, ghostButtonClassName, inputClassName, Panel, SectionHeader } from '../../components/ui'
 import { aboutPageTranslation } from '../../translations/aboutpagetranslation'
+import { commonTranslation } from '../../translations/commontranslation'
 import { contactPageTranslation } from '../../translations/contactpagetranslation'
 import { homePageTranslation } from '../../translations/homepagetranlsation'
 import { missionPageTranslation } from '../../translations/missionpagetranslation'
+import { newsPageTranslation } from '../../translations/newspagetranslation'
 import { servicesPageTranslation } from '../../translations/servicespagetranslation'
 import type { LanguageCode } from '../../translations/types'
 import { visionPageTranslation } from '../../translations/visionpagetranslation'
@@ -18,6 +20,7 @@ const pageOptions: Array<{ key: WebsitePageKey; label: string }> = [
   { key: 'vision', label: 'Our vision' },
   { key: 'services', label: 'Services' },
   { key: 'contact', label: 'Contact' },
+  { key: 'news', label: 'News page (texts only)' },
 ]
 
 const languageOptions: Array<{ key: LanguageCode; label: string }> = [
@@ -26,6 +29,24 @@ const languageOptions: Array<{ key: LanguageCode; label: string }> = [
   { key: 'ps', label: 'Pashto' },
 ]
 
+const headerNavigationItems = [
+  { key: 'home', label: 'Home' },
+  { key: 'posts', label: 'Posts' },
+  { key: 'gallery', label: 'Gallery' },
+  { key: 'about', label: 'About us' },
+  { key: 'mission', label: 'Our mission' },
+  { key: 'vision', label: 'Our vision' },
+  { key: 'services', label: 'Services' },
+  { key: 'contact', label: 'Contact us' },
+] as const
+
+type HeaderNavigationKey = (typeof headerNavigationItems)[number]['key']
+
+type EditableHeaderText = {
+  brandSubtitle: string
+  nav: Record<HeaderNavigationKey, string>
+}
+
 const defaultContent = {
   home: homePageTranslation,
   about: aboutPageTranslation,
@@ -33,6 +54,7 @@ const defaultContent = {
   vision: visionPageTranslation,
   services: servicesPageTranslation,
   contact: contactPageTranslation,
+  news: newsPageTranslation,
 } as const
 
 const common = {
@@ -58,12 +80,33 @@ const t = {
   unableToSave: 'Unable to save website content.',
   selectedFile: 'Selected',
   lastSettingsUpdate: 'Last settings update',
+  headerTextTitle: 'Header text',
+  headerTextSubtitle: 'Edit only the public website header text for the selected language.',
+  brandSubtitle: 'Clinic name below MCHC',
+  saveHeaderText: 'Save header text',
+  headerTextSaved: 'Header text saved.',
 }
 
 type EditableContent = Record<string, unknown>
 
 function cloneDefault(page: WebsitePageKey, language: LanguageCode): EditableContent {
   return JSON.parse(JSON.stringify(defaultContent[page][language])) as EditableContent
+}
+
+function defaultHeaderText(language: LanguageCode): EditableHeaderText {
+  return {
+    brandSubtitle: commonTranslation[language].brandSubtitle,
+    nav: { ...commonTranslation[language].nav },
+  }
+}
+
+function headerTextForLanguage(settings: WebsiteSettings | null, language: LanguageCode): EditableHeaderText {
+  const defaults = defaultHeaderText(language)
+  const saved = settings?.header_content?.[language]
+  return {
+    brandSubtitle: saved?.brand_subtitle ?? defaults.brandSubtitle,
+    nav: { ...defaults.nav, ...saved?.nav },
+  }
 }
 
 function fieldLabel(key: string) {
@@ -125,8 +168,11 @@ export function WebsiteContentEditorPage() {
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [content, setContent] = useState<EditableContent>(() => cloneDefault('home', 'en'))
+  const [headerLanguage, setHeaderLanguage] = useState<LanguageCode>('en')
+  const [headerText, setHeaderText] = useState<EditableHeaderText>(() => defaultHeaderText('en'))
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [savingHeader, setSavingHeader] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
 
@@ -162,6 +208,10 @@ export function WebsiteContentEditorPage() {
     setMessage(null)
   }, [existingItem, selectedLanguage, selectedPage])
 
+  useEffect(() => {
+    setHeaderText(headerTextForLanguage(settings, headerLanguage))
+  }, [headerLanguage, settings])
+
   function updateContent(path: Array<string | number>, nextValue: unknown) {
     setContent((current) => updateAtPath(current, path, nextValue) as EditableContent)
   }
@@ -184,7 +234,7 @@ export function WebsiteContentEditorPage() {
       pagePayload.append('page', selectedPage)
       pagePayload.append('language', selectedLanguage)
       pagePayload.append('content', JSON.stringify(content))
-      if (imageUrl) {
+      if (selectedPage !== 'news' && imageUrl) {
         pagePayload.append('image_url', imageUrl)
       }
       if (imageFile) {
@@ -226,6 +276,33 @@ export function WebsiteContentEditorPage() {
       setError(errorMessage(caught) || t.unableToSave)
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function saveHeaderText() {
+    setSavingHeader(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const headerContent = {
+        ...(settings?.header_content ?? {}),
+        [headerLanguage]: {
+          brand_subtitle: headerText.brandSubtitle,
+          nav: headerText.nav,
+        },
+      }
+      const payload = new FormData()
+      payload.append('header_content', JSON.stringify(headerContent))
+      const savedSettings = await apiFetch<WebsiteSettings>('/website-settings/current/', {
+        method: 'PATCH',
+        body: payload,
+      })
+      setSettings(savedSettings)
+      setMessage(t.headerTextSaved)
+    } catch (caught) {
+      setError(errorMessage(caught) || t.unableToSave)
+    } finally {
+      setSavingHeader(false)
     }
   }
 
@@ -288,6 +365,37 @@ export function WebsiteContentEditorPage() {
       {message ? <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{message}</div> : null}
 
       <Panel>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">{t.headerTextTitle}</h2>
+            <p className="mt-1 text-sm text-zinc-600">{t.headerTextSubtitle}</p>
+          </div>
+          <div className="w-full sm:w-44">
+            <Field label={t.language}>
+              <select className={inputClassName} value={headerLanguage} onChange={(event) => setHeaderLanguage(event.target.value as LanguageCode)}>
+                {languageOptions.map((language) => <option key={language.key} value={language.key}>{language.label}</option>)}
+              </select>
+            </Field>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <Field label={t.brandSubtitle}>
+            <input className={inputClassName} value={headerText.brandSubtitle} onChange={(event) => setHeaderText((current) => ({ ...current, brandSubtitle: event.target.value }))} />
+          </Field>
+          {headerNavigationItems.map((item) => (
+            <Field key={item.key} label={item.label}>
+              <input className={inputClassName} value={headerText.nav[item.key]} onChange={(event) => setHeaderText((current) => ({ ...current, nav: { ...current.nav, [item.key]: event.target.value } }))} />
+            </Field>
+          ))}
+        </div>
+        <div className="mt-5 flex justify-end">
+          <button type="button" className={buttonClassName} disabled={savingHeader} onClick={saveHeaderText}>
+            {savingHeader ? common.saving : t.saveHeaderText}
+          </button>
+        </div>
+      </Panel>
+
+      <Panel>
         <div className="grid gap-4 md:grid-cols-3">
           <Field label={t.uploadWebsiteLogo}>
             <input
@@ -320,7 +428,7 @@ export function WebsiteContentEditorPage() {
             </div>
           ) : null}
         </div>
-        <div className="mt-4 grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
+        {selectedPage !== 'news' ? <div className="mt-4 grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
           <div className="grid gap-4 md:grid-cols-2">
             <Field label={t.uploadPagePicture}>
               <input
@@ -338,8 +446,8 @@ export function WebsiteContentEditorPage() {
           <button type="button" className={ghostButtonClassName} onClick={() => setContent(cloneDefault(selectedPage, selectedLanguage))}>
             {t.resetText}
           </button>
-        </div>
-        {imageUrl ? (
+        </div> : null}
+        {selectedPage !== 'news' && imageUrl ? (
           <div className="mt-4">
             <p className="mb-1 text-sm font-medium text-zinc-700">{t.currentPagePicture}</p>
             <img src={imageUrl} alt="Current page" className="h-36 w-full rounded border border-sky-100 object-cover md:w-80" />

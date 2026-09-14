@@ -166,7 +166,9 @@ class PatientSerializer(serializers.ModelSerializer):
 class PaymentSerializer(serializers.ModelSerializer):
     patient_name = serializers.CharField(source='patient.__str__', read_only=True)
     patient_full_name = serializers.SerializerMethodField()
-    midwifery_service_label = serializers.CharField(source='get_midwifery_service_display', read_only=True)
+    midwifery_service = serializers.CharField(required=False, allow_blank=True)
+    midwifery_service_label = serializers.SerializerMethodField()
+    midwifery_fp_service_label = serializers.CharField(source='get_midwifery_fp_service_display', read_only=True)
     created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
     approved_by_name = serializers.CharField(source='approved_by.get_full_name', read_only=True)
@@ -183,11 +185,21 @@ class PaymentSerializer(serializers.ModelSerializer):
     def get_patient_full_name(self, obj) -> str:
         return f'{obj.patient.first_name} {obj.patient.last_name}'.strip()
 
+    def get_midwifery_service_label(self, obj) -> str:
+        service_label = dict(Payment.MidwiferyService.choices).get(
+            obj.midwifery_service,
+            Payment.LEGACY_MIDWIFERY_SERVICE_LABELS.get(obj.midwifery_service, obj.midwifery_service),
+        )
+        if obj.midwifery_service == Payment.MidwiferyService.FP and obj.midwifery_fp_service:
+            return f'{service_label} — {obj.get_midwifery_fp_service_display()}'
+        return service_label
+
     def validate(self, attrs):
         attrs = super().validate(attrs)
         department = attrs.get('department', getattr(self.instance, 'department', ''))
         normalized_department = (department or '').strip().lower()
         midwifery_service = attrs.get('midwifery_service', getattr(self.instance, 'midwifery_service', ''))
+        midwifery_fp_service = attrs.get('midwifery_fp_service', getattr(self.instance, 'midwifery_fp_service', ''))
         patient_age = attrs.get('patient_age', getattr(self.instance, 'patient_age', None))
         patient_age_unit = normalize_age_unit(
             attrs.get('patient_age_unit', getattr(self.instance, 'patient_age_unit', Patient.AgeUnit.YEAR)),
@@ -228,12 +240,31 @@ class PaymentSerializer(serializers.ModelSerializer):
         attrs['amount'] = money(round_up_to_ten(amount))
         attrs['patient_age_unit'] = patient_age_unit
         if normalized_department == 'midwifery':
-            if (self.instance is None or 'department' in attrs or 'midwifery_service' in attrs) and not midwifery_service:
+            changing_midwifery_service = self.instance is None or 'department' in attrs or 'midwifery_service' in attrs or 'midwifery_fp_service' in attrs
+            allowed_midwifery_services = dict(Payment.MidwiferyService.choices)
+            is_unchanged_legacy_service = bool(
+                self.instance
+                and midwifery_service == self.instance.midwifery_service
+                and midwifery_service in Payment.LEGACY_MIDWIFERY_SERVICE_LABELS
+            )
+            if midwifery_service and midwifery_service not in allowed_midwifery_services and not is_unchanged_legacy_service:
+                raise serializers.ValidationError({'midwifery_service': 'Select a valid Midwifery service.'})
+            if changing_midwifery_service and not midwifery_service:
                 raise serializers.ValidationError({'midwifery_service': 'Select a Midwifery service.'})
-            if midwifery_service:
+            if midwifery_service == Payment.MidwiferyService.FP:
+                if changing_midwifery_service and not midwifery_fp_service:
+                    raise serializers.ValidationError({'midwifery_fp_service': 'Select an FP service.'})
+                if midwifery_fp_service:
+                    attrs['service'] = f"{department}: {Payment.MidwiferyService.FP.label} — {Payment.MidwiferyFpService(midwifery_fp_service).label}"
+            elif midwifery_service in dict(Payment.MidwiferyService.choices):
+                attrs['midwifery_fp_service'] = ''
                 attrs['service'] = f"{department}: {Payment.MidwiferyService(midwifery_service).label}"
+            elif is_unchanged_legacy_service:
+                attrs['midwifery_fp_service'] = ''
+                attrs['service'] = f"{department}: {Payment.LEGACY_MIDWIFERY_SERVICE_LABELS[midwifery_service]}"
         else:
             attrs['midwifery_service'] = ''
+            attrs['midwifery_fp_service'] = ''
         if not attrs.get('service') and attrs.get('department'):
             attrs['service'] = f"{attrs['department']} consultation"
         return attrs
@@ -946,6 +977,7 @@ class WebsiteSettingsSerializer(serializers.ModelSerializer):
             'updated_at',
             'logo_url',
             'logo_file',
+            'header_content',
             'updated_by',
         )
         read_only_fields = ('updated_by', 'created_at', 'updated_at')
@@ -957,6 +989,23 @@ class WebsiteSettingsSerializer(serializers.ModelSerializer):
 
     def validate_logo_file(self, value):
         return validate_website_image_file(value)
+
+    def validate_header_content(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError('Header content must be an object.')
+
+        allowed_languages = {'en', 'fa', 'ps'}
+        allowed_navigation = {'home', 'posts', 'gallery', 'about', 'mission', 'vision', 'services', 'contact'}
+        for language, content in value.items():
+            if language not in allowed_languages or not isinstance(content, dict):
+                raise serializers.ValidationError('Header content must use valid language entries.')
+            if 'brand_subtitle' in content and not isinstance(content['brand_subtitle'], str):
+                raise serializers.ValidationError('Header brand subtitle must be text.')
+            if 'nav' in content:
+                navigation = content['nav']
+                if not isinstance(navigation, dict) or any(key not in allowed_navigation or not isinstance(label, str) for key, label in navigation.items()):
+                    raise serializers.ValidationError('Header navigation labels must be text.')
+        return value
 
     def get_updated_by_name(self, obj) -> str:
         return obj.updated_by.get_full_name() if obj.updated_by else ''

@@ -92,6 +92,8 @@ export type Payment = {
   department: string
   midwifery_service: string
   midwifery_service_label: string
+  midwifery_fp_service: string
+  midwifery_fp_service_label: string
   doctor_name: string
   patient_age: number | null
   patient_age_unit: 'month' | 'year'
@@ -572,7 +574,7 @@ export type PharmacyFamilyPlanningOrder = {
   dispensed_by_name: string
 }
 
-export type WebsitePageKey = 'home' | 'about' | 'mission' | 'vision' | 'services' | 'contact'
+export type WebsitePageKey = 'home' | 'about' | 'mission' | 'vision' | 'services' | 'contact' | 'news'
 
 export type WebsitePageContent = {
   id: number
@@ -749,6 +751,10 @@ export type WebsiteSettings = {
   id: number
   logo_url: string
   logo_file: string
+  header_content: Partial<Record<'en' | 'fa' | 'ps', {
+    brand_subtitle?: string
+    nav?: Partial<Record<'home' | 'posts' | 'gallery' | 'about' | 'mission' | 'vision' | 'services' | 'contact', string>>
+  }>>
   updated_at: string
   updated_by_name: string
 }

@@ -93,21 +93,37 @@ class Payment(TimestampedModel, SoftDeleteModel):
         DISCOUNT = 'discount', 'Discount'
 
     class MidwiferyService(models.TextChoices):
+        ANC = 'anc', 'ANC'
+        PNC = 'pnc', 'PNC'
+        NORMAL_DELIVERY = 'normal_delivery', 'Normal delivery'
+        FP = 'fp', 'FP'
+
+    class MidwiferyFpService(models.TextChoices):
+        FP = 'fp', 'FP'
         IUD_INSERTION = 'iud_insertion', 'Insertion of IUD'
         IUD_REMOVAL = 'iud_removal', 'Removal of IUD'
-        IMPLANT_INSERTION = 'implant_insertion', 'Insertion of implant'
-        IMPLANT_REMOVAL = 'implant_removal', 'Removal of implant'
-        COC_TABLET = 'coc_tablet', 'COC tablet'
-        POP_TABLET = 'pop_tablet', 'POP tablet'
-        CONDOM = 'condom', 'Condom'
-        DMPA = 'dmpa', 'DMPA'
-        EMERGENCY_TABLETS = 'emergency_tablets', 'Emergency Tablets'
-        DELIVERY = 'delivery', 'Delivery'
+        IMPLANT = 'implant', 'Implant'
+        CAPSULE_INSERTION = 'capsule_insertion', 'Insertion of capsule'
+        CAPSULE_REMOVAL = 'capsule_removal', 'Removal of capsule'
+
+    LEGACY_MIDWIFERY_SERVICE_LABELS = {
+        'iud_insertion': 'Insertion of IUD',
+        'iud_removal': 'Removal of IUD',
+        'implant_insertion': 'Insertion of implant',
+        'implant_removal': 'Removal of implant',
+        'coc_tablet': 'COC tablet',
+        'pop_tablet': 'POP tablet',
+        'condom': 'Condom',
+        'dmpa': 'DMPA',
+        'emergency_tablets': 'Emergency Tablets',
+        'delivery': 'Delivery',
+    }
 
     patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='payments')
     service = models.CharField(max_length=120)
     department = models.CharField(max_length=120, blank=True)
     midwifery_service = models.CharField(max_length=32, choices=MidwiferyService.choices, blank=True, default='')
+    midwifery_fp_service = models.CharField(max_length=32, choices=MidwiferyFpService.choices, blank=True, default='')
     doctor_name = models.CharField(max_length=120, blank=True)
     patient_age = models.PositiveIntegerField(null=True, blank=True)
     patient_age_unit = models.CharField(max_length=8, choices=Patient.AgeUnit.choices, default=Patient.AgeUnit.YEAR)
@@ -535,6 +551,7 @@ class WebsitePageContent(TimestampedModel):
         VISION = 'vision', 'Our vision'
         SERVICES = 'services', 'Services'
         CONTACT = 'contact', 'Contact'
+        NEWS = 'news', 'News page'
 
     class Language(models.TextChoices):
         ENGLISH = 'en', 'English'
@@ -567,6 +584,7 @@ class WebsitePageContent(TimestampedModel):
 class WebsiteSettings(TimestampedModel):
     logo_url = models.CharField(max_length=500, blank=True)
     logo_file = models.FileField(upload_to=website_logo_upload_path, blank=True)
+    header_content = models.JSONField(default=dict, blank=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,

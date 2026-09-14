@@ -131,16 +131,18 @@ const documentTemplates: Record<DocumentType, Record<string, unknown>> = {
 
 const departmentOptions = ['Midwifery', 'Pediatrics', 'OPD', 'Gynecology', 'Psychology', 'Emergency', 'Laboratory', 'Ultrasound', 'Vaccination', 'Malnutrition']
 const midwiferyServiceOptions = [
+  { value: 'anc', label: 'ANC' },
+  { value: 'pnc', label: 'PNC' },
+  { value: 'normal_delivery', label: 'Normal delivery' },
+  { value: 'fp', label: 'FP' },
+]
+const midwiferyFpServiceOptions = [
+  { value: 'fp', label: 'FP' },
   { value: 'iud_insertion', label: 'Insertion of IUD' },
   { value: 'iud_removal', label: 'Removal of IUD' },
-  { value: 'implant_insertion', label: 'Insertion of implant' },
-  { value: 'implant_removal', label: 'Removal of implant' },
-  { value: 'coc_tablet', label: 'COC tablet' },
-  { value: 'pop_tablet', label: 'POP tablet' },
-  { value: 'condom', label: 'Condom' },
-  { value: 'dmpa', label: 'DMPA' },
-  { value: 'emergency_tablets', label: 'Emergency Tablets' },
-  { value: 'delivery', label: 'Delivery' },
+  { value: 'implant', label: 'Implant' },
+  { value: 'capsule_insertion', label: 'Insertion of capsule' },
+  { value: 'capsule_removal', label: 'Removal of capsule' },
 ]
 const freeDepartments = new Set(['vaccination', 'malnutrition'])
 const receptionDoctorDepartments = new Set(['midwifery', 'ultrasound', 'opd', 'pediatrics', 'gynecology'])
@@ -336,6 +338,10 @@ function needsReceptionDoctor(department: string): boolean {
 
 function isMidwiferyDepartment(department: string): boolean {
   return department.trim().toLowerCase() === 'midwifery'
+}
+
+function isLegacyMidwiferyService(service: string): boolean {
+  return Boolean(service) && !midwiferyServiceOptions.some((option) => option.value === service)
 }
 
 function flattenValidationDetails(value: unknown, prefix = ''): string[] {
@@ -1273,6 +1279,7 @@ function Payments({
     age: '',
     department: departmentOptions[0],
     midwifery_service: '',
+    midwifery_fp_service: '',
     doctor_fee: '',
     payment_type: 'full' as Payment['payment_type'],
     discount_percentage: '',
@@ -1294,6 +1301,7 @@ function Payments({
     age: '',
     department: departmentOptions[0],
     midwifery_service: '',
+    midwifery_fp_service: '',
     doctor_fee: '',
     payment_type: 'full' as Payment['payment_type'],
     discount_percentage: '',
@@ -1397,6 +1405,10 @@ function Payments({
       setFormError('Select a Midwifery service.')
       return
     }
+    if (isMidwiferyDepartment(form.department) && form.midwifery_service === 'fp' && !form.midwifery_fp_service) {
+      setFormError('Select an FP service.')
+      return
+    }
     setSubmitting(true)
     try {
       const payment = await apiFetch<Payment>('/payments/reception-bill/', {
@@ -1417,6 +1429,7 @@ function Payments({
             service: `${form.department} consultation`,
             department: form.department,
             midwifery_service: form.midwifery_service,
+            midwifery_fp_service: form.midwifery_fp_service,
             doctor_name: selectedDoctorUsername,
             patient_age: Number(form.age),
             patient_age_unit: form.age_unit,
@@ -1427,7 +1440,7 @@ function Payments({
           },
         }),
       })
-      setForm({ patient_name: '', age_unit: 'year', age: '', department: departmentOptions[0], midwifery_service: '', doctor_fee: '', payment_type: 'full', discount_percentage: '', notes: '' })
+      setForm({ patient_name: '', age_unit: 'year', age: '', department: departmentOptions[0], midwifery_service: '', midwifery_fp_service: '', doctor_fee: '', payment_type: 'full', discount_percentage: '', notes: '' })
       setSelectedDoctorUsername('')
       onCreated(payment)
     } catch (caught) {
@@ -1453,6 +1466,7 @@ function Payments({
       age: '',
       department: departmentOptions[0],
       midwifery_service: '',
+      midwifery_fp_service: '',
       doctor_fee: '',
       payment_type: 'full',
       discount_percentage: '',
@@ -1471,6 +1485,7 @@ function Payments({
       age: payment.patient_age === null ? '' : String(payment.patient_age),
       department: payment.department || departmentOptions[0],
       midwifery_service: payment.midwifery_service || '',
+      midwifery_fp_service: payment.midwifery_fp_service || '',
       doctor_fee: payment.doctor_fee,
       payment_type: payment.payment_type,
       discount_percentage: payment.payment_type === 'discount' ? payment.discount_percentage : '',
@@ -1490,6 +1505,10 @@ function Payments({
       setPatientError('Select a Midwifery service.')
       return
     }
+    if (isMidwiferyDepartment(patientForm.department) && patientForm.midwifery_service === 'fp' && !patientForm.midwifery_fp_service) {
+      setPatientError('Select an FP service.')
+      return
+    }
     setPatientSubmitting(true)
     try {
       await apiFetch<Patient>(`/patients/${editingPatientId}/`, {
@@ -1507,6 +1526,7 @@ function Payments({
           service: `${patientForm.department} consultation`,
           department: patientForm.department,
           midwifery_service: patientForm.midwifery_service,
+          midwifery_fp_service: patientForm.midwifery_fp_service,
           doctor_name: editingDoctorUsername,
           patient_age: patientForm.age === '' ? null : Number(patientForm.age),
           patient_age_unit: patientForm.age_unit,
@@ -1567,6 +1587,7 @@ function Payments({
                     ...current,
                     department: e.target.value,
                     midwifery_service: isMidwiferyDepartment(e.target.value) ? current.midwifery_service : '',
+                    midwifery_fp_service: isMidwiferyDepartment(e.target.value) ? current.midwifery_fp_service : '',
                     payment_type: isFreeDepartment(e.target.value) ? 'free' : (isFreeDepartment(current.department) ? 'full' : current.payment_type),
                   }))
                 }
@@ -1577,9 +1598,18 @@ function Payments({
           </Field>
           {isMidwiferyDepartment(form.department) ? (
             <Field label="Midwifery service">
-              <select className={inputClassName} value={form.midwifery_service} onChange={(e) => setForm((current) => ({ ...current, midwifery_service: e.target.value }))} required>
+              <select className={inputClassName} value={form.midwifery_service} onChange={(e) => setForm((current) => ({ ...current, midwifery_service: e.target.value, midwifery_fp_service: e.target.value === 'fp' ? current.midwifery_fp_service : '' }))} required>
                 <option value="">Select a service</option>
+                {isLegacyMidwiferyService(form.midwifery_service) ? <option value={form.midwifery_service}>Existing legacy service</option> : null}
                 {midwiferyServiceOptions.map((service) => <option key={service.value} value={service.value}>{service.label}</option>)}
+              </select>
+            </Field>
+          ) : null}
+          {isMidwiferyDepartment(form.department) && form.midwifery_service === 'fp' ? (
+            <Field label="FP service">
+              <select className={inputClassName} value={form.midwifery_fp_service} onChange={(e) => setForm((current) => ({ ...current, midwifery_fp_service: e.target.value }))} required>
+                <option value="">Select an FP service</option>
+                {midwiferyFpServiceOptions.map((service) => <option key={service.value} value={service.value}>{service.label}</option>)}
               </select>
             </Field>
           ) : null}
@@ -1726,6 +1756,7 @@ function Payments({
                         ...current,
                         department: event.target.value,
                         midwifery_service: isMidwiferyDepartment(event.target.value) ? current.midwifery_service : '',
+                        midwifery_fp_service: isMidwiferyDepartment(event.target.value) ? current.midwifery_fp_service : '',
                         payment_type: isFreeDepartment(event.target.value) ? 'free' : (isFreeDepartment(current.department) ? 'full' : current.payment_type),
                       }))
                     }
@@ -1736,9 +1767,18 @@ function Payments({
               </Field>
               {isMidwiferyDepartment(patientForm.department) ? (
                 <Field label="Midwifery service">
-                  <select className={inputClassName} value={patientForm.midwifery_service} onChange={(event) => setPatientForm((current) => ({ ...current, midwifery_service: event.target.value }))} required>
+                  <select className={inputClassName} value={patientForm.midwifery_service} onChange={(event) => setPatientForm((current) => ({ ...current, midwifery_service: event.target.value, midwifery_fp_service: event.target.value === 'fp' ? current.midwifery_fp_service : '' }))} required>
                     <option value="">Select a service</option>
+                    {isLegacyMidwiferyService(patientForm.midwifery_service) ? <option value={patientForm.midwifery_service}>Existing legacy service</option> : null}
                     {midwiferyServiceOptions.map((service) => <option key={service.value} value={service.value}>{service.label}</option>)}
+                  </select>
+                </Field>
+              ) : null}
+              {isMidwiferyDepartment(patientForm.department) && patientForm.midwifery_service === 'fp' ? (
+                <Field label="FP service">
+                  <select className={inputClassName} value={patientForm.midwifery_fp_service} onChange={(event) => setPatientForm((current) => ({ ...current, midwifery_fp_service: event.target.value }))} required>
+                    <option value="">Select an FP service</option>
+                    {midwiferyFpServiceOptions.map((service) => <option key={service.value} value={service.value}>{service.label}</option>)}
                   </select>
                 </Field>
               ) : null}

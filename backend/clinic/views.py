@@ -1855,19 +1855,26 @@ class DashboardViewSet(viewsets.ViewSet):
         expenses_amount = expenses.aggregate(total=Sum('amount'))['total'] or 0
 
         midwifery_service_labels = dict(Payment.MidwiferyService.choices)
+        midwifery_fp_service_labels = dict(Payment.MidwiferyFpService.choices)
         midwifery_services = [
             {
-                'service': row['midwifery_service'],
-                'service_label': midwifery_service_labels.get(row['midwifery_service'], row['midwifery_service'] or 'Not specified'),
+                'service': f"{row['midwifery_service']}:{row['midwifery_fp_service']}".rstrip(':'),
+                'service_label': (
+                    f"{midwifery_service_labels['fp']} — {midwifery_fp_service_labels.get(row['midwifery_fp_service'], 'Not specified')}"
+                    if row['midwifery_service'] == 'fp' else midwifery_service_labels.get(
+                        row['midwifery_service'],
+                        Payment.LEGACY_MIDWIFERY_SERVICE_LABELS.get(row['midwifery_service'], row['midwifery_service'] or 'Not specified'),
+                    )
+                ),
                 'patients': row['patients'],
                 'payments': row['payments'],
                 'amount': str(row['amount'] or 0),
             }
-            for row in payments.filter(department__iexact='Midwifery').values('midwifery_service').annotate(
+            for row in payments.filter(department__iexact='Midwifery').values('midwifery_service', 'midwifery_fp_service').annotate(
                 patients=Count('patient', distinct=True),
                 payments=Count('id'),
                 amount=Sum('amount'),
-            ).order_by('midwifery_service')
+            ).order_by('midwifery_service', 'midwifery_fp_service')
         ]
 
         departments = [
@@ -1977,13 +1984,13 @@ class WebsitePostViewSet(viewsets.ModelViewSet):
     pagination_class = None
 
     def get_permissions(self):
-        if self.action == 'public':
+        if self.action in {'public', 'public_detail'}:
             return [AllowAny()]
         return [IsAuthenticated()]
 
     def check_permissions(self, request):
         super().check_permissions(request)
-        if self.action != 'public' and not user_has_permission(request.user, 'website.content.manage'):
+        if self.action not in {'public', 'public_detail'} and not user_has_permission(request.user, 'website.content.manage'):
             self.permission_denied(request, message='Missing permission: website.content.manage')
 
     @action(detail=False, methods=['get'], url_path='public')
@@ -1992,6 +1999,10 @@ class WebsitePostViewSet(viewsets.ModelViewSet):
         page = paginator.paginate_queryset(self.get_queryset(), request, view=self)
         serializer = self.get_serializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
+
+    @action(detail=True, methods=['get'], url_path='public', url_name='public-detail')
+    def public_detail(self, request, pk=None):
+        return Response(self.get_serializer(self.get_object()).data)
 
     def perform_create(self, serializer):
         photos = [compress_website_post_image(photo) for photo in self.request.FILES.getlist('images')]

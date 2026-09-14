@@ -17,6 +17,7 @@ export function App() {
         <Route path="/services" element={<PublicPage page="services" />} />
         <Route path="/contact" element={<PublicPage page="contact" />} />
         <Route path="/posts" element={<PublicPage page="posts" />} />
+        <Route path="/posts/:postId" element={<PublicPage page="post" />} />
         <Route path="/gallery" element={<PublicPage page="gallery" />} />
         <Route path="/auth/login" element={<LoginPage />} />
         <Route

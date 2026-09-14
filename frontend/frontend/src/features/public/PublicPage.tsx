@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, NavLink } from 'react-router-dom'
+import { Link, NavLink, useParams } from 'react-router-dom'
 
 import { apiFetch } from '../../api/client'
 import aboutMotherChildImage from '../../assets/afghan-mother-child-about.webp'
@@ -11,13 +11,14 @@ import { commonTranslation } from '../../translations/commontranslation'
 import { contactPageTranslation } from '../../translations/contactpagetranslation'
 import { homePageTranslation } from '../../translations/homepagetranlsation'
 import { missionPageTranslation } from '../../translations/missionpagetranslation'
+import { newsPageTranslation } from '../../translations/newspagetranslation'
 import { servicesPageTranslation } from '../../translations/servicespagetranslation'
 import type { LanguageCode } from '../../translations/types'
 import { visionPageTranslation } from '../../translations/visionpagetranslation'
 import type { PaginatedResponse, WebsiteGalleryImage, WebsitePageContent, WebsitePageKey, WebsitePost, WebsiteSettings } from '../../types/domain'
 
 type PublicPageProps = {
-  page: WebsitePageKey | 'posts' | 'gallery'
+  page: WebsitePageKey | 'posts' | 'post' | 'gallery'
 }
 
 const languageOptions: Array<{ code: LanguageCode; label: string }> = [
@@ -44,6 +45,7 @@ const defaultImages: Record<WebsitePageKey, string> = {
   vision: visionMotherChildImage,
   services: servicesMotherChildImage,
   contact: '',
+  news: '',
 }
 
 const defaultContent = {
@@ -53,6 +55,7 @@ const defaultContent = {
   vision: visionPageTranslation,
   services: servicesPageTranslation,
   contact: contactPageTranslation,
+  news: newsPageTranslation,
 } as const
 
 function getInitialLanguage(): LanguageCode {
@@ -65,7 +68,7 @@ export function PublicPage({ page }: PublicPageProps) {
   const [websiteContent, setWebsiteContent] = useState<Partial<Record<WebsitePageKey, WebsitePageContent>>>({})
   const [websiteSettings, setWebsiteSettings] = useState<WebsiteSettings | null>(null)
   const direction = language === 'en' ? 'ltr' : 'rtl'
-  const common = commonTranslation[language]
+  const common = mergeHeaderText(commonTranslation[language], language, websiteSettings)
 
   useEffect(() => {
     document.documentElement.lang = language === 'fa' ? 'fa-AF' : language === 'ps' ? 'ps-AF' : 'en'
@@ -117,7 +120,8 @@ export function PublicPage({ page }: PublicPageProps) {
       {page === 'vision' ? <VisionPage language={language} pageContent={websiteContent.vision} /> : null}
       {page === 'services' ? <ServicesPage language={language} pageContent={websiteContent.services} /> : null}
       {page === 'contact' ? <ContactPage language={language} pageContent={websiteContent.contact} /> : null}
-      {page === 'posts' ? <PublicPostsPage language={language} /> : null}
+      {page === 'posts' ? <PublicPostsPage language={language} pageContent={websiteContent.news} /> : null}
+      {page === 'post' ? <PublicPostPage language={language} /> : null}
       {page === 'gallery' ? <PublicGalleryPage language={language} /> : null}
       <WebsiteFooter common={common} />
     </main>
@@ -139,6 +143,22 @@ function pageImage(page: WebsitePageKey, pageContent?: WebsitePageContent): stri
   return pageContent?.image_url || defaultImages[page]
 }
 
+function mergeHeaderText(
+  fallback: (typeof commonTranslation)[LanguageCode],
+  language: LanguageCode,
+  settings: WebsiteSettings | null,
+): (typeof commonTranslation)[LanguageCode] {
+  const customHeader = settings?.header_content?.[language]
+  return {
+    ...fallback,
+    brandSubtitle: customHeader?.brand_subtitle ?? fallback.brandSubtitle,
+    nav: {
+      ...fallback.nav,
+      ...customHeader?.nav,
+    },
+  }
+}
+
 function WebsiteHeader({
   common,
   language,
@@ -150,11 +170,13 @@ function WebsiteHeader({
   logoUrl: string
   onLanguageChange: (language: LanguageCode) => void
 }) {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
   return (
     <header className="sticky top-0 z-20 overflow-hidden border-b border-sky-100 bg-white/92 text-slate-900 shadow-sm shadow-sky-100/70 backdrop-blur-xl">
       <div className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,#0ea5e9,#ec4899,#0ea5e9)]" />
       <div className="absolute inset-0 opacity-[0.06] [background-image:linear-gradient(135deg,transparent_46%,#0ea5e9_47%,#0ea5e9_53%,transparent_54%)] [background-size:26px_26px]" />
-      <div className="relative mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4">
+      <div className="relative mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4">
         <Link to="/" className="group flex items-center gap-3">
           <span className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,#0ea5e9,#ec4899)] text-sm font-black text-white shadow-lg shadow-sky-200">
             {logoUrl ? (
@@ -172,7 +194,7 @@ function WebsiteHeader({
           </span>
         </Link>
 
-        <nav className="flex flex-wrap items-center gap-2">
+        <nav className="hidden items-center gap-2 lg:flex">
           {navItems.map((item) => (
             <NavLink
               key={item.to}
@@ -185,7 +207,6 @@ function WebsiteHeader({
             </NavLink>
           ))}
           <label className="flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50 px-3 py-2 text-sm font-bold text-slate-700">
-            <span>{common.languageLabel}</span>
             <select
               value={language}
               onChange={(event) => onLanguageChange(event.target.value as LanguageCode)}
@@ -199,7 +220,52 @@ function WebsiteHeader({
             </select>
           </label>
         </nav>
+        <button
+          type="button"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-sky-100 bg-sky-50 text-sky-700 transition hover:bg-sky-100 lg:hidden"
+          aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+          aria-expanded={mobileMenuOpen}
+          onClick={() => setMobileMenuOpen((open) => !open)}
+        >
+          {mobileMenuOpen ? (
+            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+          ) : (
+            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+          )}
+        </button>
       </div>
+      {mobileMenuOpen ? (
+        <nav className="relative border-t border-sky-100 bg-white/98 px-4 pb-4 pt-3 shadow-inner shadow-sky-50 lg:hidden">
+          <div className="mx-auto grid max-w-7xl gap-2 sm:grid-cols-2">
+            {navItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                onClick={() => setMobileMenuOpen(false)}
+                className={({ isActive }) =>
+                  `rounded-xl px-4 py-3 text-sm font-bold transition ${isActive ? 'bg-pink-50 text-pink-700' : 'bg-sky-50 text-slate-700 hover:bg-sky-100 hover:text-sky-700'}`
+                }
+              >
+                {common.nav[item.key]}
+              </NavLink>
+            ))}
+            <label className="flex items-center rounded-xl border border-sky-100 bg-white px-4 py-3 text-sm font-bold text-slate-700">
+              <select
+                value={language}
+                onChange={(event) => onLanguageChange(event.target.value as LanguageCode)}
+                className="w-full bg-transparent text-sm outline-none"
+                aria-label="Website language"
+              >
+                {languageOptions.map((option) => (
+                  <option key={option.code} value={option.code}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </nav>
+      ) : null}
     </header>
   )
 }
@@ -417,7 +483,7 @@ function ContactPage({ language, pageContent }: { language: LanguageCode; pageCo
   )
 }
 
-function PublicPostsPage({ language }: { language: LanguageCode }) {
+function PublicPostsPage({ language, pageContent }: { language: LanguageCode; pageContent?: WebsitePageContent }) {
   const [posts, setPosts] = useState<WebsitePost[]>([])
   const [page, setPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
@@ -447,8 +513,7 @@ function PublicPostsPage({ language }: { language: LanguageCode }) {
   }, [page])
 
   const totalPages = Math.max(1, Math.ceil(totalCount / 10))
-  const title = language === 'fa' ? 'مطالب' : language === 'ps' ? 'لیکنې' : 'Website posts'
-  const subtitle = language === 'fa' ? 'تازه‌ترین مطالب مرکز حمایه صحت طفل و مادر' : language === 'ps' ? 'د مور او ماشوم د روغتیا ملاتړ مرکز وروستۍ لیکنې' : 'Latest news and updates from Mother and Child Health Support Center'
+  const text = pageText<(typeof newsPageTranslation)[LanguageCode]>('news', language, pageContent)
 
   function localized(post: WebsitePost, field: 'title' | 'content'): string {
     const suffix = language === 'fa' ? 'fa' : language === 'ps' ? 'ps' : 'en'
@@ -456,30 +521,76 @@ function PublicPostsPage({ language }: { language: LanguageCode }) {
   }
 
   return (
-    <ContentShell eyebrow="MCHC" title={title}>
-      <p className="max-w-3xl text-lg leading-8 text-slate-600">{subtitle}</p>
-      {loading ? <p className="mt-8 text-slate-500">Loading posts...</p> : null}
-      {error ? <p className="mt-8 rounded-2xl border border-red-100 bg-red-50 p-4 text-red-700">Posts could not be loaded right now.</p> : null}
-      {!loading && !error && !posts.length ? <p className="mt-8 rounded-2xl border border-sky-100 bg-sky-50 p-6 text-slate-600">No posts have been published yet.</p> : null}
-      <div className="mt-8 grid gap-6">
+    <ContentShell eyebrow="MCHC" title={text.title}>
+      <p className="max-w-3xl text-lg leading-8 text-slate-600">{text.subtitle}</p>
+      {loading ? <p className="mt-8 text-slate-500">{text.loading}</p> : null}
+      {error ? <p className="mt-8 rounded-2xl border border-red-100 bg-red-50 p-4 text-red-700">{text.error}</p> : null}
+      {!loading && !error && !posts.length ? <p className="mt-8 rounded-2xl border border-sky-100 bg-sky-50 p-6 text-slate-600">{text.empty}</p> : null}
+      <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {posts.map((post) => (
-          <article key={post.id} className="overflow-hidden rounded-3xl border border-sky-100 bg-white shadow-sm shadow-sky-100/70">
-            {post.images.length ? <div className={`grid gap-1 ${post.images.length === 1 ? 'grid-cols-1' : 'grid-cols-2 md:grid-cols-3'}`}>{post.images.map((image) => <img key={image.id} src={image.image_url} alt={localized(post, 'title')} className="h-56 w-full object-cover md:h-72" loading="lazy" />)}</div> : null}
-            <div className="p-6 md:p-8">
-              <p className="text-sm font-semibold text-pink-600">{new Date(post.created_at).toLocaleDateString()}</p>
-              <h2 className="mt-3 text-2xl font-bold text-slate-950 md:text-3xl">{localized(post, 'title')}</h2>
-              <p className="mt-4 whitespace-pre-wrap leading-8 text-slate-600">{localized(post, 'content')}</p>
+          <Link key={post.id} to={`/posts/${post.id}`} className="group flex min-w-0 gap-4 rounded-2xl border border-sky-100 bg-white p-3 shadow-sm shadow-sky-100/70 transition hover:-translate-y-0.5 hover:border-pink-200 hover:shadow-md">
+            {post.images[0] ? <img src={post.images[0].image_url} alt={localized(post, 'title')} className="h-[100px] w-[100px] shrink-0 rounded-xl object-cover" loading="lazy" /> : <div className="flex h-[100px] w-[100px] shrink-0 items-center justify-center rounded-xl bg-sky-50 text-center text-xs font-bold text-sky-700">{text.placeholder}</div>}
+            <div className="min-w-0 py-1">
+              <p className="text-xs font-semibold text-pink-600">{new Date(post.created_at).toLocaleDateString()}</p>
+              <h2 className="mt-2 line-clamp-2 text-base font-bold text-slate-950 group-hover:text-sky-700">{localized(post, 'title')}</h2>
+              <p className="mt-2 line-clamp-2 text-sm leading-5 text-slate-600">{localized(post, 'content')}</p>
             </div>
-          </article>
+          </Link>
         ))}
       </div>
       {!loading && !error && totalCount > 10 ? (
         <div className="mt-8 flex items-center justify-center gap-3">
-          <button type="button" className="rounded-full border border-sky-200 bg-white px-5 py-2 text-sm font-bold text-sky-700 disabled:cursor-not-allowed disabled:opacity-40" disabled={page === 1} onClick={() => setPage((current) => current - 1)}>Previous</button>
+          <button type="button" className="rounded-full border border-sky-200 bg-white px-5 py-2 text-sm font-bold text-sky-700 disabled:cursor-not-allowed disabled:opacity-40" disabled={page === 1} onClick={() => setPage((current) => current - 1)}>{text.previous}</button>
           <span className="text-sm font-semibold text-slate-600">{page} / {totalPages}</span>
-          <button type="button" className="rounded-full bg-sky-500 px-5 py-2 text-sm font-bold text-white shadow-sm shadow-sky-200 disabled:cursor-not-allowed disabled:opacity-40" disabled={page === totalPages} onClick={() => setPage((current) => current + 1)}>Next</button>
+          <button type="button" className="rounded-full bg-sky-500 px-5 py-2 text-sm font-bold text-white shadow-sm shadow-sky-200 disabled:cursor-not-allowed disabled:opacity-40" disabled={page === totalPages} onClick={() => setPage((current) => current + 1)}>{text.next}</button>
         </div>
       ) : null}
+    </ContentShell>
+  )
+}
+
+function PublicPostPage({ language }: { language: LanguageCode }) {
+  const { postId } = useParams()
+  const [post, setPost] = useState<WebsitePost | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    let ignore = false
+    if (!postId) {
+      setError(true)
+      setLoading(false)
+      return () => { ignore = true }
+    }
+    setLoading(true)
+    setError(false)
+    apiFetch<WebsitePost>(`/website-posts/${postId}/public/`)
+      .then((response) => { if (!ignore) setPost(response) })
+      .catch(() => { if (!ignore) setError(true) })
+      .finally(() => { if (!ignore) setLoading(false) })
+    return () => { ignore = true }
+  }, [postId])
+
+  const title = language === 'fa' ? 'مطلب' : language === 'ps' ? 'لیکنه' : 'Post'
+  const backLabel = language === 'fa' ? 'بازگشت به مطالب' : language === 'ps' ? 'بېرته لیکنو ته' : 'Back to posts'
+  const localized = (field: 'title' | 'content') => {
+    const suffix = language === 'fa' ? 'fa' : language === 'ps' ? 'ps' : 'en'
+    return post?.[`${field}_${suffix}` as keyof WebsitePost] as string | undefined
+  }
+
+  return (
+    <ContentShell eyebrow="MCHC" title={loading ? title : localized('title') || title}>
+      <Link to="/posts" className="inline-flex rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 transition hover:bg-sky-100">← {backLabel}</Link>
+      {loading ? <p className="mt-8 text-slate-500">Loading post...</p> : null}
+      {error ? <p className="mt-8 rounded-2xl border border-red-100 bg-red-50 p-4 text-red-700">This post could not be loaded.</p> : null}
+      {post && !error ? <article className="mt-8 overflow-hidden rounded-3xl border border-sky-100 bg-white shadow-sm shadow-sky-100/70">
+        {post.images.length ? <div className={`grid gap-1 ${post.images.length === 1 ? 'grid-cols-1' : 'grid-cols-2 md:grid-cols-3'}`}>{post.images.map((image) => <img key={image.id} src={image.image_url} alt={localized('title') || ''} className="h-64 w-full object-cover md:h-80" loading="lazy" />)}</div> : null}
+        <div className="p-6 md:p-8">
+          <p className="text-sm font-semibold text-pink-600">{new Date(post.created_at).toLocaleDateString()}</p>
+          <h1 className="mt-3 text-3xl font-bold text-slate-950 md:text-4xl">{localized('title')}</h1>
+          <p className="mt-6 whitespace-pre-wrap text-lg leading-8 text-slate-600">{localized('content')}</p>
+        </div>
+      </article> : null}
     </ContentShell>
   )
 }
