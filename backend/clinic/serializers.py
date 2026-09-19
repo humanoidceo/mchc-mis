@@ -145,6 +145,11 @@ class DoctorDepartmentAssignmentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Select an active Doctor, Midwife, or Gynecologist account.')
         return doctor
 
+    def validate_department(self, department):
+        if department.strip().casefold() == 'opd':
+            return 'Internal Medicines'
+        return department
+
 
 class PatientSerializer(serializers.ModelSerializer):
     registered_by_name = serializers.CharField(source='registered_by.get_full_name', read_only=True)
@@ -197,6 +202,9 @@ class PaymentSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         attrs = super().validate(attrs)
         department = attrs.get('department', getattr(self.instance, 'department', ''))
+        if department.strip().casefold() == 'opd':
+            department = 'Internal Medicines'
+            attrs['department'] = department
         normalized_department = (department or '').strip().lower()
         midwifery_service = attrs.get('midwifery_service', getattr(self.instance, 'midwifery_service', ''))
         midwifery_fp_service = attrs.get('midwifery_fp_service', getattr(self.instance, 'midwifery_fp_service', ''))
@@ -824,18 +832,14 @@ class ClinicalDocumentSerializer(serializers.ModelSerializer):
 
 
 class MidwifeDashboardSerializer(serializers.Serializer):
-    period = serializers.ChoiceField(choices=(('daily', 'Daily'), ('weekly', 'Weekly'), ('monthly', 'Monthly'), ('annual', 'Annual')))
+    period = serializers.ChoiceField(choices=(('daily', 'Daily'), ('weekly', 'Weekly'), ('monthly', 'Monthly'), ('annual', 'Annual'), ('custom', 'Custom')))
     period_label = serializers.CharField()
     patients = serializers.IntegerField()
-    anc_visits = serializers.IntegerField()
-    pnc_visits = serializers.IntegerField()
-    deliveries = serializers.IntegerField()
-    high_risk = serializers.IntegerField()
-    due_followups = serializers.IntegerField()
-    total_records = serializers.IntegerField()
-    patient_trend = serializers.ListField(child=serializers.DictField())
-    recent_records_count = serializers.IntegerField()
-    recent_records = ClinicalDocumentSerializer(many=True)
+    approved_patients = serializers.IntegerField()
+    pending_patients = serializers.IntegerField()
+    prescriptions = serializers.IntegerField()
+    laboratory_orders = serializers.IntegerField()
+    doctor_departments = serializers.ListField(child=serializers.DictField())
 
 
 class MalnutritionDashboardSerializer(serializers.Serializer):

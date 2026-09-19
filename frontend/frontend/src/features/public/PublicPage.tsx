@@ -67,6 +67,7 @@ export function PublicPage({ page }: PublicPageProps) {
   const [language, setLanguageState] = useState<LanguageCode>(getInitialLanguage)
   const [websiteContent, setWebsiteContent] = useState<Partial<Record<WebsitePageKey, WebsitePageContent>>>({})
   const [websiteSettings, setWebsiteSettings] = useState<WebsiteSettings | null>(null)
+  const [homeImageFallbackUrl, setHomeImageFallbackUrl] = useState('')
   const direction = language === 'en' ? 'ltr' : 'rtl'
   const common = mergeHeaderText(commonTranslation[language], language, websiteSettings)
 
@@ -84,18 +85,23 @@ export function PublicPage({ page }: PublicPageProps) {
 
     async function loadWebsiteContent() {
       try {
-        const [contentItems, settings] = await Promise.all([
+        const [contentItems, settings, homeContentItems] = await Promise.all([
           apiFetch<WebsitePageContent[]>(`/website-content/?language=${language}`),
           apiFetch<WebsiteSettings>('/website-settings/'),
+          apiFetch<WebsitePageContent[]>('/website-content/?page=home'),
         ])
         if (!ignore) {
           setWebsiteContent(Object.fromEntries(contentItems.map((item) => [item.page, item])))
           setWebsiteSettings(settings)
+          const fallbackHomeImage = homeContentItems.find((item) => item.language === 'en' && item.image_url)
+            ?? homeContentItems.find((item) => item.image_url)
+          setHomeImageFallbackUrl(fallbackHomeImage?.image_url ?? '')
         }
       } catch {
         if (!ignore) {
           setWebsiteContent({})
           setWebsiteSettings(null)
+          setHomeImageFallbackUrl('')
         }
       }
     }
@@ -114,7 +120,7 @@ export function PublicPage({ page }: PublicPageProps) {
   return (
     <main className="min-h-screen bg-white text-slate-900" dir={direction}>
       <WebsiteHeader common={common} language={language} logoUrl={websiteSettings?.logo_url ?? ''} onLanguageChange={setLanguage} />
-      {page === 'home' ? <HomePage language={language} pageContent={websiteContent.home} /> : null}
+      {page === 'home' ? <HomePage language={language} pageContent={websiteContent.home} fallbackImageUrl={homeImageFallbackUrl} /> : null}
       {page === 'about' ? <AboutPage language={language} pageContent={websiteContent.about} /> : null}
       {page === 'mission' ? <MissionPage language={language} pageContent={websiteContent.mission} /> : null}
       {page === 'vision' ? <VisionPage language={language} pageContent={websiteContent.vision} /> : null}
@@ -270,9 +276,9 @@ function WebsiteHeader({
   )
 }
 
-function HomePage({ language, pageContent }: { language: LanguageCode; pageContent?: WebsitePageContent }) {
+function HomePage({ language, pageContent, fallbackImageUrl }: { language: LanguageCode; pageContent?: WebsitePageContent; fallbackImageUrl: string }) {
   const text = pageText<(typeof homePageTranslation)[LanguageCode]>('home', language, pageContent)
-  const imageUrl = pageImage('home', pageContent)
+  const imageUrl = pageContent?.image_url || fallbackImageUrl || pageImage('home', pageContent)
 
   return (
     <>

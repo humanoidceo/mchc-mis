@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.db import models
@@ -12,7 +12,7 @@ from rest_framework.response import Response
 
 from accounts.access import user_has_permission
 from accounts.trash import soft_delete_instance
-from .models import ClinicalDocument, Patient, Payment, round_up_to_ten
+from .models import ClinicalDocument, DoctorDepartmentAssignment, Patient, Payment, round_up_to_ten
 from .serializers import ClinicalDocumentSerializer, MidwifeDashboardSerializer, PatientSerializer, PaymentSerializer
 
 
@@ -28,16 +28,29 @@ def is_midwife_user(user) -> bool:
     return user_has_permission(user, 'documents.ultrasound.create')
 
 
-def dashboard_period_start(period: str):
+def dashboard_period_range(period: str, from_date_value: str = '', to_date_value: str = ''):
     now = timezone.localtime(timezone.now())
+    if period == 'custom':
+        try:
+            start_date = date.fromisoformat(from_date_value)
+            end_date = date.fromisoformat(to_date_value)
+        except ValueError:
+            raise serializers.ValidationError({'period': 'Choose valid From and To dates for the custom period.'})
+        if end_date < start_date:
+            raise serializers.ValidationError({'to': 'To date must be on or after From date.'})
+
+        current_timezone = timezone.get_current_timezone()
+        start_at = timezone.make_aware(datetime.combine(start_date, time.min), current_timezone)
+        end_at = timezone.make_aware(datetime.combine(end_date + timedelta(days=1), time.min), current_timezone)
+        return start_at, end_at, f'{start_date.isoformat()} to {end_date.isoformat()}'
     if period == 'annual':
-        return now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0), 'Annual'
+        return now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0), None, 'Annual'
     if period == 'monthly':
-        return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0), 'Monthly'
+        return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0), None, 'Monthly'
     if period == 'weekly':
         start = now - timedelta(days=now.weekday())
-        return start.replace(hour=0, minute=0, second=0, microsecond=0), 'Weekly'
-    return now.replace(hour=0, minute=0, second=0, microsecond=0), 'Daily'
+        return start.replace(hour=0, minute=0, second=0, microsecond=0), None, 'Weekly'
+    return now.replace(hour=0, minute=0, second=0, microsecond=0), None, 'Daily'
 
 
 def build_patient_trend(period: str, records_queryset):
@@ -264,63 +277,52 @@ class MidwifeDashboardViewSet(viewsets.ViewSet):
             self.permission_denied(request, message='Only midwife accounts can access midwife APIs.')
 
         period = request.query_params.get('period', 'monthly')
-        if period not in {'daily', 'weekly', 'monthly', 'annual'}:
+        if period not in {'daily', 'weekly', 'monthly', 'annual', 'custom'}:
             period = 'monthly'
 
-        try:
-            recent_page = max(1, int(request.query_params.get('recent_page', '1')))
-        except ValueError:
-            recent_page = 1
-
-        start_at, period_label = dashboard_period_start(period)
-        records = ClinicalDocument.objects.select_related('patient', 'created_by').filter(
+        start_at, end_at, period_label = dashboard_period_range(
+            period,
+            request.query_params.get('from', '').strip(),
+            request.query_params.get('to', '').strip(),
+        )
+        doctor_documents = ClinicalDocument.objects.filter(
             created_by=request.user,
-            document_type=ClinicalDocument.DocumentType.ULTRASOUND,
-            payload__midwife_record=True,
+            created_at__gte=start_at,
+            document_type__in=[
+                ClinicalDocument.DocumentType.PRESCRIPTION,
+                ClinicalDocument.DocumentType.LAB_ORDER,
+            ],
         )
-        delivery_records = ClinicalDocument.objects.select_related('patient', 'created_by').filter(
-            created_by=request.user,
-            document_type=ClinicalDocument.DocumentType.ULTRASOUND,
-            payload__delivery_record=True,
+        assigned_payments = Payment.objects.filter(
+            doctor_name__iexact=request.user.username,
+            created_at__gte=start_at,
         )
-        period_records = records.filter(created_at__gte=start_at)
-        period_delivery_records = delivery_records.filter(created_at__gte=start_at)
-
-        all_records = list(records.order_by('patient_id', '-created_at'))
-        latest_records_by_patient: dict[int, ClinicalDocument] = {}
-        for record in all_records:
-            latest_records_by_patient.setdefault(record.patient_id, record)
-
-        today = timezone.localdate()
-        due_followups = sum(
-            1
-            for record in latest_records_by_patient.values()
-            if (
-                record.payload.get('patient_status') == 'follow_up'
-                and (next_visit_date := parse_payload_date(record.payload, 'next_visit_date')) is not None
-                and next_visit_date <= today
-            )
+        if end_at is not None:
+            doctor_documents = doctor_documents.filter(created_at__lt=end_at)
+            assigned_payments = assigned_payments.filter(created_at__lt=end_at)
+        assigned_departments = list(
+            DoctorDepartmentAssignment.objects.filter(doctor=request.user)
+            .order_by('department')
+            .values_list('department', flat=True)
         )
-
-        recent_records_queryset = records.order_by('-created_at')
-        recent_records_count = recent_records_queryset.count()
-        page_size = 10
-        start_index = (recent_page - 1) * page_size
-        recent_records = recent_records_queryset[start_index:start_index + page_size]
+        assigned_department_counts = {department.casefold(): 0 for department in assigned_departments}
+        for row in assigned_payments.values('department').annotate(patients=Count('patient_id', distinct=True)):
+            normalized_department = (row['department'] or '').strip().casefold()
+            if normalized_department in assigned_department_counts:
+                assigned_department_counts[normalized_department] = row['patients']
 
         data = {
             'period': period,
             'period_label': period_label,
-            'patients': period_records.values('patient').distinct().count(),
-            'anc_visits': period_records.filter(payload__visit_type='anc').count(),
-            'pnc_visits': period_records.filter(payload__visit_type='pnc').count(),
-            'deliveries': period_delivery_records.count(),
-            'high_risk': period_records.filter(payload__high_risk=True).count(),
-            'due_followups': due_followups,
-            'total_records': period_records.count(),
-            'patient_trend': build_patient_trend(period, period_records),
-            'recent_records_count': recent_records_count,
-            'recent_records': recent_records,
+            'patients': assigned_payments.values('patient_id').distinct().count(),
+            'approved_patients': assigned_payments.filter(status=Payment.Status.APPROVED).values('patient_id').distinct().count(),
+            'pending_patients': assigned_payments.filter(status=Payment.Status.PENDING).values('patient_id').distinct().count(),
+            'prescriptions': doctor_documents.filter(document_type=ClinicalDocument.DocumentType.PRESCRIPTION).count(),
+            'laboratory_orders': doctor_documents.filter(document_type=ClinicalDocument.DocumentType.LAB_ORDER).count(),
+            'doctor_departments': [
+                {'department': department, 'patients': assigned_department_counts[department.casefold()]}
+                for department in assigned_departments
+            ],
         }
         serializer = MidwifeDashboardSerializer(instance=data, context={'request': request})
         return Response(serializer.data)

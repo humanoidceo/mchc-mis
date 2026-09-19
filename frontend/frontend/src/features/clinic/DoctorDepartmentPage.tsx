@@ -5,7 +5,7 @@ import { ApiError, apiFetch } from '../../api/client'
 import { buttonClassName, Field, ghostButtonClassName, inputClassName, Panel, SectionHeader } from '../../components/ui'
 import type { DoctorDepartmentAssignment, DoctorOption, PaginatedResponse } from '../../types/domain'
 
-const departments = ['Midwifery', 'Pediatrics', 'OPD', 'Gynecology', 'Emergency', 'Laboratory', 'Ultrasound', 'Vaccination', 'Malnutrition']
+const departments = ['Midwifery', 'Pediatrics', 'Internal Medicines', 'Gynecology', 'Emergency', 'Laboratory', 'Ultrasound', 'Vaccination', 'Malnutrition']
 
 function errorMessage(caught: unknown, fallback: string) {
   if (caught instanceof ApiError) {

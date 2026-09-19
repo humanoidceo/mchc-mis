@@ -239,21 +239,17 @@ export type LaboratoryDashboardStats = {
 }
 
 export type MidwifeDashboardStats = {
-  period: 'daily' | 'weekly' | 'monthly' | 'annual'
+  period: 'daily' | 'weekly' | 'monthly' | 'annual' | 'custom'
   period_label: string
   patients: number
-  anc_visits: number
-  pnc_visits: number
-  deliveries: number
-  high_risk: number
-  due_followups: number
-  total_records: number
-  patient_trend: Array<{
-    label: string
-    value: number
+  approved_patients: number
+  pending_patients: number
+  prescriptions: number
+  laboratory_orders: number
+  doctor_departments: Array<{
+    department: string
+    patients: number
   }>
-  recent_records_count: number
-  recent_records: ClinicalDocument[]
 }
 
 export type MalnutritionDashboardStats = {
@@ -465,6 +461,10 @@ export type DashboardStats = {
   period: 'daily' | 'weekly' | 'monthly' | 'annual' | 'custom'
   period_label: string
   patients: number
+  approved_patients: number
+  pending_patients: number
+  prescriptions: number
+  laboratory_orders: number
   full_paid: number
   free: number
   discounted: number
@@ -490,6 +490,10 @@ export type DashboardStats = {
       payments: number
       amount: string
     }>
+  }>
+  doctor_departments: Array<{
+    department: string
+    patients: number
   }>
   documents: number
   low_stock_medicines: number

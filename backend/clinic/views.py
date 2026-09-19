@@ -64,7 +64,14 @@ DOCUMENT_CREATE_PERMISSIONS = {
     ClinicalDocument.DocumentType.RUTF: 'documents.rutf.create',
 }
 
-RECEPTION_DOCTOR_DEPARTMENTS = {'midwifery', 'ultrasound', 'opd', 'pediatrics', 'gynecology'}
+RECEPTION_DOCTOR_DEPARTMENTS = {'midwifery', 'ultrasound', 'internal medicines', 'pediatrics', 'gynecology'}
+
+
+def canonical_reception_department(department: str) -> str:
+    """Keep requests from an open, pre-rename reception screen compatible."""
+    if department.strip().casefold() == 'opd':
+        return 'Internal Medicines'
+    return department
 
 
 class DeleteAfterClose:
@@ -475,7 +482,7 @@ class DoctorDepartmentAssignmentViewSet(PermissionedModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='department-staff')
     def department_staff(self, request):
-        department = request.query_params.get('department', '').strip()
+        department = canonical_reception_department(request.query_params.get('department', '').strip())
         query = request.query_params.get('q', '').strip()
         try:
             page = max(1, int(request.query_params.get('page', '1')))
@@ -685,7 +692,7 @@ class PaymentViewSet(PermissionedModelViewSet):
     def reception_bill(self, request):
         patient_data = request.data.get('patient') or {}
         payment_data = request.data.get('payment') or {}
-        department = str(payment_data.get('department') or '').strip()
+        department = canonical_reception_department(str(payment_data.get('department') or '').strip())
         doctor_username = str(payment_data.get('doctor_name') or '').strip()
 
         if department.lower() in RECEPTION_DOCTOR_DEPARTMENTS:
@@ -1801,13 +1808,29 @@ class DashboardViewSet(viewsets.ViewSet):
                     payload__gynecology_ultrasound=True,
                 )
             )
-            patient_ids = list(doctor_documents.values_list('patient_id', flat=True).distinct())
             doctor_payments = Payment.objects.filter(
-                patient_id__in=patient_ids,
+                doctor_name__iexact=request.user.username,
                 created_at__gte=start_at,
             )
             if end_at is not None:
                 doctor_payments = doctor_payments.filter(created_at__lt=end_at)
+            total_patients = doctor_payments.values('patient_id').distinct().count()
+            approved_patients = doctor_payments.filter(status=Payment.Status.APPROVED).values('patient_id').distinct().count()
+            pending_patients = doctor_payments.filter(status=Payment.Status.PENDING).values('patient_id').distinct().count()
+            assigned_departments = list(
+                DoctorDepartmentAssignment.objects.filter(doctor=request.user)
+                .order_by('department')
+                .values_list('department', flat=True)
+            )
+            assigned_department_counts = {department.casefold(): 0 for department in assigned_departments}
+            for row in doctor_payments.values('department').annotate(patients=Count('patient_id', distinct=True)):
+                normalized_department = (row['department'] or '').strip().casefold()
+                if normalized_department in assigned_department_counts:
+                    assigned_department_counts[normalized_department] = row['patients']
+            doctor_departments = [
+                {'department': department, 'patients': assigned_department_counts[department.casefold()]}
+                for department in assigned_departments
+            ]
             patient_trend = build_patient_trend(
                 period,
                 doctor_documents,
@@ -1820,7 +1843,11 @@ class DashboardViewSet(viewsets.ViewSet):
                 {
                     'period': period,
                     'period_label': period_label,
-                    'patients': len(patient_ids),
+                    'patients': total_patients,
+                    'approved_patients': approved_patients,
+                    'pending_patients': pending_patients,
+                    'prescriptions': doctor_documents.filter(document_type=ClinicalDocument.DocumentType.PRESCRIPTION).count(),
+                    'laboratory_orders': doctor_documents.filter(document_type=ClinicalDocument.DocumentType.LAB_ORDER).count(),
                     'full_paid': doctor_payments.filter(payment_type=Payment.PaymentType.FULL).count(),
                     'free': doctor_payments.filter(payment_type=Payment.PaymentType.FREE).count(),
                     'discounted': doctor_payments.filter(payment_type=Payment.PaymentType.DISCOUNT).count(),
@@ -1832,6 +1859,7 @@ class DashboardViewSet(viewsets.ViewSet):
                     'total_amount': str(pending_amount + approved_amount),
                     'patient_trend': patient_trend,
                     'departments': [],
+                    'doctor_departments': doctor_departments,
                     'documents': doctor_documents.count(),
                     'low_stock_medicines': 0,
                     'expenses_count': 0,
@@ -1907,6 +1935,7 @@ class DashboardViewSet(viewsets.ViewSet):
                 'total_amount': str(pending_amount + approved_amount),
                 'patient_trend': patient_trend,
                 'departments': departments,
+                'doctor_departments': [],
                 'documents': ClinicalDocument.objects.count(),
                 'low_stock_medicines': Medicine.objects.filter(current_stock__lte=F('low_stock_threshold')).count(),
                 'expenses_count': expenses.count(),

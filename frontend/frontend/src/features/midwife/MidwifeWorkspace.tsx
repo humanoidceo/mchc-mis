@@ -35,8 +35,7 @@ const common = {
 
 const midwifeDashboardText = {
   title: 'Midwife dashboard',
-  subtitle: 'Structured midwifery records based on ANC and PNC workflows, with follow-up visibility and risk tracking.',
-  recentRecords: 'Recent maternal records',
+  subtitle: 'Patient activity summary for this midwife in the selected report period.',
 }
 
 const midwifeDocumentsText = {
@@ -151,19 +150,19 @@ const emptyDashboard: MidwifeDashboardStats = {
   period: 'monthly',
   period_label: 'Monthly',
   patients: 0,
-  anc_visits: 0,
-  pnc_visits: 0,
-  deliveries: 0,
-  high_risk: 0,
-  due_followups: 0,
-  total_records: 0,
-  patient_trend: [],
-  recent_records_count: 0,
-  recent_records: [],
+  approved_patients: 0,
+  pending_patients: 0,
+  prescriptions: 0,
+  laboratory_orders: 0,
+  doctor_departments: [],
 }
 
 function formatDateTime(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+}
+
+function todayDateInputValue(): string {
+  return new Date().toISOString().slice(0, 10)
 }
 
 function labTestOptionLabel(test: LabTestSearchOption): string {
@@ -247,7 +246,7 @@ export function MidwifeWorkspace({ view }: { view: View }) {
 
   return (
     <div className="space-y-6">
-      {view === 'dashboard' ? <MidwifeDashboard onPrint={setSelectedDocument} /> : null}
+      {view === 'dashboard' ? <MidwifeDashboard /> : null}
       {view === 'records' ? <MidwifeRecords onPrint={setSelectedDocument} /> : null}
       {view === 'deliveries' ? <MidwifeDeliveries onPrint={setSelectedDocument} /> : null}
       {view === 'documents' ? <MidwifeClinicalDocuments onPrint={setSelectedDocument} /> : null}
@@ -439,10 +438,11 @@ function MidwifeBilling() {
   )
 }
 
-function MidwifeDashboard({ onPrint }: { onPrint: (document: ClinicalDocument) => void }) {
+function MidwifeDashboard() {
   const t = midwifeDashboardText
   const [period, setPeriod] = useState<MidwifeDashboardStats['period']>('monthly')
-  const [recentPage, setRecentPage] = useState(1)
+  const [fromDate, setFromDate] = useState(todayDateInputValue)
+  const [toDate, setToDate] = useState(todayDateInputValue)
   const [report, setReport] = useState<MidwifeDashboardStats>(emptyDashboard)
   const [error, setError] = useState('')
 
@@ -451,7 +451,12 @@ function MidwifeDashboard({ onPrint }: { onPrint: (document: ClinicalDocument) =
 
     async function loadReport() {
       try {
-        const nextReport = await apiFetch<MidwifeDashboardStats>(`/midwife/dashboard/?period=${period}&recent_page=${recentPage}`)
+        const params = new URLSearchParams({ period })
+        if (period === 'custom') {
+          params.set('from', fromDate)
+          params.set('to', toDate)
+        }
+        const nextReport = await apiFetch<MidwifeDashboardStats>(`/midwife/dashboard/?${params.toString()}`)
         if (!ignore) {
           setReport(nextReport)
           setError('')
@@ -467,74 +472,62 @@ function MidwifeDashboard({ onPrint }: { onPrint: (document: ClinicalDocument) =
     return () => {
       ignore = true
     }
-  }, [period, recentPage])
+  }, [period, fromDate, toDate])
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <SectionHeader title={t.title} subtitle={t.subtitle} />
-        <Field label="Period">
-          <select className={inputClassName} value={period} onChange={(event) => { setPeriod(event.target.value as MidwifeDashboardStats['period']); setRecentPage(1) }}>
-            <option value="daily">Today</option>
-            <option value="weekly">This week</option>
-            <option value="monthly">This month</option>
-            <option value="annual">This year</option>
-          </select>
-        </Field>
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Period">
+            <select className={inputClassName} value={period} onChange={(event) => setPeriod(event.target.value as MidwifeDashboardStats['period'])}>
+              <option value="daily">Today</option>
+              <option value="weekly">This week</option>
+              <option value="monthly">This month</option>
+              <option value="annual">This year</option>
+              <option value="custom">Custom</option>
+            </select>
+          </Field>
+          {period === 'custom' ? (
+            <>
+              <Field label="From">
+                <input className={inputClassName} type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
+              </Field>
+              <Field label="To">
+                <input className={inputClassName} type="date" min={fromDate} value={toDate} onChange={(event) => setToDate(event.target.value)} />
+              </Field>
+            </>
+          ) : null}
+        </div>
       </div>
 
       {error ? <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <StatCard label="Mothers seen" value={report.patients} hint={`${report.period_label} distinct patients`} />
-        <StatCard label="ANC visits" value={report.anc_visits} hint="Antenatal care visits in this period" />
-        <StatCard label="PNC visits" value={report.pnc_visits} hint="Postnatal care visits in this period" />
-        <StatCard label="Deliveries" value={report.deliveries} hint="Delivery records captured in this period" />
-        <StatCard label="High-risk cases" value={report.high_risk} hint="Records flagged for closer review" />
-        <StatCard label="Due follow-ups" value={report.due_followups} hint="Follow-up mothers due today or overdue" />
-        <StatCard label="Total records" value={report.total_records} hint="All maternal records created in this period" />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <StatCard label="Total patients" value={report.patients} hint={`${report.period_label} distinct registrations`} />
+        <StatCard label="Approved patients" value={report.approved_patients} hint="Approved registrations in this period" />
+        <StatCard label="Pending patients" value={report.pending_patients} hint="Pending registrations in this period" />
+        <StatCard label="Prescriptions given" value={report.prescriptions} hint="Created in this period" />
+        <StatCard label="Laboratory orders given" value={report.laboratory_orders} hint="Created in this period" />
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <Panel>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-slate-950">Patient trend</p>
-            <p className="text-xs font-medium text-zinc-500">
-              {report.period === 'weekly' ? 'Daily trend for this week' : report.period === 'monthly' ? 'Daily trend for this month' : report.period === 'annual' ? 'Monthly trend for this year' : 'Select weekly, monthly, or annual'}
-            </p>
-          </div>
-          {report.period === 'daily' ? (
-            <div className="mt-4 rounded border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500">
-              Change the period to weekly, monthly, or annual to view the maternal trend graph.
-            </div>
-          ) : (
-            <TrendChart data={report.patient_trend} />
-          )}
-        </Panel>
-
-        <Panel>
-          <SectionHeader title={t.recentRecords} subtitle="Review the latest ANC and PNC records and print them directly from this account." />
-          <div className="mt-4 space-y-3">
-            {report.recent_records.map((document) => (
-              <button key={document.id} className="w-full rounded border border-sky-100 bg-white px-4 py-3 text-left text-sm hover:bg-sky-50" onClick={() => onPrint(document)}>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-slate-950">{document.patient_name}</p>
-                    <p className="mt-1 text-slate-500">{visitTypeLabel(document)} | {patientStatusLabel(document)}</p>
-                    <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-400">{formatDateTime(document.created_at)}</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {isHighRisk(document) ? <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-medium text-rose-700">High risk</span> : null}
-                    {isDueFollowup(document) ? <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">Follow-up due</span> : null}
-                  </div>
-                </div>
-              </button>
+      <Panel>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-slate-950">Patients by assigned department</p>
+          <p className="text-xs font-medium text-zinc-500">{report.period_label} report</p>
+        </div>
+        {report.doctor_departments.length ? (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {report.doctor_departments.map((department) => (
+              <div key={department.department} className="rounded border border-sky-100 bg-sky-50/60 px-4 py-3">
+                <p className="text-sm font-semibold text-slate-950">{department.department}</p>
+                <p className="mt-2 text-3xl font-semibold text-sky-700">{department.patients}</p>
+                <p className="mt-1 text-xs font-medium text-zinc-600">patient(s)</p>
+              </div>
             ))}
-            {!report.recent_records.length ? <p className="rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-600">No maternal records created yet.</p> : null}
           </div>
-          <PaginationControls page={recentPage} totalCount={report.recent_records_count} onPageChange={setRecentPage} />
-        </Panel>
-      </div>
+        ) : <p className="mt-4 rounded border border-dashed border-zinc-200 p-4 text-sm text-zinc-500">No departments are currently assigned to this midwife.</p>}
+      </Panel>
     </div>
   )
 }
@@ -545,33 +538,6 @@ function StatCard({ label, value, hint }: { label: string; value: number; hint: 
       <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">{label}</p>
       <p className="mt-3 text-4xl font-semibold text-slate-950">{value}</p>
       <p className="mt-2 text-sm text-slate-600">{hint}</p>
-    </div>
-  )
-}
-
-function TrendChart({ data }: { data: Array<{ label: string; value: number }> }) {
-  const maxValue = Math.max(1, ...data.map((item) => item.value))
-
-  if (!data.length) {
-    return <div className="mt-4 rounded border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500">No trend data available.</div>
-  }
-
-  return (
-    <div className="mt-5">
-      <div className="flex h-64 items-end gap-2 rounded-xl border border-sky-100 bg-sky-50/60 p-4">
-        {data.map((item) => {
-          const height = item.value > 0 ? `${Math.max(6, (item.value / maxValue) * 100)}%` : '0%'
-          return (
-            <div key={item.label} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
-              <span className="text-xs font-semibold text-slate-700">{item.value}</span>
-              <div className="flex h-full w-full items-end">
-                <div className="w-full rounded-t-lg bg-gradient-to-t from-sky-500 to-pink-400" style={{ height }} title={`${item.label}: ${item.value}`} />
-              </div>
-              <span className="text-[11px] font-medium text-zinc-500">{item.label}</span>
-            </div>
-          )
-        })}
-      </div>
     </div>
   )
 }

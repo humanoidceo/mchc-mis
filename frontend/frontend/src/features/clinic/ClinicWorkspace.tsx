@@ -101,6 +101,10 @@ const emptyStats: DashboardStats = {
   period: 'daily',
   period_label: 'Daily',
   patients: 0,
+  approved_patients: 0,
+  pending_patients: 0,
+  prescriptions: 0,
+  laboratory_orders: 0,
   full_paid: 0,
   free: 0,
   discounted: 0,
@@ -112,6 +116,7 @@ const emptyStats: DashboardStats = {
   total_amount: '0',
   patient_trend: [],
   departments: [],
+  doctor_departments: [],
   documents: 0,
   low_stock_medicines: 0,
   expenses_count: 0,
@@ -129,7 +134,7 @@ const documentTemplates: Record<DocumentType, Record<string, unknown>> = {
   rutf: { items: [{ name: 'RUTF sachets', quantity: 14, notes: 'One week supply' }] },
 }
 
-const departmentOptions = ['Midwifery', 'Pediatrics', 'OPD', 'Gynecology', 'Psychology', 'Emergency', 'Laboratory', 'Ultrasound', 'Vaccination', 'Malnutrition']
+const departmentOptions = ['Midwifery', 'Pediatrics', 'Internal Medicines', 'Gynecology', 'Psychology', 'Emergency', 'Laboratory', 'Ultrasound', 'Vaccination', 'Malnutrition']
 const midwiferyServiceOptions = [
   { value: 'anc', label: 'ANC' },
   { value: 'pnc', label: 'PNC' },
@@ -145,7 +150,7 @@ const midwiferyFpServiceOptions = [
   { value: 'capsule_removal', label: 'Removal of capsule' },
 ]
 const freeDepartments = new Set(['vaccination', 'malnutrition'])
-const receptionDoctorDepartments = new Set(['midwifery', 'ultrasound', 'opd', 'pediatrics', 'gynecology'])
+const receptionDoctorDepartments = new Set(['midwifery', 'ultrasound', 'internal medicines', 'pediatrics', 'gynecology'])
 const dashboardPeriodOptions: Array<{ value: DashboardStats['period']; label: string }> = [
   { value: 'daily', label: 'Daily' },
   { value: 'weekly', label: 'Weekly' },
@@ -280,7 +285,7 @@ function formatAgeWithUnit(age: number | null, ageUnit: AgeUnit | undefined): st
 const receptionDepartmentDariLabels: Record<string, string> = {
   'Midwifery': 'مراقبت مادر',
   'Pediatrics': 'مراقبت طفل',
-  'OPD': 'صحت عمومی',
+  'Internal Medicines': 'طب داخلی',
   'Gynecology': 'نسایی ولادی',
   'Emergency': 'عاجل',
   'Laboratory': 'لابراتوار',
@@ -632,9 +637,9 @@ function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
   const showExpensesCard = role === 'receptionist' || role === 'super_admin'
   const dashboardTitle = role === 'gynecologist' ? 'Gynecologist dashboard' : isDoctorDashboard ? 'Doctor dashboard' : 'Reception dashboard'
   const dashboardSubtitle = role === 'gynecologist'
-    ? 'Patient and payment summary for this gynecologist in the selected period.'
+    ? 'Patient activity summary for this gynecologist in the selected period.'
     : isDoctorDashboard
-      ? 'Patient and payment summary for this doctor in the selected period.'
+      ? 'Patient activity summary for this doctor in the selected period.'
       : 'Patient and payment report for the selected period.'
   const printTitle = role === 'gynecologist' ? 'Gynecologist Dashboard Report' : isDoctorDashboard ? 'Doctor Dashboard Report' : 'Reception Dashboard Report'
 
@@ -667,17 +672,22 @@ function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
 
   const maxDepartmentAmount = Math.max(1, ...report.departments.map((department) => Number(department.amount || 0)))
   const maxDepartmentPatients = Math.max(1, ...report.departments.map((department) => department.patients))
-  const paymentCards = [
-    ...(isDoctorDashboard ? [{ label: 'Patients seen', value: report.patients ?? 0, tone: 'border-sky-100 bg-sky-50 text-sky-700' }] : []),
-    { label: 'Full paid', value: report.full_paid, tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
-    { label: 'Free', value: report.free, tone: 'border-rose-100 bg-rose-50 text-rose-700' },
-    { label: 'Discounted', value: report.discounted, tone: 'border-violet-100 bg-violet-50 text-violet-700' },
-    ...(isDoctorDashboard ? [] : [
+  const paymentCards = isDoctorDashboard
+    ? [
+      { label: 'Total patients', value: report.patients ?? 0, tone: 'border-sky-100 bg-sky-50 text-sky-700' },
+      { label: 'Approved patients', value: report.approved_patients ?? 0, tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
+      { label: 'Pending patients', value: report.pending_patients ?? 0, tone: 'border-amber-100 bg-amber-50 text-amber-700' },
+      { label: 'Prescriptions given', value: report.prescriptions ?? 0, tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
+      { label: 'Laboratory orders given', value: report.laboratory_orders ?? 0, tone: 'border-violet-100 bg-violet-50 text-violet-700' },
+    ]
+    : [
+      { label: 'Full paid', value: report.full_paid, tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
+      { label: 'Free', value: report.free, tone: 'border-rose-100 bg-rose-50 text-rose-700' },
+      { label: 'Discounted', value: report.discounted, tone: 'border-violet-100 bg-violet-50 text-violet-700' },
       { label: 'Pending', value: report.pending_payments, tone: 'border-amber-100 bg-amber-50 text-amber-700' },
       { label: 'Approved', value: report.approved_payments, tone: 'border-teal-100 bg-teal-50 text-teal-700' },
       { label: 'Total payments', value: report.total_payments, tone: 'border-slate-200 bg-slate-50 text-slate-700' },
-    ]),
-    ...(showExpensesCard ? [
+      ...(showExpensesCard ? [
       {
         label: 'Expenses',
         value: report.expenses_count,
@@ -685,8 +695,8 @@ function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
         tone: 'border-orange-100 bg-orange-50 text-orange-700',
         onClick: () => navigate('/expenses'),
       },
-    ] : []),
-  ]
+      ] : []),
+    ]
 
   return (
     <section className="print-area a4-report space-y-5">
@@ -728,7 +738,7 @@ function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
 
       {error ? <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
 
-      <div className={`grid gap-3 sm:grid-cols-2 lg:grid-cols-4 ${isDoctorDashboard ? 'xl:grid-cols-4' : showExpensesCard ? 'xl:grid-cols-8' : 'xl:grid-cols-7'}`}>
+      <div className={`grid gap-3 sm:grid-cols-2 ${isDoctorDashboard ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} ${isDoctorDashboard ? '' : showExpensesCard ? 'xl:grid-cols-8' : 'xl:grid-cols-7'}`}>
         {paymentCards.map((card) => (
           <button
             key={card.label}
@@ -743,7 +753,25 @@ function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
         ))}
       </div>
 
-      <div className={`grid gap-4 ${isDoctorDashboard ? 'lg:grid-cols-2' : 'lg:grid-cols-3'}`}>
+      {isDoctorDashboard ? <Panel>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-slate-950">Patients by assigned department</p>
+          <p className="text-xs font-medium text-zinc-500">{report.period_label} report</p>
+        </div>
+        {report.doctor_departments.length ? (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {report.doctor_departments.map((department) => (
+              <div key={department.department} className="rounded border border-sky-100 bg-sky-50/60 px-4 py-3">
+                <p className="text-sm font-semibold text-slate-950">{department.department}</p>
+                <p className="mt-2 text-3xl font-semibold text-sky-700">{department.patients}</p>
+                <p className="mt-1 text-xs font-medium text-zinc-600">patient(s)</p>
+              </div>
+            ))}
+          </div>
+        ) : <p className="mt-4 rounded border border-dashed border-zinc-200 p-4 text-sm text-zinc-500">No departments are currently assigned to this doctor.</p>}
+      </Panel> : null}
+
+      {!isDoctorDashboard ? <div className="grid gap-4 lg:grid-cols-3">
         <Panel>
           <p className="text-sm font-semibold text-slate-950">{isDoctorDashboard ? 'Patient money summary' : 'Payment money'}</p>
           <div className="mt-4 space-y-3 text-sm">
@@ -771,9 +799,9 @@ function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
             </div>
           </Panel>
         ) : null}
-      </div>
+      </div> : null}
 
-      <Panel>
+      {!isDoctorDashboard ? <Panel>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-semibold text-slate-950">Patient trend</p>
           <p className="text-xs font-medium text-zinc-500">
@@ -787,7 +815,7 @@ function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
         ) : (
           <PatientTrendChart data={report.patient_trend} />
         )}
-      </Panel>
+      </Panel> : null}
 
       {!isDoctorDashboard ? (
         <Panel>
