@@ -106,6 +106,16 @@ class Payment(TimestampedModel, SoftDeleteModel):
         CAPSULE_INSERTION = 'capsule_insertion', 'Insertion of capsule'
         CAPSULE_REMOVAL = 'capsule_removal', 'Removal of capsule'
 
+    class EmergencyService(models.TextChoices):
+        IV_INJECTION = 'iv_injection', 'IV injection'
+        IM_INJECTION = 'im_injection', 'IM injection'
+        IV_CANNULATION = 'iv_cannulation', 'IV canulation'
+        IV_FLUID = 'iv_fluid', 'IV Fluid'
+        DRESSING = 'dressing', 'Dressing'
+        SUTURING = 'suturing', 'Suturing'
+        CHECK_BP = 'check_bp', 'Check BP'
+        NEBULIZATION = 'nebulization', 'Nebulization'
+
     LEGACY_MIDWIFERY_SERVICE_LABELS = {
         'iud_insertion': 'Insertion of IUD',
         'iud_removal': 'Removal of IUD',
@@ -124,6 +134,8 @@ class Payment(TimestampedModel, SoftDeleteModel):
     department = models.CharField(max_length=120, blank=True)
     midwifery_service = models.CharField(max_length=32, choices=MidwiferyService.choices, blank=True, default='')
     midwifery_fp_service = models.CharField(max_length=32, choices=MidwiferyFpService.choices, blank=True, default='')
+    emergency_service = models.CharField(max_length=32, choices=EmergencyService.choices, blank=True, default='')
+    emergency_service_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     doctor_name = models.CharField(max_length=120, blank=True)
     patient_age = models.PositiveIntegerField(null=True, blank=True)
     patient_age_unit = models.CharField(max_length=8, choices=Patient.AgeUnit.choices, default=Patient.AgeUnit.YEAR)
@@ -140,6 +152,17 @@ class Payment(TimestampedModel, SoftDeleteModel):
 
     class Meta:
         ordering = ('-created_at',)
+
+
+class EmergencyServicePrice(TimestampedModel):
+    service = models.CharField(max_length=32, choices=Payment.EmergencyService.choices, unique=True)
+    price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    class Meta:
+        ordering = ('service',)
+
+    def __str__(self) -> str:
+        return f'{self.get_service_display()} - {self.price}'
 
 
 class SalaryPayment(TimestampedModel, SoftDeleteModel):
@@ -585,6 +608,7 @@ class WebsiteSettings(TimestampedModel):
     logo_url = models.CharField(max_length=500, blank=True)
     logo_file = models.FileField(upload_to=website_logo_upload_path, blank=True)
     header_content = models.JSONField(default=dict, blank=True)
+    social_links = models.JSONField(default=dict, blank=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,

@@ -10,7 +10,7 @@ from rest_framework import serializers
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from accounts.permissions import Role
-from .models import AuditLog, CashBankTransaction, ClinicalDocument, DoctorDepartmentAssignment, Expense, ExpenseCategory, ExpenseSubcategory, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, VehicleExpenseDetails, WebsiteGalleryImage, WebsitePageContent, WebsitePost, WebsitePostImage, WebsiteSettings, round_up_to_ten
+from .models import AuditLog, CashBankTransaction, ClinicalDocument, DoctorDepartmentAssignment, EmergencyServicePrice, Expense, ExpenseCategory, ExpenseSubcategory, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, VehicleExpenseDetails, WebsiteGalleryImage, WebsitePageContent, WebsitePost, WebsitePostImage, WebsiteSettings, round_up_to_ten
 from .salary_rules import AFGHAN_MONTHS, calculate_afghanistan_salary_tax, current_afghan_date
 
 
@@ -174,6 +174,8 @@ class PaymentSerializer(serializers.ModelSerializer):
     midwifery_service = serializers.CharField(required=False, allow_blank=True)
     midwifery_service_label = serializers.SerializerMethodField()
     midwifery_fp_service_label = serializers.CharField(source='get_midwifery_fp_service_display', read_only=True)
+    emergency_service = serializers.CharField(required=False, allow_blank=True)
+    emergency_service_label = serializers.CharField(source='get_emergency_service_display', read_only=True)
     created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
     approved_by_name = serializers.CharField(source='approved_by.get_full_name', read_only=True)
@@ -208,6 +210,8 @@ class PaymentSerializer(serializers.ModelSerializer):
         normalized_department = (department or '').strip().lower()
         midwifery_service = attrs.get('midwifery_service', getattr(self.instance, 'midwifery_service', ''))
         midwifery_fp_service = attrs.get('midwifery_fp_service', getattr(self.instance, 'midwifery_fp_service', ''))
+        emergency_service = attrs.get('emergency_service', getattr(self.instance, 'emergency_service', ''))
+        emergency_service_fee = attrs.get('emergency_service_fee', getattr(self.instance, 'emergency_service_fee', Decimal('0'))) or Decimal('0')
         patient_age = attrs.get('patient_age', getattr(self.instance, 'patient_age', None))
         patient_age_unit = normalize_age_unit(
             attrs.get('patient_age_unit', getattr(self.instance, 'patient_age_unit', Patient.AgeUnit.YEAR)),
@@ -221,28 +225,45 @@ class PaymentSerializer(serializers.ModelSerializer):
 
         if is_free_payment_department(department):
             doctor_fee = Decimal('0')
+            emergency_service_fee = Decimal('0')
             payment_type = Payment.PaymentType.FREE
             discount_percentage = Decimal('100')
+        elif normalized_department == 'emergency':
+            doctor_fee = Decimal('0')
+            allowed_emergency_services = dict(Payment.EmergencyService.choices)
+            changing_emergency_service = self.instance is None or 'department' in attrs or 'emergency_service' in attrs
+            if changing_emergency_service and emergency_service not in allowed_emergency_services:
+                raise serializers.ValidationError({'emergency_service': 'Select a valid Emergency service.'})
+            if emergency_service in allowed_emergency_services:
+                configured_price = EmergencyServicePrice.objects.filter(service=emergency_service).values_list('price', flat=True).first()
+                if configured_price is None:
+                    raise serializers.ValidationError({'emergency_service': 'This Emergency service does not have a configured price.'})
+                emergency_service_fee = configured_price if changing_emergency_service else getattr(self.instance, 'emergency_service_fee', Decimal('0'))
 
         if doctor_fee < 0:
             raise serializers.ValidationError({'doctor_fee': 'Doctor fee cannot be negative.'})
+        if emergency_service_fee < 0:
+            raise serializers.ValidationError({'emergency_service_fee': 'Emergency service fee cannot be negative.'})
         if discount_percentage < 0 or discount_percentage > 100:
             raise serializers.ValidationError({'discount_percentage': 'Discount must be between 0 and 100.'})
 
         doctor_fee = money(doctor_fee)
+        emergency_service_fee = money(emergency_service_fee)
+        billable_fee = emergency_service_fee if normalized_department == 'emergency' else doctor_fee
         if payment_type == Payment.PaymentType.FREE:
             discount_percentage = Decimal('100')
-            discount_amount = doctor_fee
+            discount_amount = billable_fee
             amount = Decimal('0')
         elif payment_type == Payment.PaymentType.DISCOUNT:
-            discount_amount = money(doctor_fee * discount_percentage / Decimal('100'))
-            amount = money(doctor_fee - discount_amount)
+            discount_amount = money(billable_fee * discount_percentage / Decimal('100'))
+            amount = money(billable_fee - discount_amount)
         else:
             discount_percentage = Decimal('0')
             discount_amount = Decimal('0')
-            amount = doctor_fee
+            amount = billable_fee
 
         attrs['doctor_fee'] = doctor_fee
+        attrs['emergency_service_fee'] = emergency_service_fee if normalized_department == 'emergency' else Decimal('0')
         attrs['discount_percentage'] = money(discount_percentage)
         attrs['discount_amount'] = money(discount_amount)
         attrs['amount'] = money(round_up_to_ten(amount))
@@ -273,9 +294,32 @@ class PaymentSerializer(serializers.ModelSerializer):
         else:
             attrs['midwifery_service'] = ''
             attrs['midwifery_fp_service'] = ''
+        if normalized_department == 'emergency':
+            changing_emergency_service = self.instance is None or 'department' in attrs or 'emergency_service' in attrs
+            allowed_emergency_services = dict(Payment.EmergencyService.choices)
+            if changing_emergency_service and not emergency_service:
+                raise serializers.ValidationError({'emergency_service': 'Select an Emergency service.'})
+            if emergency_service in allowed_emergency_services:
+                attrs['service'] = f"{department}: {Payment.EmergencyService(emergency_service).label}"
+        else:
+            attrs['emergency_service'] = ''
         if not attrs.get('service') and attrs.get('department'):
             attrs['service'] = f"{attrs['department']} consultation"
         return attrs
+
+
+class EmergencyServicePriceSerializer(serializers.ModelSerializer):
+    label = serializers.CharField(source='get_service_display', read_only=True)
+
+    class Meta:
+        model = EmergencyServicePrice
+        fields = ('id', 'service', 'label', 'price', 'updated_at')
+        read_only_fields = ('id', 'service', 'label', 'updated_at')
+
+    def validate_price(self, value):
+        if value < 0:
+            raise serializers.ValidationError('Price cannot be negative.')
+        return money(value)
 
 
 class AuditLogSerializer(serializers.ModelSerializer):
@@ -842,6 +886,20 @@ class MidwifeDashboardSerializer(serializers.Serializer):
     doctor_departments = serializers.ListField(child=serializers.DictField())
 
 
+class VaccinationDashboardSerializer(serializers.Serializer):
+    period = serializers.ChoiceField(choices=(('daily', 'Daily'), ('weekly', 'Weekly'), ('monthly', 'Monthly'), ('annual', 'Annual'), ('custom', 'Custom')))
+    period_label = serializers.CharField()
+    registered_patients = serializers.IntegerField()
+
+
+class EmergencyDoctorDashboardSerializer(serializers.Serializer):
+    period = serializers.ChoiceField(choices=(('daily', 'Daily'), ('weekly', 'Weekly'), ('monthly', 'Monthly'), ('annual', 'Annual'), ('custom', 'Custom')))
+    period_label = serializers.CharField()
+    patients = serializers.IntegerField()
+    total_amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    services = serializers.ListField(child=serializers.DictField())
+
+
 class MalnutritionDashboardSerializer(serializers.Serializer):
     period = serializers.ChoiceField(choices=(('daily', 'Daily'), ('weekly', 'Weekly'), ('monthly', 'Monthly'), ('annual', 'Annual')))
     period_label = serializers.CharField()
@@ -982,6 +1040,7 @@ class WebsiteSettingsSerializer(serializers.ModelSerializer):
             'logo_url',
             'logo_file',
             'header_content',
+            'social_links',
             'updated_by',
         )
         read_only_fields = ('updated_by', 'created_at', 'updated_at')
@@ -1009,6 +1068,20 @@ class WebsiteSettingsSerializer(serializers.ModelSerializer):
                 navigation = content['nav']
                 if not isinstance(navigation, dict) or any(key not in allowed_navigation or not isinstance(label, str) for key, label in navigation.items()):
                     raise serializers.ValidationError('Header navigation labels must be text.')
+        return value
+
+    def validate_social_links(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError('Social media links must be an object.')
+
+        allowed_links = {'facebook', 'x', 'telegram', 'whatsapp'}
+        if any(key not in allowed_links for key in value):
+            raise serializers.ValidationError('Social media links contain an unsupported service.')
+        for link in value.values():
+            if not isinstance(link, str):
+                raise serializers.ValidationError('Each social media link must be text.')
+            if link and not (link.startswith('https://') or link.startswith('http://')):
+                raise serializers.ValidationError('Each social media link must start with http:// or https://.')
         return value
 
     def get_updated_by_name(self, obj) -> str:

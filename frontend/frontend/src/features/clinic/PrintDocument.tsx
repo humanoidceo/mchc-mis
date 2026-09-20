@@ -520,6 +520,7 @@ export function PrintPaymentBill({ payment, printedBy }: { payment: Payment; pri
   const createdAt = new Date(payment.created_at).toLocaleString()
   const isFree = payment.payment_type === 'free'
   const isDiscount = payment.payment_type === 'discount'
+  const isEmergency = payment.department.trim().toLowerCase() === 'emergency'
 
   return (
     <section className={billPaperClassName}>
@@ -533,10 +534,11 @@ export function PrintPaymentBill({ payment, printedBy }: { payment: Payment; pri
         <p>Age: <strong>{formatPaymentAge(payment.patient_age, payment.patient_age_unit)}</strong></p>
         <p>Department: <strong>{payment.department || payment.service}</strong></p>
         {payment.department.trim().toLowerCase() === 'midwifery' && payment.midwifery_service ? <p>Service type: <strong>{payment.midwifery_service_label}</strong></p> : null}
+        {isEmergency && payment.emergency_service ? <p>Service type: <strong>{payment.emergency_service_label}</strong></p> : null}
         <p>Doctor: <strong>{payment.doctor_name || 'Not assigned'}</strong></p>
         <p>Payment: <strong>{isFree ? 'Free' : isDiscount ? `Discount (${payment.discount_percentage}%)` : 'Full payment'}</strong></p>
-        <p>Fee: <strong>{formatReceiptAmount(payment.doctor_fee)} AFN</strong></p>
-        {isDiscount || isFree ? <p>Discount: <strong>{formatReceiptAmount(isFree ? payment.doctor_fee : payment.discount_amount)} AFN</strong></p> : null}
+        <p>{isEmergency ? 'Emergency service fee' : 'Fee'}: <strong>{formatReceiptAmount(isEmergency ? payment.emergency_service_fee : payment.doctor_fee)} AFN</strong></p>
+        {isDiscount || isFree ? <p>Discount: <strong>{formatReceiptAmount(isFree ? (isEmergency ? payment.emergency_service_fee : payment.doctor_fee) : payment.discount_amount)} AFN</strong></p> : null}
         <p className="receipt-total-line">Final amount: <strong>{isFree ? 'Free' : `${formatReceiptAmount(payment.amount)} AFN`}</strong></p>
       </div>
 

@@ -3,7 +3,7 @@ import type { FormEvent, UIEvent } from 'react'
 
 import { ApiError, apiFetch } from '../../api/client'
 import { buttonClassName, Field, ghostButtonClassName, inputClassName, PaginationControls, Panel, SectionHeader } from '../../components/ui'
-import type { ClinicalDocument, PaginatedResponse, Patient, SearchResponse } from '../../types/domain'
+import type { ClinicalDocument, PaginatedResponse, Patient, SearchResponse, VaccinationDashboardStats } from '../../types/domain'
 import { PrintDocument } from '../clinic/PrintDocument'
 
 type View = 'dashboard' | 'records'
@@ -23,8 +23,6 @@ const common = {
 const vaccinationDashboardText = {
   title: 'Vaccination dashboard',
   subtitle: 'Vaccination is free of charge. Search reception-registered patients and record vaccines with doses.',
-  recentRecords: 'Recent vaccination records',
-  noRecords: 'No vaccination records yet.',
 }
 
 const vaccinationRecordsText = {
@@ -49,6 +47,10 @@ const vaccinationRecordsText = {
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+}
+
+function todayDateInputValue(): string {
+  return new Date().toISOString().slice(0, 10)
 }
 
 function describeApiError(caught: unknown, fallback: string): string {
@@ -79,31 +81,32 @@ function vaccinationItems(document: ClinicalDocument): VaccinationRow[] {
 
 export function VaccinationWorkspace({ view }: { view: View }) {
   const [selectedDocument, setSelectedDocument] = useState<ClinicalDocument | null>(null)
-  const [dashboardRecords, setDashboardRecords] = useState<ClinicalDocument[]>([])
-  const [dashboardCount, setDashboardCount] = useState(0)
+  const [dashboard, setDashboard] = useState<VaccinationDashboardStats>({
+    period: 'monthly',
+    period_label: 'Monthly',
+    registered_patients: 0,
+  })
   const [error, setError] = useState('')
 
-  const loadDashboard = useCallback(async () => {
+  const loadDashboard = useCallback(async (period: VaccinationDashboardStats['period'] = 'monthly', fromDate = '', toDate = '') => {
     setError('')
     try {
-      const response = await apiFetch<PaginatedResponse<ClinicalDocument>>('/documents/?document_type=vaccination&mine=1&page=1')
-      setDashboardRecords(response.results)
-      setDashboardCount(response.count)
+      const params = new URLSearchParams({ period })
+      if (period === 'custom') {
+        params.set('from', fromDate)
+        params.set('to', toDate)
+      }
+      const response = await apiFetch<VaccinationDashboardStats>(`/vaccination/dashboard/?${params.toString()}`)
+      setDashboard(response)
     } catch {
       setError('Unable to load vaccination data.')
     }
   }, [])
 
-  useEffect(() => {
-    if (view === 'dashboard') {
-      void loadDashboard()
-    }
-  }, [loadDashboard, view])
-
   return (
     <div className="space-y-6">
       {error ? <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-      {view === 'dashboard' ? <VaccinationDashboard count={dashboardCount} records={dashboardRecords} onRefresh={() => void loadDashboard()} onPrint={setSelectedDocument} /> : null}
+      {view === 'dashboard' ? <VaccinationDashboard dashboard={dashboard} onRefresh={loadDashboard} /> : null}
       {view === 'records' ? <VaccinationRecords onPrint={setSelectedDocument} /> : null}
       {selectedDocument ? (
         <div className="space-y-3">
@@ -119,44 +122,54 @@ export function VaccinationWorkspace({ view }: { view: View }) {
 }
 
 function VaccinationDashboard({
-  count,
-  records,
+  dashboard,
   onRefresh,
-  onPrint,
 }: {
-  count: number
-  records: ClinicalDocument[]
-  onRefresh: () => void
-  onPrint: (document: ClinicalDocument) => void
+  dashboard: VaccinationDashboardStats
+  onRefresh: (period: VaccinationDashboardStats['period'], fromDate: string, toDate: string) => Promise<void>
 }) {
   const t = vaccinationDashboardText
+  const [period, setPeriod] = useState<VaccinationDashboardStats['period']>('monthly')
+  const [fromDate, setFromDate] = useState(todayDateInputValue)
+  const [toDate, setToDate] = useState(todayDateInputValue)
+
+  useEffect(() => {
+    void onRefresh(period, fromDate, toDate)
+  }, [fromDate, onRefresh, period, toDate])
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <SectionHeader title={t.title} subtitle={t.subtitle} />
-        <button className={ghostButtonClassName} onClick={onRefresh}>{common.refresh}</button>
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Period">
+            <select className={inputClassName} value={period} onChange={(event) => setPeriod(event.target.value as VaccinationDashboardStats['period'])}>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="annual">Annual</option>
+              <option value="custom">Custom</option>
+            </select>
+          </Field>
+          {period === 'custom' ? (
+            <>
+              <Field label="From">
+                <input className={inputClassName} type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
+              </Field>
+              <Field label="To">
+                <input className={inputClassName} type="date" min={fromDate} value={toDate} onChange={(event) => setToDate(event.target.value)} />
+              </Field>
+            </>
+          ) : null}
+          <button className={ghostButtonClassName} onClick={() => void onRefresh(period, fromDate, toDate)}>{common.refresh}</button>
+        </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
-        <div className="rounded-md border border-sky-100 bg-sky-50 p-5 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Vaccination records</p>
-          <p className="mt-3 text-4xl font-semibold text-slate-950">{count}</p>
-          <p className="mt-2 text-sm text-slate-600">Total vaccination documents created by this account.</p>
-        </div>
-
-        <Panel>
-          <p className="text-sm font-semibold text-slate-950">{t.recentRecords}</p>
-          <div className="mt-4 space-y-3">
-            {records.slice(0, 5).map((document) => (
-              <button key={document.id} className="w-full rounded border border-sky-100 bg-white px-4 py-3 text-left text-sm hover:bg-sky-50" onClick={() => onPrint(document)}>
-                <p className="font-semibold text-slate-950">{document.patient_name}</p>
-                <p className="mt-1 text-slate-500">{vaccinationStatusLabel(document)} patient</p>
-                <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-400">{formatDate(document.created_at)}</p>
-              </button>
-            ))}
-            {!records.length ? <p className="rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-600">{t.noRecords}</p> : null}
-          </div>
-        </Panel>
+      <div className="rounded-md border border-sky-100 bg-sky-50 p-5 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Vaccination registrations</p>
+        <p className="mt-3 text-4xl font-semibold text-slate-950">{dashboard.registered_patients}</p>
+        <p className="mt-2 text-sm text-slate-600">Distinct people registered by reception for vaccination in this period.</p>
+        <p className="mt-2 text-xs font-medium text-slate-500">{dashboard.period_label}</p>
       </div>
     </div>
   )

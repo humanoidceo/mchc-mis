@@ -47,6 +47,20 @@ type EditableHeaderText = {
   nav: Record<HeaderNavigationKey, string>
 }
 
+type EditableSocialLinks = {
+  facebook: string
+  x: string
+  telegram: string
+  whatsapp: string
+}
+
+const emptySocialLinks: EditableSocialLinks = {
+  facebook: '',
+  x: '',
+  telegram: '',
+  whatsapp: '',
+}
+
 const defaultContent = {
   home: homePageTranslation,
   about: aboutPageTranslation,
@@ -85,6 +99,14 @@ const t = {
   brandSubtitle: 'Clinic name below MCHC',
   saveHeaderText: 'Save header text',
   headerTextSaved: 'Header text saved.',
+  socialLinksTitle: 'Social media links',
+  socialLinksSubtitle: 'Add public links for the website header. Leave a field empty to hide that icon.',
+  facebook: 'Facebook',
+  x: 'X',
+  telegram: 'Telegram',
+  whatsapp: 'WhatsApp channel',
+  saveSocialLinks: 'Save social media links',
+  socialLinksSaved: 'Social media links saved.',
 }
 
 type EditableContent = Record<string, unknown>
@@ -170,9 +192,11 @@ export function WebsiteContentEditorPage() {
   const [content, setContent] = useState<EditableContent>(() => cloneDefault('home', 'en'))
   const [headerLanguage, setHeaderLanguage] = useState<LanguageCode>('en')
   const [headerText, setHeaderText] = useState<EditableHeaderText>(() => defaultHeaderText('en'))
+  const [socialLinks, setSocialLinks] = useState<EditableSocialLinks>(emptySocialLinks)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [savingHeader, setSavingHeader] = useState(false)
+  const [savingSocialLinks, setSavingSocialLinks] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
 
@@ -191,6 +215,7 @@ export function WebsiteContentEditorPage() {
         setItems(contentItems)
         setSettings(websiteSettings)
         setLogoUrl(websiteSettings.logo_url ?? '')
+        setSocialLinks({ ...emptySocialLinks, ...websiteSettings.social_links })
       } catch {
         setError(t.unableToLoad)
       } finally {
@@ -306,6 +331,27 @@ export function WebsiteContentEditorPage() {
     }
   }
 
+  async function saveSocialLinks() {
+    setSavingSocialLinks(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const payload = new FormData()
+      payload.append('social_links', JSON.stringify(socialLinks))
+      const savedSettings = await apiFetch<WebsiteSettings>('/website-settings/current/', {
+        method: 'PATCH',
+        body: payload,
+      })
+      setSettings(savedSettings)
+      setSocialLinks({ ...emptySocialLinks, ...savedSettings.social_links })
+      setMessage(t.socialLinksSaved)
+    } catch (caught) {
+      setError(errorMessage(caught) || t.unableToSave)
+    } finally {
+      setSavingSocialLinks(false)
+    }
+  }
+
   function renderValue(value: unknown, path: Array<string | number>, label: string): React.ReactNode {
     if (typeof value === 'string') {
       const control =
@@ -391,6 +437,22 @@ export function WebsiteContentEditorPage() {
         <div className="mt-5 flex justify-end">
           <button type="button" className={buttonClassName} disabled={savingHeader} onClick={saveHeaderText}>
             {savingHeader ? common.saving : t.saveHeaderText}
+          </button>
+        </div>
+        <div className="my-6 border-t border-sky-100" />
+        <div>
+          <h3 className="text-base font-bold text-slate-900">{t.socialLinksTitle}</h3>
+          <p className="mt-1 text-sm text-zinc-600">{t.socialLinksSubtitle}</p>
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <Field label={t.facebook}><input className={inputClassName} type="url" placeholder="https://facebook.com/..." value={socialLinks.facebook} onChange={(event) => setSocialLinks((current) => ({ ...current, facebook: event.target.value }))} /></Field>
+          <Field label={t.x}><input className={inputClassName} type="url" placeholder="https://x.com/..." value={socialLinks.x} onChange={(event) => setSocialLinks((current) => ({ ...current, x: event.target.value }))} /></Field>
+          <Field label={t.telegram}><input className={inputClassName} type="url" placeholder="https://t.me/..." value={socialLinks.telegram} onChange={(event) => setSocialLinks((current) => ({ ...current, telegram: event.target.value }))} /></Field>
+          <Field label={t.whatsapp}><input className={inputClassName} type="url" placeholder="https://whatsapp.com/channel/..." value={socialLinks.whatsapp} onChange={(event) => setSocialLinks((current) => ({ ...current, whatsapp: event.target.value }))} /></Field>
+        </div>
+        <div className="mt-5 flex justify-end">
+          <button type="button" className={buttonClassName} disabled={savingSocialLinks} onClick={saveSocialLinks}>
+            {savingSocialLinks ? common.saving : t.saveSocialLinks}
           </button>
         </div>
       </Panel>

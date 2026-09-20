@@ -5,6 +5,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Database, FileTe
 import { useAuth } from '../auth/useAuth'
 import { AccountSettingsPage } from '../account/AccountSettingsPage'
 import { EmployeeAdminPage } from '../employees/EmployeeAdminPage'
+import { EmergencyDoctorDashboardLayout } from '../emergency/EmergencyDoctorDashboardLayout'
 import { LaboratoryDashboardLayout } from '../laboratory/LaboratoryDashboardLayout'
 import { MalnutritionDashboardLayout } from '../malnutrition/MalnutritionDashboardLayout'
 import { MidwifeDashboardLayout } from '../midwife/MidwifeDashboardLayout'
@@ -107,6 +108,10 @@ export function DashboardLayout() {
 
   if (user?.profile?.role === 'malnutrition') {
     return <MalnutritionDashboardLayout />
+  }
+
+  if (user?.profile?.role === 'emergency_doctor') {
+    return <EmergencyDoctorDashboardLayout />
   }
 
   const visibleLinks = links.filter((link) => {

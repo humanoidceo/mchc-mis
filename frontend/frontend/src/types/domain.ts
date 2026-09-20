@@ -3,6 +3,7 @@ export type RoleCode =
   | 'website_content_editor'
   | 'receptionist'
   | 'doctor'
+  | 'emergency_doctor'
   | 'gynecologist'
   | 'laboratory'
   | 'pharmacist'
@@ -94,6 +95,9 @@ export type Payment = {
   midwifery_service_label: string
   midwifery_fp_service: string
   midwifery_fp_service_label: string
+  emergency_service: string
+  emergency_service_label: string
+  emergency_service_fee: string
   doctor_name: string
   patient_age: number | null
   patient_age_unit: 'month' | 'year'
@@ -250,6 +254,33 @@ export type MidwifeDashboardStats = {
     department: string
     patients: number
   }>
+}
+
+export type VaccinationDashboardStats = {
+  period: 'daily' | 'weekly' | 'monthly' | 'annual' | 'custom'
+  period_label: string
+  registered_patients: number
+}
+
+export type EmergencyDoctorDashboardStats = {
+  period: 'daily' | 'weekly' | 'monthly' | 'annual' | 'custom'
+  period_label: string
+  patients: number
+  total_amount: string
+  services: Array<{
+    service: string
+    label: string
+    patients: number
+    amount: string
+  }>
+}
+
+export type EmergencyServicePrice = {
+  id: number
+  service: string
+  label: string
+  price: string
+  updated_at: string
 }
 
 export type MalnutritionDashboardStats = {
@@ -759,6 +790,7 @@ export type WebsiteSettings = {
     brand_subtitle?: string
     nav?: Partial<Record<'home' | 'posts' | 'gallery' | 'about' | 'mission' | 'vision' | 'services' | 'contact', string>>
   }>>
+  social_links: Partial<Record<'facebook' | 'x' | 'telegram' | 'whatsapp', string>>
   updated_at: string
   updated_by_name: string
 }

@@ -119,7 +119,7 @@ export function PublicPage({ page }: PublicPageProps) {
 
   return (
     <main className="min-h-screen bg-white text-slate-900" dir={direction}>
-      <WebsiteHeader common={common} language={language} logoUrl={websiteSettings?.logo_url ?? ''} onLanguageChange={setLanguage} />
+      <WebsiteHeader common={common} language={language} logoUrl={websiteSettings?.logo_url ?? ''} socialLinks={websiteSettings?.social_links ?? {}} onLanguageChange={setLanguage} />
       {page === 'home' ? <HomePage language={language} pageContent={websiteContent.home} fallbackImageUrl={homeImageFallbackUrl} /> : null}
       {page === 'about' ? <AboutPage language={language} pageContent={websiteContent.about} /> : null}
       {page === 'mission' ? <MissionPage language={language} pageContent={websiteContent.mission} /> : null}
@@ -165,23 +165,70 @@ function mergeHeaderText(
   }
 }
 
+function WhatsAppIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4.5 w-4.5" fill="currentColor" aria-hidden="true">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.149-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479s1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.262.489 1.693.626.712.226 1.36.194 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.981.999-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884a9.821 9.821 0 0 1 7.021 2.91 9.825 9.825 0 0 1 2.9 7.025c-.003 5.45-4.437 9.884-9.888 9.884m8.413-18.297A11.815 11.815 0 0 0 12.055 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.14 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.558 0 11.893-5.335 11.896-11.893a11.821 11.821 0 0 0-3.483-8.413Z" />
+    </svg>
+  )
+}
+
+function FacebookIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4.5 w-4.5" fill="currentColor" aria-hidden="true">
+      <path d="M24 12.073C24 5.446 18.627.073 12 .073S0 5.446 0 12.073c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953h-1.513c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073Z" />
+    </svg>
+  )
+}
+
+function XIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden="true">
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231 5.451-6.231Zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77Z" />
+    </svg>
+  )
+}
+
+function TelegramIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4.5 w-4.5" fill="currentColor" aria-hidden="true">
+      <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0Zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.51l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.022c.242-.213-.054-.333-.373-.121l-6.87 4.326-2.96-.924c-.642-.203-.657-.642.136-.952l11.57-4.461c.536-.194 1.006.131.83.938Z" />
+    </svg>
+  )
+}
+
 function WebsiteHeader({
   common,
   language,
   logoUrl,
+  socialLinks,
   onLanguageChange,
 }: {
   common: (typeof commonTranslation)[LanguageCode]
   language: LanguageCode
   logoUrl: string
+  socialLinks: WebsiteSettings['social_links']
   onLanguageChange: (language: LanguageCode) => void
 }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const availableSocialLinks = [
+    { key: 'facebook', label: 'Facebook', href: socialLinks.facebook, icon: <FacebookIcon />, colors: 'border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700' },
+    { key: 'x', label: 'X', href: socialLinks.x, icon: <XIcon />, colors: 'border-slate-300 text-slate-950 hover:bg-slate-100 hover:text-black' },
+    { key: 'telegram', label: 'Telegram', href: socialLinks.telegram, icon: <TelegramIcon />, colors: 'border-sky-200 text-sky-500 hover:bg-sky-50 hover:text-sky-600' },
+    { key: 'whatsapp', label: 'WhatsApp channel', href: socialLinks.whatsapp, icon: <WhatsAppIcon />, colors: 'border-emerald-200 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700' },
+  ].filter((item) => item.href)
+
+  const socialLinksElement = availableSocialLinks.map((item) => (
+    <a key={item.key} href={item.href} target="_blank" rel="noopener noreferrer" aria-label={item.label} title={item.label} className={`inline-flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-sm transition ${item.colors}`}>
+      {item.icon}
+    </a>
+  ))
 
   return (
     <header className="sticky top-0 z-20 overflow-hidden border-b border-sky-100 bg-white/92 text-slate-900 shadow-sm shadow-sky-100/70 backdrop-blur-xl">
       <div className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,#0ea5e9,#ec4899,#0ea5e9)]" />
       <div className="absolute inset-0 opacity-[0.06] [background-image:linear-gradient(135deg,transparent_46%,#0ea5e9_47%,#0ea5e9_53%,transparent_54%)] [background-size:26px_26px]" />
+      {availableSocialLinks.length ? <div className="relative hidden border-b border-sky-50 lg:block"><div className="mx-auto flex max-w-7xl justify-end gap-2 px-4 py-1.5">{socialLinksElement}</div></div> : null}
       <div className="relative mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4">
         <Link to="/" className="group flex items-center gap-3">
           <span className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,#0ea5e9,#ec4899)] text-sm font-black text-white shadow-lg shadow-sky-200">
@@ -269,6 +316,7 @@ function WebsiteHeader({
                 ))}
               </select>
             </label>
+            {availableSocialLinks.length ? <div className="flex items-center gap-2 px-1 py-2 sm:col-span-2">{socialLinksElement}</div> : null}
           </div>
         </nav>
       ) : null}

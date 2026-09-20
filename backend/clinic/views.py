@@ -10,6 +10,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from django.conf import settings
 from django.http import FileResponse
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.db import transaction
@@ -27,7 +28,7 @@ from accounts.models import Employee, StaffProfile
 from accounts.permissions import Role
 from config.pagination import StandardResultsSetPagination
 from pharmacy.models import Medicine as PharmacyMedicine
-from .models import AuditLog, CashBankTransaction, ClinicalDocument, DoctorDepartmentAssignment, Expense, ExpenseCategory, ExpenseSubcategory, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, WebsiteGalleryImage, WebsitePageContent, WebsitePost, WebsitePostImage, WebsiteSettings
+from .models import AuditLog, CashBankTransaction, ClinicalDocument, DoctorDepartmentAssignment, EmergencyServicePrice, Expense, ExpenseCategory, ExpenseSubcategory, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, WebsiteGalleryImage, WebsitePageContent, WebsitePost, WebsitePostImage, WebsiteSettings
 from .salary_rules import AFGHAN_MONTHS, current_afghan_date, money
 from .serializers import (
     ClinicalDocumentSerializer,
@@ -35,6 +36,8 @@ from .serializers import (
     AuditLogSerializer,
     ASSIGNABLE_CLINICAL_ROLES,
     DoctorDepartmentAssignmentSerializer,
+    EmergencyDoctorDashboardSerializer,
+    EmergencyServicePriceSerializer,
     ExpenseSerializer,
     ExpenseCategorySerializer,
     LabTestSerializer,
@@ -45,6 +48,7 @@ from .serializers import (
     PrivateDocumentSerializer,
     SalaryAdvanceSerializer,
     SalaryPaymentSerializer,
+    VaccinationDashboardSerializer,
     WebsitePageContentSerializer,
     WebsiteGalleryImageSerializer,
     WebsitePostSerializer,
@@ -2003,6 +2007,113 @@ class WebsiteSettingsViewSet(viewsets.ViewSet):
         serializer = WebsiteSettingsSerializer(settings, data=request.data, partial=request.method == 'PATCH')
         serializer.is_valid(raise_exception=True)
         serializer.save(updated_by=request.user)
+        return Response(serializer.data)
+
+
+class VaccinationDashboardViewSet(viewsets.ViewSet):
+    permission_classes = (IsAuthenticated,)
+
+    def list(self, request):
+        if not user_has_permission(request.user, 'documents.vaccination.create'):
+            self.permission_denied(request, message='Only vaccinator accounts can access the vaccination dashboard.')
+
+        period = request.query_params.get('period', 'monthly')
+        if period not in {'daily', 'weekly', 'monthly', 'annual', 'custom'}:
+            period = 'monthly'
+        start_at, end_at, period_label = resolve_dashboard_period(
+            period,
+            request.query_params.get('from', '').strip(),
+            request.query_params.get('to', '').strip(),
+        )
+
+        registrations = Payment.objects.filter(
+            department__iexact='Vaccination',
+            created_at__gte=start_at,
+        )
+        if end_at is not None:
+            registrations = registrations.filter(created_at__lt=end_at)
+
+        data = {
+            'period': period,
+            'period_label': period_label,
+            'registered_patients': registrations.values('patient_id').distinct().count(),
+        }
+        return Response(VaccinationDashboardSerializer(instance=data, context={'request': request}).data)
+
+
+class EmergencyDoctorDashboardViewSet(viewsets.ViewSet):
+    permission_classes = (IsAuthenticated,)
+
+    def list(self, request):
+        role = getattr(getattr(request.user, 'staff_profile', None), 'role', None)
+        if not request.user.is_superuser and role not in {Role.SUPER_ADMIN, Role.EMERGENCY_DOCTOR}:
+            self.permission_denied(request, message='Only Emergency Doctor accounts can access this dashboard.')
+
+        period = request.query_params.get('period', 'monthly')
+        if period not in {'daily', 'weekly', 'monthly', 'annual', 'custom'}:
+            period = 'monthly'
+        start_at, end_at, period_label = resolve_dashboard_period(
+            period,
+            request.query_params.get('from', '').strip(),
+            request.query_params.get('to', '').strip(),
+        )
+
+        emergency_payments = Payment.objects.filter(
+            department__iexact='Emergency',
+            created_at__gte=start_at,
+        )
+        if end_at is not None:
+            emergency_payments = emergency_payments.filter(created_at__lt=end_at)
+
+        service_rows = {
+            row['emergency_service']: row
+            for row in emergency_payments.values('emergency_service').annotate(
+                patients=Count('patient_id', distinct=True),
+                amount=Sum('amount'),
+            )
+        }
+        data = {
+            'period': period,
+            'period_label': period_label,
+            'patients': emergency_payments.values('patient_id').distinct().count(),
+            'total_amount': emergency_payments.aggregate(total=Sum('amount'))['total'] or Decimal('0.00'),
+            'services': [
+                {
+                    'service': service,
+                    'label': label,
+                    'patients': service_rows.get(service, {}).get('patients', 0),
+                    'amount': service_rows.get(service, {}).get('amount') or Decimal('0.00'),
+                }
+                for service, label in Payment.EmergencyService.choices
+            ],
+        }
+        return Response(EmergencyDoctorDashboardSerializer(instance=data, context={'request': request}).data)
+
+
+class EmergencyServicePriceViewSet(viewsets.ViewSet):
+    permission_classes = (IsAuthenticated,)
+
+    def _role(self, request):
+        return getattr(getattr(request.user, 'staff_profile', None), 'role', None)
+
+    def _can_view(self, request):
+        return request.user.is_superuser or self._role(request) in {Role.SUPER_ADMIN, Role.EMERGENCY_DOCTOR} or user_has_permission(request.user, 'patients.register')
+
+    def _can_edit(self, request):
+        return request.user.is_superuser or self._role(request) in {Role.SUPER_ADMIN, Role.EMERGENCY_DOCTOR}
+
+    def list(self, request):
+        if not self._can_view(request):
+            self.permission_denied(request, message='Emergency service prices are not available for this account.')
+        return Response(EmergencyServicePriceSerializer(EmergencyServicePrice.objects.all(), many=True, context={'request': request}).data)
+
+    def partial_update(self, request, pk=None):
+        if not self._can_edit(request):
+            self.permission_denied(request, message='Only Emergency Doctor accounts can change Emergency service prices.')
+        price = get_object_or_404(EmergencyServicePrice, pk=pk)
+        serializer = EmergencyServicePriceSerializer(price, data=request.data, partial=True, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
         return Response(serializer.data)
 
 

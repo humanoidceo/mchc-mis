@@ -8,6 +8,7 @@ class Role:
     WEBSITE_CONTENT_EDITOR = 'website_content_editor'
     RECEPTIONIST = 'receptionist'
     DOCTOR = 'doctor'
+    EMERGENCY_DOCTOR = 'emergency_doctor'
     GYNECOLOGIST = 'gynecologist'
     LABORATORY = 'laboratory'
     PHARMACIST = 'pharmacist'
@@ -21,6 +22,7 @@ ROLE_CHOICES = (
     (Role.WEBSITE_CONTENT_EDITOR, 'Website content editor'),
     (Role.RECEPTIONIST, 'Receptionist'),
     (Role.DOCTOR, 'Doctor'),
+    (Role.EMERGENCY_DOCTOR, 'Emergency Doctor'),
     (Role.GYNECOLOGIST, 'Gynecologist'),
     (Role.LABORATORY, 'Laboratory'),
     (Role.PHARMACIST, 'Pharmacist'),

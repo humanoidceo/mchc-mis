@@ -21,6 +21,7 @@ function landingPathForRole(role?: string | null) {
   if (role === 'pharmacist') return '/pharmacy/dashboard'
   if (role === 'laboratory') return '/laboratory/dashboard'
   if (role === 'midwife') return '/midwife/dashboard'
+  if (role === 'emergency_doctor') return '/emergency/dashboard'
   if (role === 'vaccinator') return '/vaccination/dashboard'
   if (role === 'malnutrition') return '/malnutrition/dashboard'
   if (role === 'gynecologist') return '/dashboard'

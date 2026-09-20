@@ -8,6 +8,8 @@ from .views import (
     DashboardViewSet,
     database_backup,
     DoctorDepartmentAssignmentViewSet,
+    EmergencyDoctorDashboardViewSet,
+    EmergencyServicePriceViewSet,
     ExpenseCategoryViewSet,
     ExpenseViewSet,
     WebsiteGalleryViewSet,
@@ -22,6 +24,7 @@ from .views import (
     WebsitePageContentViewSet,
     WebsitePostViewSet,
     WebsiteSettingsViewSet,
+    VaccinationDashboardViewSet,
 )
 from .laboratory_views import (
     LaboratoryBillViewSet,
@@ -53,6 +56,26 @@ router.register('website-gallery', WebsiteGalleryViewSet, basename='website-gall
 router.register('website-settings', WebsiteSettingsViewSet, basename='website-settings')
 
 urlpatterns = [
+    path(
+        'emergency/dashboard/',
+        EmergencyDoctorDashboardViewSet.as_view({'get': 'list'}),
+        name='emergency-doctor-dashboard',
+    ),
+    path(
+        'emergency/service-prices/',
+        EmergencyServicePriceViewSet.as_view({'get': 'list'}),
+        name='emergency-service-prices',
+    ),
+    path(
+        'emergency/service-prices/<int:pk>/',
+        EmergencyServicePriceViewSet.as_view({'patch': 'partial_update'}),
+        name='emergency-service-price-detail',
+    ),
+    path(
+        'vaccination/dashboard/',
+        VaccinationDashboardViewSet.as_view({'get': 'list'}),
+        name='vaccination-dashboard',
+    ),
     path('database/backup/', database_backup, name='database-backup'),
     path(
         'payments/reception-report/',
