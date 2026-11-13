@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, Route, Routes, Navigate, useLocation } from 'react-router-dom'
 import { ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Database, FileText, FolderLock, Globe, HeartPulse, LayoutDashboard, Package, ReceiptText, Shield, Trash2, User, Users, Wallet } from 'lucide-react'
+import { useReactToPrint } from 'react-to-print'
 
 import { useAuth } from '../auth/useAuth'
 import { AccountSettingsPage } from '../account/AccountSettingsPage'
@@ -60,6 +61,75 @@ const layoutText = {
   websitePosts: 'Website posts',
   websiteGallery: 'Website gallery',
   users: 'Users',
+}
+
+const expensesReportPrintStyle = `
+  @page { size: A4 portrait; margin: 10mm 14mm; }
+  html, body { margin: 0; padding: 0; background: #fff; }
+  body, body * { visibility: visible !important; }
+  .print-area { width: 100% !important; margin: 0 !important; background: #fff !important; }
+  [data-expenses-print-page] {
+    box-sizing: border-box;
+    width: 100% !important;
+    min-height: 0 !important;
+    height: auto !important;
+    margin: 0 !important;
+    margin-block: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    break-after: page;
+  }
+  [data-expenses-print-page]:last-child { break-after: auto; }
+  [data-expenses-print-page] table { width: 100% !important; border-collapse: collapse; break-inside: auto; }
+  [data-expenses-print-page] thead { display: table-header-group; }
+  [data-expenses-print-page] tr, [data-expenses-print-page] th, [data-expenses-print-page] td { break-inside: avoid; }
+  [data-expenses-print-page] footer { margin-top: 6mm !important; }
+`
+
+function ExpensesReportPrintBridge() {
+  const contentRef = useRef<HTMLDivElement>(null)
+  const printReport = useReactToPrint({
+    contentRef,
+    documentTitle: () => `Expenses Report ${new Date().toISOString().slice(0, 10)}`,
+    pageStyle: expensesReportPrintStyle,
+  })
+
+  useEffect(() => {
+    const browserPrint = window.print.bind(window)
+    window.print = () => {
+      const reportPage = document.querySelector<HTMLElement>('.expense-report-page')
+      const report = reportPage?.closest<HTMLElement>('.print-area')
+      if (!report || !contentRef.current) {
+        browserPrint()
+        return
+      }
+
+      const reportClone = report.cloneNode(true) as HTMLElement
+      reportClone.classList.remove('space-y-5')
+      const reportPages = Array.from(reportClone.querySelectorAll<HTMLElement>('.expense-report-page'))
+      reportPages.forEach((page, index) => {
+        page.classList.remove('expense-report-page', 'mx-auto', 'max-w-4xl', 'rounded-md', 'border', 'bg-white', 'p-8')
+        page.dataset.expensesPrintPage = 'true'
+        page.style.setProperty('box-sizing', 'border-box')
+        page.style.setProperty('width', '100%')
+        page.style.setProperty('min-height', '0')
+        page.style.setProperty('height', 'auto')
+        page.style.setProperty('margin', '0')
+        page.style.setProperty('padding', '0')
+        page.style.setProperty('border', '0')
+        page.style.setProperty('break-after', index === reportPages.length - 1 ? 'auto' : 'page')
+        const footer = page.querySelector<HTMLElement>('footer')
+        footer?.classList.remove('mt-auto')
+        footer?.style.setProperty('margin-top', '6mm')
+      })
+      contentRef.current.replaceChildren(reportClone)
+      window.requestAnimationFrame(() => printReport())
+    }
+    return () => { window.print = browserPrint }
+  }, [printReport])
+
+  return <div aria-hidden="true" style={{ display: 'none' }}><div ref={contentRef} /></div>
 }
 
 export function DashboardLayout() {
@@ -137,6 +207,7 @@ export function DashboardLayout() {
 
   return (
     <div className="min-h-screen bg-sky-50 text-slate-900">
+      <ExpensesReportPrintBridge />
       {mobileMenuOpen ? <button className="fixed inset-0 z-30 bg-slate-950/35 lg:hidden" onClick={() => setMobileMenuOpen(false)} aria-label={common.close} /> : null}
 
       <aside className={`fixed inset-y-0 left-0 z-40 w-72 max-w-[85vw] overflow-hidden border-r border-white/35 bg-white/18 p-4 shadow-[0_20px_60px_rgba(14,165,233,0.18)] backdrop-blur-2xl transition-all duration-300 lg:max-w-none ${sidebarCollapsed ? 'lg:w-20' : 'lg:w-64'} ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>

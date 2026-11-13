@@ -183,6 +183,7 @@ textarea {
 
 @media print {
   @page {
+    size: A4 portrait;
     margin: 0;
   }
 
@@ -301,9 +302,14 @@ textarea {
   .expense-report-page {
     box-sizing: border-box;
     width: 210mm;
-    min-height: 297mm;
+    min-height: 0 !important;
+    height: auto !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    display: block !important;
+    break-inside: auto;
+    page-break-inside: auto;
     break-after: page;
-    page-break-after: always;
     border: 0 !important;
     border-radius: 0 !important;
     padding: 10mm !important;
@@ -311,10 +317,27 @@ textarea {
 
   .expense-report-page:last-child {
     break-after: auto;
-    page-break-after: auto;
+  }
+
+  /* The screen-only vertical gap between A4 articles must not consume
+     printable space before the explicit page break. */
+  .print-area.space-y-5 > .expense-report-page ~ .expense-report-page {
+    margin-top: 0 !important;
+  }
+
+  .expense-report-page footer {
+    margin-top: 6mm !important;
   }
 
   .expense-report-page table {
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+  }
+
+  .expense-report-page tr,
+  .expense-report-page th,
+  .expense-report-page td {
+    break-inside: avoid-page;
     page-break-inside: avoid;
   }
 
