@@ -286,17 +286,18 @@ function MedicineManager({
     setError('')
     setExporting(true)
     try {
-      const { blob, filename } = await apiDownload('/pharmacy/medicines/export-xlsx/')
+      const exportFilter = expiredOnly ? '?expired_only=1' : upcomingExpiredOnly ? '?upcoming_expired_only=1' : ''
+      const { blob, filename } = await apiDownload(`/pharmacy/medicines/export-xlsx/${exportFilter}`)
       const downloadUrl = window.URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       anchor.href = downloadUrl
-      anchor.download = filename || 'medicine-stock.xlsx'
+      anchor.download = filename || (expiredOnly ? 'expired-medicines.xlsx' : upcomingExpiredOnly ? 'upcoming-expired-medicines.xlsx' : 'medicine-stock.xlsx')
       document.body.appendChild(anchor)
       anchor.click()
       anchor.remove()
       window.URL.revokeObjectURL(downloadUrl)
     } catch (caught) {
-      setError(describeApiError(caught, 'Unable to export medicine stock.'))
+      setError(describeApiError(caught, expiredOnly ? 'Unable to export expired medicines.' : upcomingExpiredOnly ? 'Unable to export upcoming expired medicines.' : 'Unable to export medicine stock.'))
     } finally {
       setExporting(false)
     }
@@ -311,9 +312,9 @@ function MedicineManager({
             subtitle={familyPlanningOnly ? 'Track family planning products with expiry control. Pagination is limited to 10 items per page.' : rutfOnly ? 'Manage the RUTF batches used for malnutrition orders. Approval deducts from the earliest expiry stock first.' : expiredOnly ? 'Review expired medicines, update their details, or remove them from stock. Pagination is limited to 10 items per page.' : upcomingExpiredOnly ? 'Review medicines that will expire within the coming 6 months, then edit or remove them before they become unusable. Pagination is limited to 10 items per page.' : 'Maintain accurate pricing, profit margin, and current quantity for each item.'}
           />
           <div className="flex w-full max-w-2xl flex-col gap-3 sm:flex-row sm:items-end sm:justify-end">
-            {!familyPlanningOnly && !rutfOnly && !expiredOnly && !upcomingExpiredOnly ? (
+            {!familyPlanningOnly && !rutfOnly ? (
               <button className={buttonClassName} type="button" onClick={() => void exportMedicineStock()} disabled={exporting}>
-                {exporting ? 'Exporting...' : 'Export as excel'}
+                {exporting ? 'Exporting...' : 'Export as Excel'}
               </button>
             ) : null}
             <label className="w-full sm:max-w-sm">

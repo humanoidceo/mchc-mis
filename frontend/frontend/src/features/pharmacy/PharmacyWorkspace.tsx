@@ -1,7 +1,7 @@
 import { startTransition, useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent, UIEvent } from 'react'
 
-import { ApiError, apiFetch } from '../../api/client'
+import { ApiError, apiDownload, apiFetch } from '../../api/client'
 import { buttonClassName, Field, ghostButtonClassName, inputClassName, PaginationControls, Panel, SectionHeader } from '../../components/ui'
 import type {
   ClinicalDocument,
@@ -361,6 +361,7 @@ function MedicineSalesPage() {
   const [totalCount, setTotalCount] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [exporting, setExporting] = useState(false)
 
   const loadSales = useCallback(async (currentPage = page, currentFromDate = appliedFromDate, currentToDate = appliedToDate, currentSearch = appliedSearch) => {
     setLoading(true)
@@ -411,11 +412,38 @@ function MedicineSalesPage() {
     setPage(1)
   }
 
+  async function exportSales() {
+    setError('')
+    setExporting(true)
+    try {
+      const params = new URLSearchParams()
+      if (appliedFromDate) params.set('from', appliedFromDate)
+      if (appliedToDate) params.set('to', appliedToDate)
+      if (appliedSearch) params.set('q', appliedSearch)
+      const { blob, filename } = await apiDownload(`/pharmacy/sales/medicine-sales-export-xlsx/?${params.toString()}`)
+      const downloadUrl = window.URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = downloadUrl
+      anchor.download = filename || 'medicine-sales.xlsx'
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.URL.revokeObjectURL(downloadUrl)
+    } catch (caught) {
+      setError(describeApiError(caught, 'Unable to export medicine sales.'))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <Panel>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <SectionHeader title="Medicine sales" subtitle="See the total quantity sold and amount for each medicine." />
-        <button className={ghostButtonClassName} onClick={() => void loadSales()} disabled={loading}>Refresh</button>
+        <div className="flex flex-wrap gap-2">
+          <button className={ghostButtonClassName} type="button" onClick={() => void exportSales()} disabled={exporting}>{exporting ? 'Exporting...' : 'Export as Excel'}</button>
+          <button className={ghostButtonClassName} onClick={() => void loadSales()} disabled={loading}>Refresh</button>
+        </div>
       </div>
       <form className="mt-5 flex flex-wrap items-end gap-3" onSubmit={applyDateFilter}>
         <Field label="From">
@@ -859,6 +887,8 @@ function LowStockReport() {
   const [medicines, setMedicines] = useState<PharmacyMedicine[]>([])
   const [page, setPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState('')
 
   async function loadLowStock(currentPage = page) {
     const response = await apiFetch<PaginatedResponse<PharmacyMedicine>>(`/pharmacy/medicines/?page=${currentPage}&low_stock=1`)
@@ -876,15 +906,37 @@ function LowStockReport() {
     void loadLowStock(page)
   }
 
+  async function exportLowStock() {
+    setExportError('')
+    setExporting(true)
+    try {
+      const { blob, filename } = await apiDownload('/pharmacy/medicines/export-xlsx/?low_stock=1')
+      const downloadUrl = window.URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = downloadUrl
+      anchor.download = filename || 'low-stock-report.xlsx'
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.URL.revokeObjectURL(downloadUrl)
+    } catch (caught) {
+      setExportError(describeApiError(caught, 'Unable to export the low stock report.'))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <section className="space-y-5">
       <div className="no-print flex flex-wrap items-end justify-between gap-3">
         <SectionHeader title="Low stock report" subtitle="Medicines with quantity less than 10. Print this page as an A4 portrait report." />
         <div className="flex flex-wrap gap-2">
           <button className={ghostButtonClassName} onClick={onRefresh}>Refresh</button>
+          <button className={ghostButtonClassName} type="button" onClick={() => void exportLowStock()} disabled={exporting}>{exporting ? 'Exporting...' : 'Export as Excel'}</button>
           <button className={buttonClassName} onClick={() => window.print()}>Print A4 report</button>
         </div>
       </div>
+      {exportError ? <div className="no-print rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{exportError}</div> : null}
 
       <div className="print-area a4-report space-y-5">
         <div className="hidden print:block">

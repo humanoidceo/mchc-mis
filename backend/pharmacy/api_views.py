@@ -717,6 +717,124 @@ class PharmacyMedicineViewSet(PharmacyBaseViewSet, viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="export-xlsx")
     def export_xlsx(self, request):
+        low_stock_only = request.query_params.get("low_stock", "").lower() in {"1", "true", "yes"}
+        expired_only = request.query_params.get("expired_only", "").lower() in {"1", "true", "yes"}
+        upcoming_expired_only = request.query_params.get("upcoming_expired_only", "").lower() in {"1", "true", "yes"}
+        if low_stock_only:
+            medicines = (
+                Medicine.objects
+                .filter(pharmacist=request.user, quantity__lt=10)
+                .order_by("quantity", "name")
+            )
+            rows: list[list[object]] = [[
+                "Medicine",
+                "Generic name",
+                "Buy price",
+                "Sell price",
+                "Quantity",
+                "Status",
+            ]]
+            for medicine in medicines:
+                rows.append([
+                    medicine.name,
+                    medicine.generic_name,
+                    medicine.buy_price,
+                    medicine.sell_price,
+                    medicine.quantity,
+                    "Out of stock" if medicine.quantity == 0 else "Low stock",
+                ])
+
+            workbook = build_xlsx_workbook("Low Stock Report", rows)
+            today = timezone.localdate().isoformat()
+            response = HttpResponse(
+                workbook,
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+            response["Content-Disposition"] = f'attachment; filename="low-stock-report-{today}.xlsx"'
+            return response
+
+        if expired_only:
+            current_month_start = timezone.localdate().replace(day=1)
+            medicines = (
+                Medicine.objects
+                .filter(
+                    pharmacist=request.user,
+                    expiry_date__isnull=False,
+                    expiry_date__lt=current_month_start,
+                )
+                .order_by("expiry_date", "name")
+            )
+            rows = [[
+                "Medicine",
+                "Generic name",
+                "Dosage form",
+                "Strength",
+                "Expiry date",
+                "Sell price",
+                "Quantity",
+            ]]
+            for medicine in medicines:
+                rows.append([
+                    medicine.name,
+                    medicine.generic_name,
+                    medicine.dosage_form,
+                    medicine.strength,
+                    medicine.expiry_date,
+                    medicine.sell_price,
+                    medicine.quantity,
+                ])
+
+            workbook = build_xlsx_workbook("Expired Medicines", rows)
+            today = timezone.localdate().isoformat()
+            response = HttpResponse(
+                workbook,
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+            response["Content-Disposition"] = f'attachment; filename="expired-medicines-{today}.xlsx"'
+            return response
+
+        if upcoming_expired_only:
+            current_month_start = timezone.localdate().replace(day=1)
+            six_month_window_end = month_start_after(current_month_start, 6)
+            medicines = (
+                Medicine.objects
+                .filter(
+                    pharmacist=request.user,
+                    expiry_date__isnull=False,
+                    expiry_date__gte=current_month_start,
+                    expiry_date__lt=six_month_window_end,
+                )
+                .order_by("expiry_date", "name")
+            )
+            rows = [[
+                "Medicine",
+                "Generic name",
+                "Dosage form",
+                "Strength",
+                "Expiry date",
+                "Sell price",
+                "Quantity",
+            ]]
+            for medicine in medicines:
+                rows.append([
+                    medicine.name,
+                    medicine.generic_name,
+                    medicine.dosage_form,
+                    medicine.strength,
+                    medicine.expiry_date,
+                    medicine.sell_price,
+                    medicine.quantity,
+                ])
+
+            workbook = build_xlsx_workbook("Upcoming Expired Medicines", rows)
+            today = timezone.localdate().isoformat()
+            response = HttpResponse(
+                workbook,
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+            response["Content-Disposition"] = f'attachment; filename="upcoming-expired-medicines-{today}.xlsx"'
+            return response
+
         medicines = (
             Medicine.objects
             .filter(pharmacist=request.user, quantity__gt=0)
@@ -1172,6 +1290,63 @@ class PharmacySaleViewSet(
         if page is not None:
             return self.get_paginated_response(page)
         return Response(rows)
+
+    @action(detail=False, methods=["get"], url_path="medicine-sales-export-xlsx")
+    def medicine_sales_export_xlsx(self, request):
+        from_date_raw = request.query_params.get("from", "").strip()
+        to_date_raw = request.query_params.get("to", "").strip()
+        search = request.query_params.get("q", "").strip()
+        from_date = parse_date(from_date_raw) if from_date_raw else None
+        to_date = parse_date(to_date_raw) if to_date_raw else None
+        errors = {}
+        if from_date_raw and from_date is None:
+            errors["from"] = "Select a valid from date."
+        if to_date_raw and to_date is None:
+            errors["to"] = "Select a valid to date."
+        if from_date and to_date and to_date < from_date:
+            errors["to"] = "To date must be on or after from date."
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        sale_items = (
+            SaleItem.objects
+            .filter(sale__pharmacist=request.user, sale__deleted_at__isnull=True)
+            .only("medicine_name", "quantity", "unit_price")
+            .order_by("medicine_name", "id")
+        )
+        if from_date:
+            sale_items = sale_items.filter(sale__created_at__date__gte=from_date)
+        if to_date:
+            sale_items = sale_items.filter(sale__created_at__date__lte=to_date)
+        if search:
+            sale_items = sale_items.filter(medicine_name__icontains=search)
+
+        summary = {}
+        for item in sale_items:
+            row = summary.setdefault(
+                item.medicine_name,
+                {"quantity": Decimal("0.00"), "amount": Decimal("0.00")},
+            )
+            row["quantity"] += item.quantity
+            row["amount"] += item.total_price
+
+        rows: list[list[object]] = [["Medicine name", "Quantity sold", "Amount (AFN)"]]
+        total_quantity = Decimal("0.00")
+        total_amount = Decimal("0.00")
+        for medicine_name, row in summary.items():
+            total_quantity += row["quantity"]
+            total_amount += row["amount"]
+            rows.append([medicine_name, row["quantity"], row["amount"]])
+        rows.append(["Grand total", total_quantity, total_amount])
+
+        workbook = build_xlsx_workbook("Medicine Sales", rows)
+        today = timezone.localdate().isoformat()
+        response = HttpResponse(
+            workbook,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = f'attachment; filename="medicine-sales-{today}.xlsx"'
+        return response
 
     def destroy(self, request, *args, **kwargs):
         sale = self.get_object()
