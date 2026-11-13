@@ -52,6 +52,31 @@ export function formatReceiptAmount(value: string | number): string {
   return Number.isFinite(amount) ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(amount) : String(value)
 }
 
+export function formatReceiptQuantity(value: string | number): string {
+  const quantity = Number(value || 0)
+  return Number.isFinite(quantity)
+    ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(quantity)
+    : String(value)
+}
+
+export function formatReceiptTime(value: string): string {
+  return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value))
+}
+
+export function formatReceiptDate(value: string): string {
+  return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(value))
+}
+
+export function formatAfghanistanReceiptDate(value: string): string {
+  const parts = new Intl.DateTimeFormat('en-GB-u-ca-persian', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).formatToParts(new Date(value))
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value || ''
+  return `${part('day')}/${part('month')}/${part('year')}`
+}
+
 export function ReceiptDivider({ dots = false }: { dots?: boolean }) {
   return <p className="receipt-divider" aria-hidden="true">{dots ? "............................" : "----------------------------"}</p>
 }
@@ -517,7 +542,6 @@ export function PrintDocument({ document }: { document: ClinicalDocument }) {
 
 export function PrintPaymentBill({ payment, printedBy }: { payment: Payment; printedBy: string }) {
   const patientName = payment.patient_full_name || payment.patient_name
-  const createdAt = new Date(payment.created_at).toLocaleString()
   const isFree = payment.payment_type === 'free'
   const isDiscount = payment.payment_type === 'discount'
   const isEmergency = payment.department.trim().toLowerCase() === 'emergency'
@@ -527,17 +551,20 @@ export function PrintPaymentBill({ payment, printedBy }: { payment: Payment; pri
       <BillTitle title="Mother and Child Health Support Center" subtitle="Reception bill" />
 
       <div className="receipt-text-list">
-        <p>Date: <strong>{createdAt}</strong></p>
+        <p>Time: <strong>{formatReceiptTime(payment.created_at)}</strong></p>
+        <p>Date: <strong>{formatReceiptDate(payment.created_at)} - {formatAfghanistanReceiptDate(payment.created_at)}</strong></p>
         <p>Status: <strong>{payment.status}</strong></p>
         <p>Patient: <strong>{patientName}</strong></p>
+        {payment.patient_father_name ? <p>Father name: <strong>{payment.patient_father_name}</strong></p> : null}
+        {payment.patient_mobile_number ? <p>Mobile number: <strong>{payment.patient_mobile_number}</strong></p> : null}
         <p>Patient ID: <strong>{payment.patient}</strong></p>
         <p>Age: <strong>{formatPaymentAge(payment.patient_age, payment.patient_age_unit)}</strong></p>
         <p>Department: <strong>{payment.department || payment.service}</strong></p>
         {payment.department.trim().toLowerCase() === 'midwifery' && payment.midwifery_service ? <p>Service type: <strong>{payment.midwifery_service_label}</strong></p> : null}
-        {isEmergency && payment.emergency_service ? <p>Service type: <strong>{payment.emergency_service_label}</strong></p> : null}
+        {isEmergency && payment.emergency_service_items.length ? <p>Service types: <strong>{payment.emergency_service_items.map((item) => item.label).join(', ')}</strong></p> : isEmergency && payment.emergency_service ? <p>Service type: <strong>{payment.emergency_service_label}</strong></p> : null}
         <p>Doctor: <strong>{payment.doctor_name || 'Not assigned'}</strong></p>
         <p>Payment: <strong>{isFree ? 'Free' : isDiscount ? `Discount (${payment.discount_percentage}%)` : 'Full payment'}</strong></p>
-        <p>{isEmergency ? 'Emergency service fee' : 'Fee'}: <strong>{formatReceiptAmount(isEmergency ? payment.emergency_service_fee : payment.doctor_fee)} AFN</strong></p>
+        <p>{isEmergency ? 'Emergency services fee' : 'Fee'}: <strong>{formatReceiptAmount(isEmergency ? payment.emergency_service_fee : payment.doctor_fee)} AFN</strong></p>
         {isDiscount || isFree ? <p>Discount: <strong>{formatReceiptAmount(isFree ? (isEmergency ? payment.emergency_service_fee : payment.doctor_fee) : payment.discount_amount)} AFN</strong></p> : null}
         <p className="receipt-total-line">Final amount: <strong>{isFree ? 'Free' : `${formatReceiptAmount(payment.amount)} AFN`}</strong></p>
       </div>

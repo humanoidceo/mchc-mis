@@ -74,6 +74,8 @@ export type Patient = {
   registration_number: string
   first_name: string
   last_name: string
+  father_name: string
+  mobile_number: string
   age: number | null
   age_unit: 'month' | 'year'
   gender: 'female' | 'male' | 'other'
@@ -89,6 +91,8 @@ export type Payment = {
   patient: number
   patient_name: string
   patient_full_name: string
+  patient_father_name: string
+  patient_mobile_number: string
   service: string
   department: string
   midwifery_service: string
@@ -97,6 +101,7 @@ export type Payment = {
   midwifery_fp_service_label: string
   emergency_service: string
   emergency_service_label: string
+  emergency_service_items: PaymentEmergencyService[]
   emergency_service_fee: string
   doctor_name: string
   patient_age: number | null
@@ -112,6 +117,13 @@ export type Payment = {
   approved_by_name: string
   notes: string
   created_at: string
+}
+
+export type PaymentEmergencyService = {
+  id: number
+  service: string
+  label: string
+  price: string
 }
 
 export type DocumentType =
@@ -382,6 +394,8 @@ export type StockMovement = {
 export type Expense = {
   id: number
   voucher_number: string
+  is_old_expense: boolean
+  expense_date: string | null
   name: string
   category: string
   category_label: string

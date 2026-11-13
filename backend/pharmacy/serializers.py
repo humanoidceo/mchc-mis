@@ -131,7 +131,7 @@ class PharmacySaleSerializer(serializers.ModelSerializer):
 
 class PharmacySaleCreateItemSerializer(serializers.Serializer):
     medicine = serializers.IntegerField()
-    quantity = serializers.DecimalField(max_digits=10, decimal_places=1)
+    quantity = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal("0.01"))
 
 
 class PharmacySaleCreateSerializer(serializers.Serializer):

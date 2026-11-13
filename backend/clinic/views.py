@@ -15,7 +15,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.db import transaction
 from django.db.models import Count, F, Q, Sum
-from django.db.models.functions import TruncDate, TruncMonth
+from django.db.models.functions import Coalesce, TruncDate, TruncMonth
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -28,7 +28,7 @@ from accounts.models import Employee, StaffProfile
 from accounts.permissions import Role
 from config.pagination import StandardResultsSetPagination
 from pharmacy.models import Medicine as PharmacyMedicine
-from .models import AuditLog, CashBankTransaction, ClinicalDocument, DoctorDepartmentAssignment, EmergencyServicePrice, Expense, ExpenseCategory, ExpenseSubcategory, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, WebsiteGalleryImage, WebsitePageContent, WebsitePost, WebsitePostImage, WebsiteSettings
+from .models import AuditLog, CashBankTransaction, ClinicalDocument, DoctorDepartmentAssignment, EmergencyServicePrice, Expense, ExpenseCategory, ExpenseSubcategory, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PaymentEmergencyService, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, WebsiteGalleryImage, WebsitePageContent, WebsitePost, WebsitePostImage, WebsiteSettings
 from .salary_rules import AFGHAN_MONTHS, current_afghan_date, money
 from .serializers import (
     ClinicalDocumentSerializer,
@@ -211,6 +211,22 @@ def parse_expense_date_range(request):
     start_at = timezone.make_aware(datetime.combine(date_from, datetime.min.time()), current_timezone) if date_from else None
     end_at = timezone.make_aware(datetime.combine(date_to + timedelta(days=1), datetime.min.time()), current_timezone) if date_to else None
     return date_from, date_to, start_at, end_at
+
+
+def filter_expenses_by_date(queryset, date_from=None, date_to=None):
+    """Filter expenses by their business date without rewriting audit history.
+
+    New expenses use the date portion of their immutable ``created_at`` value.
+    Old paper expenses use the separately captured ``expense_date``.
+    """
+    queryset = queryset.annotate(
+        effective_expense_date=Coalesce('expense_date', TruncDate('created_at')),
+    )
+    if date_from is not None:
+        queryset = queryset.filter(effective_expense_date__gte=date_from)
+    if date_to is not None:
+        queryset = queryset.filter(effective_expense_date__lte=date_to)
+    return queryset
 
 
 def can_download_database_backup(user) -> bool:
@@ -565,7 +581,7 @@ class PatientViewSet(PermissionedModelViewSet):
 
 
 class PaymentViewSet(PermissionedModelViewSet):
-    queryset = Payment.objects.select_related('patient', 'created_by', 'approved_by')
+    queryset = Payment.objects.select_related('patient', 'created_by', 'approved_by').prefetch_related('emergency_service_items')
     serializer_class = PaymentSerializer
     pagination_class = StandardResultsSetPagination
     permission_map = {
@@ -814,13 +830,9 @@ class ExpenseViewSet(PermissionedModelViewSet):
 
     @action(detail=False, methods=['get'])
     def summary(self, request):
-        _date_from, _date_to, start_at, end_at = parse_expense_date_range(request)
+        date_from, date_to, _start_at, _end_at = parse_expense_date_range(request)
 
-        queryset = self.get_queryset()
-        if start_at is not None:
-            queryset = queryset.filter(created_at__gte=start_at)
-        if end_at is not None:
-            queryset = queryset.filter(created_at__lt=end_at)
+        queryset = filter_expenses_by_date(self.get_queryset(), date_from, date_to)
         totals = {
             row['category']: row['total']
             for row in queryset.values('category').annotate(total=Sum('amount'))
@@ -894,11 +906,7 @@ class ExpenseViewSet(PermissionedModelViewSet):
                 group['subcategories'].append(subcategory_group)
                 category_by_code[subcategory.code] = (group, subcategory_group)
 
-        expenses = Expense.objects.order_by('created_at', 'id')
-        if start_at is not None:
-            expenses = expenses.filter(created_at__gte=start_at)
-        if end_at is not None:
-            expenses = expenses.filter(created_at__lt=end_at)
+        expenses = filter_expenses_by_date(Expense.objects, date_from, date_to).order_by('effective_expense_date', 'created_at', 'id')
 
         expense_count = expenses.count()
         expense_page_count = max(1, (expense_count + report_page_size - 1) // report_page_size)
@@ -935,7 +943,7 @@ class ExpenseViewSet(PermissionedModelViewSet):
 
         salary_entries = []
         for row in expenses[expense_start:expense_start + report_page_size].values(
-            'id', 'voucher_number', 'created_at', 'name', 'category', 'amount', 'description',
+            'id', 'voucher_number', 'created_at', 'effective_expense_date', 'name', 'category', 'amount', 'description',
             'payment_method', 'funding_source', 'department', 'salary_payment_id', 'salary_advance_id',
         ):
             group_and_subcategory = category_by_code.get(row['category'])
@@ -948,7 +956,7 @@ class ExpenseViewSet(PermissionedModelViewSet):
             entry = {
                 'id': row['id'],
                 'voucher_number': row['voucher_number'],
-                'created_at': timezone.localtime(row['created_at']).isoformat(),
+                'created_at': row['effective_expense_date'].isoformat(),
                 'name': row['name'],
                 'amount': str(amount),
                 'description': row['description'],
@@ -1033,12 +1041,10 @@ class ExpenseViewSet(PermissionedModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='export-xlsx')
     def export_xlsx(self, request):
-        date_from, date_to, start_at, end_at = parse_expense_date_range(request)
-        expenses = Expense.objects.order_by('created_at', 'id')
-        if start_at is not None:
-            expenses = expenses.filter(created_at__gte=start_at)
-        if end_at is not None:
-            expenses = expenses.filter(created_at__lt=end_at)
+        date_from, date_to, _start_at, _end_at = parse_expense_date_range(request)
+        # Keep the creation-time order for bounded keyset export queries while
+        # filtering rows by their effective business date.
+        expenses = filter_expenses_by_date(Expense.objects, date_from, date_to).order_by('created_at', 'id')
         subcategory_labels = {
             subcategory.code: f'{subcategory.category.display_title} — {subcategory.display_title}'
             for subcategory in ExpenseSubcategory.objects.select_related('category').all()
@@ -1048,7 +1054,7 @@ class ExpenseViewSet(PermissionedModelViewSet):
 
         def expense_rows():
             yield [
-                'Voucher number', 'Date and time', 'Expense', 'Category', 'Payment method',
+                'Voucher number', 'Expense date', 'Old expense', 'Recorded at', 'Expense', 'Category', 'Payment method',
                 'Bank name', 'Bank account', 'Transfer reference no.', 'Transfer date',
                 'Cheque number', 'Cheque date', 'Cheque status', 'Paid to / received from',
                 'Funding source', 'Project/activity', 'Department', 'Description',
@@ -1073,6 +1079,8 @@ class ExpenseViewSet(PermissionedModelViewSet):
                     'id',
                     'voucher_number',
                     'created_at',
+                    'effective_expense_date',
+                    'is_old_expense',
                     'name',
                     'category',
                     'payment_method',
@@ -1109,7 +1117,7 @@ class ExpenseViewSet(PermissionedModelViewSet):
                 if not batch:
                     break
                 for (
-                    expense_id, voucher_number, created_at, name, category, payment_method,
+                    expense_id, voucher_number, created_at, effective_expense_date, is_old_expense, name, category, payment_method,
                     bank_name, bank_account, transfer_reference_number, transfer_date,
                     cheque_number, cheque_date, cheque_status, paid_to_received_from,
                     funding_source, project_activity, department, description, number_plate, driver_name,
@@ -1122,6 +1130,8 @@ class ExpenseViewSet(PermissionedModelViewSet):
                     recorded_by = ' '.join(part for part in (first_name, last_name) if part).strip() or username
                     yield [
                         voucher_number,
+                        effective_expense_date.isoformat(),
+                        'Yes' if is_old_expense else 'No',
                         timezone.localtime(created_at).strftime('%Y-%m-%d %H:%M:%S'),
                         name or subcategory_labels.get(category, category),
                         subcategory_labels.get(category, category),
@@ -1156,7 +1166,7 @@ class ExpenseViewSet(PermissionedModelViewSet):
                     ]
                     last_created_at = created_at
                     last_id = expense_id
-            yield ['Grand total'] + [''] * 29 + [total, '']
+            yield ['Grand total'] + [''] * 31 + [total, '']
 
         temporary_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
         temporary_path = temporary_file.name
@@ -1873,11 +1883,11 @@ class DashboardViewSet(viewsets.ViewSet):
 
         patients = Patient.objects.filter(created_at__gte=start_at)
         payments = Payment.objects.filter(created_at__gte=start_at)
-        expenses = Expense.objects.filter(created_at__gte=start_at)
+        expense_end_date = timezone.localdate(end_at - timedelta(microseconds=1)) if end_at is not None else None
+        expenses = filter_expenses_by_date(Expense.objects, timezone.localdate(start_at), expense_end_date)
         if end_at is not None:
             patients = patients.filter(created_at__lt=end_at)
             payments = payments.filter(created_at__lt=end_at)
-            expenses = expenses.filter(created_at__lt=end_at)
         patient_trend = build_patient_trend(period, patients)
 
         pending_payments = payments.filter(status=Payment.Status.PENDING).count()
@@ -2066,12 +2076,20 @@ class EmergencyDoctorDashboardViewSet(viewsets.ViewSet):
             emergency_payments = emergency_payments.filter(created_at__lt=end_at)
 
         service_rows = {
-            row['emergency_service']: row
-            for row in emergency_payments.values('emergency_service').annotate(
-                patients=Count('patient_id', distinct=True),
-                amount=Sum('amount'),
-            )
+            service: {'patient_ids': set(), 'amount': Decimal('0.00')}
+            for service, _label in Payment.EmergencyService.choices
         }
+        for payment in emergency_payments.prefetch_related('emergency_service_items'):
+            selected_services = list(payment.emergency_service_items.all())
+            if selected_services:
+                total_service_price = sum((item.price for item in selected_services), Decimal('0'))
+                for item in selected_services:
+                    allocated_amount = money(payment.amount * item.price / total_service_price) if total_service_price else Decimal('0.00')
+                    service_rows[item.service]['patient_ids'].add(payment.patient_id)
+                    service_rows[item.service]['amount'] += allocated_amount
+            elif payment.emergency_service in service_rows:
+                service_rows[payment.emergency_service]['patient_ids'].add(payment.patient_id)
+                service_rows[payment.emergency_service]['amount'] += payment.amount
         data = {
             'period': period,
             'period_label': period_label,
@@ -2081,8 +2099,8 @@ class EmergencyDoctorDashboardViewSet(viewsets.ViewSet):
                 {
                     'service': service,
                     'label': label,
-                    'patients': service_rows.get(service, {}).get('patients', 0),
-                    'amount': service_rows.get(service, {}).get('amount') or Decimal('0.00'),
+                    'patients': len(service_rows[service]['patient_ids']),
+                    'amount': service_rows[service]['amount'],
                 }
                 for service, label in Payment.EmergencyService.choices
             ],

@@ -16,7 +16,7 @@ import type {
   SearchResponse,
 } from '../../types/domain'
 import { useAuth } from '../auth/useAuth'
-import { BillReceiptNote, BillSignature, BillTitle, billPaperClassName, formatReceiptAmount } from '../clinic/PrintDocument'
+import { BillReceiptNote, BillSignature, BillTitle, billPaperClassName, formatAfghanistanReceiptDate, formatReceiptAmount, formatReceiptDate, formatReceiptTime } from '../clinic/PrintDocument'
 import { PrintPreviewModal } from '../clinic/PrintPreviewModal'
 
 type View = 'dashboard' | 'billing' | 'tests'
@@ -1280,7 +1280,8 @@ function PrintLaboratoryBill({ bill }: { bill: LaboratoryBill }) {
       <BillTitle title="Mother and Child Health Support Center" subtitle="Laboratory bill" />
 
       <div className="receipt-meta">
-            <div className="receipt-meta-row"><span>Date</span><strong>{formatDate(document.created_at)}</strong></div>
+            <div className="receipt-meta-row"><span>Time</span><strong>{formatReceiptTime(document.created_at)}</strong></div>
+            <div className="receipt-meta-row"><span>Date</span><strong>{formatReceiptDate(document.created_at)} - {formatAfghanistanReceiptDate(document.created_at)}</strong></div>
             <div className="receipt-meta-row"><span>Reception</span><strong>{bill.payment_status ?? 'pending'}</strong></div>
             <div className="receipt-meta-row"><span>Patient</span><strong>{billCustomerLabel(bill)}</strong></div>
             <div className="receipt-meta-row"><span>Patient ID</span><strong>{bill.patient}</strong></div>

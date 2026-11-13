@@ -6,11 +6,12 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.db.models import Sum
+from django.utils import timezone
 from rest_framework import serializers
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from accounts.permissions import Role
-from .models import AuditLog, CashBankTransaction, ClinicalDocument, DoctorDepartmentAssignment, EmergencyServicePrice, Expense, ExpenseCategory, ExpenseSubcategory, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, VehicleExpenseDetails, WebsiteGalleryImage, WebsitePageContent, WebsitePost, WebsitePostImage, WebsiteSettings, round_up_to_ten
+from .models import AuditLog, CashBankTransaction, ClinicalDocument, DoctorDepartmentAssignment, EmergencyServicePrice, Expense, ExpenseCategory, ExpenseSubcategory, LabTest, Medicine, MedicineStockMovement, Patient, Payment, PaymentEmergencyService, PrivateDocument, SalaryAdvance, SalaryAdvanceSettlement, SalaryPayment, VehicleExpenseDetails, WebsiteGalleryImage, WebsitePageContent, WebsitePost, WebsitePostImage, WebsiteSettings, round_up_to_ten
 from .salary_rules import AFGHAN_MONTHS, calculate_afghanistan_salary_tax, current_afghan_date
 
 
@@ -168,14 +169,32 @@ class PatientSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class PaymentEmergencyServiceSerializer(serializers.ModelSerializer):
+    label = serializers.CharField(source='get_service_display', read_only=True)
+
+    class Meta:
+        model = PaymentEmergencyService
+        fields = ('id', 'service', 'label', 'price')
+        read_only_fields = fields
+
+
 class PaymentSerializer(serializers.ModelSerializer):
     patient_name = serializers.CharField(source='patient.__str__', read_only=True)
     patient_full_name = serializers.SerializerMethodField()
+    patient_father_name = serializers.CharField(source='patient.father_name', read_only=True)
+    patient_mobile_number = serializers.CharField(source='patient.mobile_number', read_only=True)
     midwifery_service = serializers.CharField(required=False, allow_blank=True)
     midwifery_service_label = serializers.SerializerMethodField()
     midwifery_fp_service_label = serializers.CharField(source='get_midwifery_fp_service_display', read_only=True)
     emergency_service = serializers.CharField(required=False, allow_blank=True)
     emergency_service_label = serializers.CharField(source='get_emergency_service_display', read_only=True)
+    emergency_services = serializers.ListField(
+        child=serializers.ChoiceField(choices=Payment.EmergencyService.choices),
+        required=False,
+        allow_empty=True,
+        write_only=True,
+    )
+    emergency_service_items = PaymentEmergencyServiceSerializer(many=True, read_only=True)
     created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
     approved_by_name = serializers.CharField(source='approved_by.get_full_name', read_only=True)
@@ -203,6 +222,7 @@ class PaymentSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        self._emergency_service_prices: list[tuple[str, Decimal]] | None = None
         department = attrs.get('department', getattr(self.instance, 'department', ''))
         if department.strip().casefold() == 'opd':
             department = 'Internal Medicines'
@@ -211,6 +231,7 @@ class PaymentSerializer(serializers.ModelSerializer):
         midwifery_service = attrs.get('midwifery_service', getattr(self.instance, 'midwifery_service', ''))
         midwifery_fp_service = attrs.get('midwifery_fp_service', getattr(self.instance, 'midwifery_fp_service', ''))
         emergency_service = attrs.get('emergency_service', getattr(self.instance, 'emergency_service', ''))
+        requested_emergency_services = attrs.get('emergency_services') if 'emergency_services' in attrs else None
         emergency_service_fee = attrs.get('emergency_service_fee', getattr(self.instance, 'emergency_service_fee', Decimal('0'))) or Decimal('0')
         patient_age = attrs.get('patient_age', getattr(self.instance, 'patient_age', None))
         patient_age_unit = normalize_age_unit(
@@ -231,14 +252,36 @@ class PaymentSerializer(serializers.ModelSerializer):
         elif normalized_department == 'emergency':
             doctor_fee = Decimal('0')
             allowed_emergency_services = dict(Payment.EmergencyService.choices)
-            changing_emergency_service = self.instance is None or 'department' in attrs or 'emergency_service' in attrs
-            if changing_emergency_service and emergency_service not in allowed_emergency_services:
-                raise serializers.ValidationError({'emergency_service': 'Select a valid Emergency service.'})
-            if emergency_service in allowed_emergency_services:
-                configured_price = EmergencyServicePrice.objects.filter(service=emergency_service).values_list('price', flat=True).first()
-                if configured_price is None:
-                    raise serializers.ValidationError({'emergency_service': 'This Emergency service does not have a configured price.'})
-                emergency_service_fee = configured_price if changing_emergency_service else getattr(self.instance, 'emergency_service_fee', Decimal('0'))
+            changing_emergency_service = self.instance is None or 'department' in attrs or 'emergency_service' in attrs or requested_emergency_services is not None
+            if requested_emergency_services is None:
+                if 'emergency_service' in attrs:
+                    selected_emergency_services = [emergency_service] if emergency_service else []
+                elif self.instance and self.instance.emergency_service_items.exists():
+                    selected_emergency_services = list(self.instance.emergency_service_items.values_list('service', flat=True))
+                else:
+                    selected_emergency_services = [emergency_service] if emergency_service else []
+            else:
+                selected_emergency_services = requested_emergency_services
+            if len(selected_emergency_services) != len(set(selected_emergency_services)):
+                raise serializers.ValidationError({'emergency_services': 'Each Emergency service can only be selected once.'})
+            if changing_emergency_service and not selected_emergency_services:
+                raise serializers.ValidationError({'emergency_services': 'Select at least one Emergency service.'})
+            if any(service not in allowed_emergency_services for service in selected_emergency_services):
+                raise serializers.ValidationError({'emergency_services': 'Select valid Emergency services.'})
+            if changing_emergency_service:
+                configured_prices = {
+                    row.service: row.price
+                    for row in EmergencyServicePrice.objects.filter(service__in=selected_emergency_services)
+                }
+                missing_prices = [service for service in selected_emergency_services if service not in configured_prices]
+                if missing_prices:
+                    raise serializers.ValidationError({'emergency_services': 'One or more Emergency services do not have configured prices.'})
+                self._emergency_service_prices = [(service, money(configured_prices[service])) for service in selected_emergency_services]
+                emergency_service_fee = sum((price for _service, price in self._emergency_service_prices), Decimal('0'))
+                attrs['emergency_services'] = selected_emergency_services
+                attrs['emergency_service'] = selected_emergency_services[0]
+            else:
+                emergency_service_fee = getattr(self.instance, 'emergency_service_fee', Decimal('0'))
 
         if doctor_fee < 0:
             raise serializers.ValidationError({'doctor_fee': 'Doctor fee cannot be negative.'})
@@ -295,17 +338,42 @@ class PaymentSerializer(serializers.ModelSerializer):
             attrs['midwifery_service'] = ''
             attrs['midwifery_fp_service'] = ''
         if normalized_department == 'emergency':
-            changing_emergency_service = self.instance is None or 'department' in attrs or 'emergency_service' in attrs
-            allowed_emergency_services = dict(Payment.EmergencyService.choices)
-            if changing_emergency_service and not emergency_service:
-                raise serializers.ValidationError({'emergency_service': 'Select an Emergency service.'})
-            if emergency_service in allowed_emergency_services:
-                attrs['service'] = f"{department}: {Payment.EmergencyService(emergency_service).label}"
+            selected_emergency_services = attrs.get('emergency_services')
+            if selected_emergency_services:
+                attrs['service'] = f"{department}: {', '.join(Payment.EmergencyService(service).label for service in selected_emergency_services)}"
         else:
             attrs['emergency_service'] = ''
+            if self.instance is not None and ('department' in attrs or self.instance.emergency_service_items.exists()):
+                attrs['emergency_services'] = []
         if not attrs.get('service') and attrs.get('department'):
             attrs['service'] = f"{attrs['department']} consultation"
         return attrs
+
+    def _replace_emergency_services(self, payment, services: list[str] | None):
+        if services is None:
+            return
+        payment.emergency_service_items.all().delete()
+        if not services:
+            return
+        prices = dict(self._emergency_service_prices or [])
+        PaymentEmergencyService.objects.bulk_create([
+            PaymentEmergencyService(payment=payment, service=service, price=prices[service])
+            for service in services
+        ])
+
+    def create(self, validated_data):
+        emergency_services = validated_data.pop('emergency_services', None)
+        with transaction.atomic():
+            payment = super().create(validated_data)
+            self._replace_emergency_services(payment, emergency_services)
+        return payment
+
+    def update(self, instance, validated_data):
+        emergency_services = validated_data.pop('emergency_services', None)
+        with transaction.atomic():
+            payment = super().update(instance, validated_data)
+            self._replace_emergency_services(payment, emergency_services)
+        return payment
 
 
 class EmergencyServicePriceSerializer(serializers.ModelSerializer):
@@ -459,6 +527,8 @@ class ExpenseSerializer(serializers.ModelSerializer):
         vehicle_details = attrs.get('vehicle_details', serializers.empty)
         category = attrs.get('category', getattr(self.instance, 'category', ''))
         payment_method = attrs.get('payment_method', getattr(self.instance, 'payment_method', Expense.PaymentMethod.CASH))
+        is_old_expense = attrs.get('is_old_expense', getattr(self.instance, 'is_old_expense', False))
+        expense_date = attrs.get('expense_date', getattr(self.instance, 'expense_date', None))
         errors = {}
 
         def value_for(field):
@@ -489,6 +559,15 @@ class ExpenseSerializer(serializers.ModelSerializer):
                 'cheque_status': Expense.ChequeStatus.PENDING,
                 'paid_to_received_from': '',
             })
+
+        if is_old_expense:
+            if expense_date is None:
+                errors['expense_date'] = 'Select the date shown on the old expense record.'
+            elif expense_date > timezone.localdate():
+                errors['expense_date'] = 'An old expense date cannot be in the future.'
+        else:
+            # A normal entry is dated by its immutable system-created timestamp.
+            attrs['expense_date'] = None
 
         if category == Expense.VEHICLE_TRANSPORT_CATEGORY:
             if vehicle_details is serializers.empty:

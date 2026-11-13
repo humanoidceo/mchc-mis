@@ -16,7 +16,7 @@ import type {
   PharmacySetting,
   SearchResponse,
 } from '../../types/domain'
-import { BillReceiptNote, BillSignature, BillTitle, billPaperClassName, formatReceiptAmount, PrintDocument } from '../clinic/PrintDocument'
+import { BillReceiptNote, BillSignature, BillTitle, billPaperClassName, formatAfghanistanReceiptDate, formatReceiptAmount, formatReceiptDate, formatReceiptQuantity, formatReceiptTime, PrintDocument } from '../clinic/PrintDocument'
 import { PrintPreviewModal } from '../clinic/PrintPreviewModal'
 import { PharmacyMedicineStockSection } from './PharmacyMedicineStockSection'
 
@@ -127,7 +127,7 @@ function roundUpToFive(value: number): number {
 }
 
 function formatSaleQuantity(value: string | number): string {
-  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(Number(value) || 0)
+  return formatReceiptQuantity(value)
 }
 
 function formatDariDate(value: string): string {
@@ -225,7 +225,7 @@ function normalizeSaleQuantityInput(value: string): string {
   if (!decimalParts.length) {
     return wholePart
   }
-  return `${wholePart}.${decimalParts.join('').slice(0, 1)}`
+  return `${wholePart}.${decimalParts.join('').slice(0, 2)}`
 }
 
 function normalizeFamilyPlanningQuantityInput(value: string): string {
@@ -1233,7 +1233,7 @@ function SalesWorkspace({
                       const nextRows = [...rows]
                       nextRows[index] = { ...row, quantity: normalizeSaleQuantityInput(event.target.value) }
                       setRows(nextRows)
-                    }} className={inputClassName} min="0.1" step="0.1" inputMode="decimal" type="number" required />
+                    }} className={inputClassName} min="0.01" step="0.01" inputMode="decimal" type="number" required />
                   </Field>
                   <div className="flex items-end">
                     <button className={ghostButtonClassName} disabled={rows.length === 1} onClick={() => setRows(rows.filter((_, rowIndex) => rowIndex !== index))} type="button">Remove</button>
@@ -1254,6 +1254,9 @@ function SalesWorkspace({
                 </div>
               )
             })}
+            {customerType === 'external' ? (
+              <button className={ghostButtonClassName} onClick={() => setRows([...rows, { medicine: '', quantity: '1' }])} type="button">Add medicine</button>
+            ) : null}
           </div>
           <div className="rounded border border-sky-200 bg-white p-4">
             <span className="block text-sm font-medium text-zinc-700">Payment option</span>
@@ -1281,7 +1284,6 @@ function SalesWorkspace({
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {customerType === 'external' ? <button className={ghostButtonClassName} onClick={() => setRows([...rows, { medicine: '', quantity: '1' }])} type="button">Add line</button> : null}
             <button className={buttonClassName} disabled={submitting || (customerType === 'internal' && loadingPrescription)} type="submit">{submitting ? 'Saving...' : editingSaleId === null ? 'Create bill and send to reception' : 'Save bill changes'}</button>
             {editingSaleId !== null ? <button className={ghostButtonClassName} type="button" onClick={resetBillingForm}>Cancel edit</button> : null}
           </div>
@@ -1958,7 +1960,8 @@ function PrintPharmacyBill({
 
       <div className="receipt-meta">
             <div className="receipt-meta-row"><span>Bill no.</span><strong>{sale.bill_no}</strong></div>
-            <div className="receipt-meta-row"><span>Issued</span><strong>{formatDate(sale.created_at)}</strong></div>
+            <div className="receipt-meta-row"><span>Time</span><strong>{formatReceiptTime(sale.created_at)}</strong></div>
+            <div className="receipt-meta-row"><span>Date</span><strong>{formatReceiptDate(sale.created_at)} - {formatAfghanistanReceiptDate(sale.created_at)}</strong></div>
             <div className="receipt-meta-row"><span>Patient</span><strong>{saleCustomerLabel(sale)}</strong></div>
             <div className="receipt-meta-row"><span>Patient ID</span><strong>{sale.patient ?? 'N/A'}</strong></div>
             <div className="receipt-meta-row"><span>Type</span><strong>{sale.customer_type_label} customer</strong></div>
@@ -1979,7 +1982,7 @@ function PrintPharmacyBill({
                 <tr className="border-b border-black" key={item.id}>
                   <td className="border-r border-black">{index + 1}</td>
                   <td className="border-r border-black">{item.medicine_name}{item.generic_name ? ` (${item.generic_name})` : ''}</td>
-                  <td className="border-r border-black text-right">{formatReceiptAmount(item.quantity)}</td>
+                  <td className="border-r border-black text-right">{formatReceiptQuantity(item.quantity)}</td>
                   <td className="text-right">{formatReceiptAmount(item.total_price)} AFN</td>
                 </tr>
               ))}

@@ -39,6 +39,8 @@ type ExpenseCategorySummary = {
 }
 type ExpenseFormState = {
   category: string
+  is_old_expense: boolean
+  expense_date: string
   amount: string
   description: string
   payment_method: Expense['payment_method']
@@ -168,9 +170,12 @@ const dashboardPeriodOptions: Array<{ value: DashboardStats['period']; label: st
   { value: 'annual', label: 'Annual' },
   { value: 'custom', label: 'Custom' },
 ]
+const receptionInputClassName = 'w-full rounded-2xl border border-slate-200 bg-white/90 px-3.5 py-3 text-sm text-slate-900 shadow-sm outline-none transition duration-200 placeholder:text-slate-400 hover:border-sky-200 focus:border-sky-500 focus:ring-4 focus:ring-sky-100 disabled:cursor-not-allowed disabled:bg-slate-100'
 const afghanMonthOptions = ['Hamal', 'Sawr', 'Jawza', 'Saratan', 'Asad', 'Sonbola', 'Mizan', 'Aqrab', 'Qaws', 'Jadi', 'Dalwa', 'Hut']
 const emptyExpenseForm: ExpenseFormState = {
   category: '',
+  is_old_expense: false,
+  expense_date: '',
   amount: '',
   description: '',
   payment_method: 'cash',
@@ -240,6 +245,10 @@ function parseAmount(value: string): number {
 
 function formatMoney(value: number): string {
   return value.toFixed(2)
+}
+
+function toggleEmergencyService(services: string[], service: string): string[] {
+  return services.includes(service) ? services.filter((current) => current !== service) : [...services, service]
 }
 
 function formatPercent(value: number): string {
@@ -1176,10 +1185,12 @@ function ReceptionDepartmentDoctorCombo({
   department,
   selectedUsername,
   onSelect,
+  controlClassName = inputClassName,
 }: {
   department: string
   selectedUsername: string
   onSelect: (username: string) => void
+  controlClassName?: string
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -1230,7 +1241,7 @@ function ReceptionDepartmentDoctorCombo({
     <Field label="Doctor username">
       <div className="space-y-2">
         <input
-          className={inputClassName}
+          className={controlClassName}
           value={query}
           onFocus={() => setOpen(true)}
           onClick={() => setOpen(true)}
@@ -1317,12 +1328,14 @@ function Payments({
 }) {
   const [form, setForm] = useState({
     patient_name: '',
+    father_name: '',
+    mobile_number: '',
     age_unit: 'year' as AgeUnit,
     age: '',
     department: departmentOptions[0],
     midwifery_service: '',
     midwifery_fp_service: '',
-    emergency_service: '',
+    emergency_services: [] as string[],
     doctor_fee: '',
     payment_type: 'full' as Payment['payment_type'],
     discount_percentage: '',
@@ -1340,12 +1353,14 @@ function Payments({
   const [deletingPatientId, setDeletingPatientId] = useState<number | null>(null)
   const [patientForm, setPatientForm] = useState({
     patient_name: '',
+    father_name: '',
+    mobile_number: '',
     age_unit: 'year' as AgeUnit,
     age: '',
     department: departmentOptions[0],
     midwifery_service: '',
     midwifery_fp_service: '',
-    emergency_service: '',
+    emergency_services: [] as string[],
     doctor_fee: '',
     payment_type: 'full' as Payment['payment_type'],
     discount_percentage: '',
@@ -1356,7 +1371,7 @@ function Payments({
   const departmentIsFree = isFreeDepartment(form.department)
   const departmentIsEmergency = isEmergencyDepartment(form.department)
   const effectivePaymentType: Payment['payment_type'] = departmentIsFree ? 'free' : form.payment_type
-  const emergencyServiceFee = departmentIsEmergency ? parseAmount(emergencyServicePrices.find((price) => price.service === form.emergency_service)?.price || '0') : 0
+  const emergencyServiceFee = departmentIsEmergency ? form.emergency_services.reduce((total, service) => total + parseAmount(emergencyServicePrices.find((price) => price.service === service)?.price || '0'), 0) : 0
   const doctorFee = departmentIsFree || departmentIsEmergency ? 0 : parseAmount(form.doctor_fee)
   const billableFee = departmentIsEmergency ? emergencyServiceFee : doctorFee
   const discountPercent = effectivePaymentType === 'discount' ? Math.min(100, Math.max(0, parseAmount(form.discount_percentage))) : effectivePaymentType === 'free' ? 100 : 0
@@ -1366,7 +1381,7 @@ function Payments({
   const editDepartmentIsFree = isFreeDepartment(patientForm.department)
   const editDepartmentIsEmergency = isEmergencyDepartment(patientForm.department)
   const effectiveEditPaymentType: Payment['payment_type'] = editDepartmentIsFree ? 'free' : patientForm.payment_type
-  const editEmergencyServiceFee = editDepartmentIsEmergency ? parseAmount(emergencyServicePrices.find((price) => price.service === patientForm.emergency_service)?.price || '0') : 0
+  const editEmergencyServiceFee = editDepartmentIsEmergency ? patientForm.emergency_services.reduce((total, service) => total + parseAmount(emergencyServicePrices.find((price) => price.service === service)?.price || '0'), 0) : 0
   const editDoctorFee = editDepartmentIsFree || editDepartmentIsEmergency ? 0 : parseAmount(patientForm.doctor_fee)
   const editBillableFee = editDepartmentIsEmergency ? editEmergencyServiceFee : editDoctorFee
   const editDiscountPercent = effectiveEditPaymentType === 'discount' ? Math.min(100, Math.max(0, parseAmount(patientForm.discount_percentage))) : effectiveEditPaymentType === 'free' ? 100 : 0
@@ -1380,6 +1395,8 @@ function Payments({
         payment.patient.toString(),
         payment.patient_full_name,
         payment.patient_name,
+        payment.patient_father_name,
+        payment.patient_mobile_number,
         payment.department,
         payment.service,
         payment.payment_type,
@@ -1482,8 +1499,8 @@ function Payments({
       setFormError('Select an FP service.')
       return
     }
-    if (isEmergencyDepartment(form.department) && !form.emergency_service) {
-      setFormError('Select an Emergency service.')
+    if (isEmergencyDepartment(form.department) && !form.emergency_services.length) {
+      setFormError('Select at least one Emergency service.')
       return
     }
     setSubmitting(true)
@@ -1494,6 +1511,8 @@ function Payments({
           patient: {
             first_name: form.patient_name,
             last_name: '',
+            father_name: form.father_name.trim(),
+            mobile_number: form.mobile_number.trim(),
             age: Number(form.age),
             age_unit: form.age_unit,
             gender: 'other',
@@ -1507,7 +1526,7 @@ function Payments({
             department: form.department,
             midwifery_service: form.midwifery_service,
             midwifery_fp_service: form.midwifery_fp_service,
-            emergency_service: form.emergency_service,
+            emergency_services: form.emergency_services,
             doctor_name: selectedDoctorUsername,
             patient_age: Number(form.age),
             patient_age_unit: form.age_unit,
@@ -1518,7 +1537,7 @@ function Payments({
           },
         }),
       })
-      setForm({ patient_name: '', age_unit: 'year', age: '', department: departmentOptions[0], midwifery_service: '', midwifery_fp_service: '', emergency_service: '', doctor_fee: '', payment_type: 'full', discount_percentage: '', notes: '' })
+      setForm({ patient_name: '', father_name: '', mobile_number: '', age_unit: 'year', age: '', department: departmentOptions[0], midwifery_service: '', midwifery_fp_service: '', emergency_services: [], doctor_fee: '', payment_type: 'full', discount_percentage: '', notes: '' })
       setSelectedDoctorUsername('')
       onCreated(payment)
     } catch (caught) {
@@ -1540,12 +1559,14 @@ function Payments({
     setEditingDoctorUsername('')
     setPatientForm({
       patient_name: '',
+      father_name: '',
+      mobile_number: '',
       age_unit: 'year',
       age: '',
       department: departmentOptions[0],
       midwifery_service: '',
       midwifery_fp_service: '',
-      emergency_service: '',
+      emergency_services: [],
       doctor_fee: '',
       payment_type: 'full',
       discount_percentage: '',
@@ -1560,12 +1581,14 @@ function Payments({
     setEditingDoctorUsername(payment.doctor_name || '')
     setPatientForm({
       patient_name: payment.patient_full_name || payment.patient_name,
+      father_name: payment.patient_father_name || '',
+      mobile_number: payment.patient_mobile_number || '',
       age_unit: payment.patient_age_unit || 'year',
       age: payment.patient_age === null ? '' : String(payment.patient_age),
       department: payment.department || departmentOptions[0],
       midwifery_service: payment.midwifery_service || '',
       midwifery_fp_service: payment.midwifery_fp_service || '',
-      emergency_service: payment.emergency_service || '',
+      emergency_services: payment.emergency_service_items.length ? payment.emergency_service_items.map((item) => item.service) : (payment.emergency_service ? [payment.emergency_service] : []),
       doctor_fee: payment.doctor_fee,
       payment_type: payment.payment_type,
       discount_percentage: payment.payment_type === 'discount' ? payment.discount_percentage : '',
@@ -1589,8 +1612,8 @@ function Payments({
       setPatientError('Select an FP service.')
       return
     }
-    if (isEmergencyDepartment(patientForm.department) && !patientForm.emergency_service) {
-      setPatientError('Select an Emergency service.')
+    if (isEmergencyDepartment(patientForm.department) && !patientForm.emergency_services.length) {
+      setPatientError('Select at least one Emergency service.')
       return
     }
     setPatientSubmitting(true)
@@ -1600,6 +1623,8 @@ function Payments({
         body: JSON.stringify({
           first_name: patientForm.patient_name,
           last_name: '',
+          father_name: patientForm.father_name.trim(),
+          mobile_number: patientForm.mobile_number.trim(),
           age: patientForm.age === '' ? null : Number(patientForm.age),
           age_unit: patientForm.age_unit,
         }),
@@ -1611,7 +1636,7 @@ function Payments({
           department: patientForm.department,
           midwifery_service: patientForm.midwifery_service,
           midwifery_fp_service: patientForm.midwifery_fp_service,
-          emergency_service: patientForm.emergency_service,
+          emergency_services: patientForm.emergency_services,
           doctor_name: editingDoctorUsername,
           patient_age: patientForm.age === '' ? null : Number(patientForm.age),
           patient_age_unit: patientForm.age_unit,
@@ -1651,94 +1676,83 @@ function Payments({
     <>
       <SectionHeader title="Patient registration and payment" subtitle="Register walk-in patients, calculate doctor fees, discounts, and print the reception bill." />
       <Panel>
-        <form onSubmit={submit} className="grid gap-3 md:grid-cols-4">
-          {formError ? <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 md:col-span-4">{formError}</div> : null}
-          <Field label="Patient name"><input className={inputClassName} value={form.patient_name} onChange={(e) => setForm({ ...form, patient_name: e.target.value })} required /></Field>
-          <Field label="Age unit">
-            <select className={inputClassName} value={form.age_unit} onChange={(e) => setForm({ ...form, age_unit: e.target.value as AgeUnit })}>
-              <option value="month">Month</option>
-              <option value="year">Year</option>
-            </select>
-          </Field>
-          <Field label="Age"><input className={inputClassName} type="number" min="0" value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} required /></Field>
-          <Field label="Department">
-            <select
-              className={inputClassName}
-              value={form.department}
-              onChange={(e) =>
-                {
-                  setSelectedDoctorUsername('')
-                  setForm((current) => ({
-                    ...current,
-                    department: e.target.value,
-                    midwifery_service: isMidwiferyDepartment(e.target.value) ? current.midwifery_service : '',
-                    midwifery_fp_service: isMidwiferyDepartment(e.target.value) ? current.midwifery_fp_service : '',
-                    emergency_service: isEmergencyDepartment(e.target.value) ? current.emergency_service : '',
-                    payment_type: isFreeDepartment(e.target.value) ? 'free' : (isFreeDepartment(current.department) ? 'full' : current.payment_type),
-                  }))
-                }
-              }
-            >
-              {departmentOptions.map((department) => <option key={department} value={department}>{department}</option>)}
-            </select>
-          </Field>
-          {isMidwiferyDepartment(form.department) ? (
-            <Field label="Midwifery service">
-              <select className={inputClassName} value={form.midwifery_service} onChange={(e) => setForm((current) => ({ ...current, midwifery_service: e.target.value, midwifery_fp_service: e.target.value === 'fp' ? current.midwifery_fp_service : '' }))} required>
-                <option value="">Select a service</option>
-                {isLegacyMidwiferyService(form.midwifery_service) ? <option value={form.midwifery_service}>Existing legacy service</option> : null}
-                {midwiferyServiceOptions.map((service) => <option key={service.value} value={service.value}>{service.label}</option>)}
-              </select>
-            </Field>
-          ) : null}
-          {isMidwiferyDepartment(form.department) && form.midwifery_service === 'fp' ? (
-            <Field label="FP service">
-              <select className={inputClassName} value={form.midwifery_fp_service} onChange={(e) => setForm((current) => ({ ...current, midwifery_fp_service: e.target.value }))} required>
-                <option value="">Select an FP service</option>
-                {midwiferyFpServiceOptions.map((service) => <option key={service.value} value={service.value}>{service.label}</option>)}
-              </select>
-            </Field>
-          ) : null}
-          {isEmergencyDepartment(form.department) ? (
-            <Field label="Emergency service">
-              <select className={inputClassName} value={form.emergency_service} onChange={(event) => setForm((current) => ({ ...current, emergency_service: event.target.value }))} required>
-                <option value="">Select an Emergency service</option>
-                {emergencyServiceOptions.map((service) => <option key={service.value} value={service.value}>{service.label}</option>)}
-              </select>
-            </Field>
-          ) : null}
-          {needsReceptionDoctor(form.department) ? <ReceptionDepartmentDoctorCombo department={form.department} selectedUsername={selectedDoctorUsername} onSelect={setSelectedDoctorUsername} /> : null}
-          {!departmentIsEmergency ? <Field label="Doctor fee">
-            <input className={inputClassName} type="number" min="0" step="0.01" value={departmentIsFree ? '0.00' : form.doctor_fee} onChange={(e) => setForm({ ...form, doctor_fee: e.target.value })} disabled={departmentIsFree} required={!departmentIsFree} />
-          </Field> : null}
-          <div className="md:col-span-4">
-            <span className="mb-1 block text-sm font-medium text-zinc-700">Payment option</span>
-            <div className="flex flex-wrap gap-3 rounded border border-sky-200 bg-white px-3 py-2 text-sm">
-              <label className="flex items-center gap-2"><input type="radio" checked={effectivePaymentType === 'full'} onChange={() => choosePaymentType('full')} disabled={departmentIsFree} /> Full payment</label>
-              <label className="flex items-center gap-2"><input type="radio" checked={effectivePaymentType === 'free'} onChange={() => choosePaymentType('free')} /> Free</label>
-              <label className="flex items-center gap-2"><input type="radio" checked={effectivePaymentType === 'discount'} onChange={() => choosePaymentType('discount')} disabled={departmentIsFree} /> Discount percentage</label>
+        <div className="overflow-hidden rounded-[28px] border border-sky-100 bg-white shadow-[0_24px_65px_-38px_rgba(14,116,144,0.55)]">
+          <div className="relative overflow-hidden bg-[radial-gradient(circle_at_top_right,rgba(186,230,253,0.72),transparent_34%),linear-gradient(135deg,#0f3c5d,#0e7490_55%,#0284c7)] px-5 py-5 text-white sm:px-7">
+            <div className="absolute -right-10 -top-12 h-40 w-40 rounded-full border border-white/20" />
+            <div className="absolute right-16 top-16 h-16 w-16 rounded-full bg-cyan-300/20 blur-xl" />
+            <div className="relative flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-100">Reception desk</p>
+                <h2 className="mt-1 text-xl font-semibold tracking-tight">New patient intake</h2>
+                <p className="mt-1 text-sm text-sky-100">Complete the patient details, then confirm the payment below.</p>
+              </div>
+              <div className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2 text-sm backdrop-blur-sm">
+                <span className="block text-[11px] uppercase tracking-[0.18em] text-cyan-100">Secure record</span>
+                <span className="font-medium">Registration + bill</span>
+              </div>
             </div>
-            {departmentIsFree ? <p className="mt-2 text-xs text-emerald-700">Vaccination and Malnutrition registrations are always free of charge.</p> : null}
           </div>
-          {effectivePaymentType === 'discount' ? (
-            <Field label="Discount percentage">
-              <input className={inputClassName} type="number" min="0" max="100" step="0.01" value={form.discount_percentage} onChange={(e) => setForm({ ...form, discount_percentage: e.target.value })} placeholder="Type 20 for 20%" required />
-            </Field>
-          ) : null}
-          <Field label="Notes"><input className={inputClassName} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
-          <div className="grid gap-2 rounded border border-pink-100 bg-pink-50 p-3 text-sm md:col-span-4 md:grid-cols-3">
-            {departmentIsEmergency ? <p><strong>Emergency service fee:</strong> {formatMoney(emergencyServiceFee)}</p> : <p><strong>Doctor fee:</strong> {formatMoney(doctorFee)}</p>}
-            <p><strong>Payment option:</strong> {effectivePaymentType === 'free' ? 'Free' : effectivePaymentType === 'discount' ? `${formatPercent(discountPercent)}% discount (${formatMoney(discountAmount)})` : 'Full payment'}</p>
-            <p><strong>Amount after discount:</strong> {effectivePaymentType === 'free' ? 'Free' : formatMoney(paymentAmount)}</p>
-          </div>
-          <div className="md:col-span-4"><button className={buttonClassName} disabled={submitting}>{submitting ? 'Creating bill...' : 'Create and preview bill'}</button></div>
-        </form>
+          <form onSubmit={submit} className="space-y-6 p-4 sm:p-6">
+            {formError ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{formError}</div> : null}
+            <section>
+              <div className="mb-4 flex items-center gap-3">
+                <span className="grid h-8 w-8 place-items-center rounded-xl bg-sky-100 text-xs font-bold text-sky-700">01</span>
+                <div><h3 className="font-semibold text-slate-900">Patient details</h3><p className="text-xs text-slate-500">Identity and contact information</p></div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-4">
+                <Field label="Patient name"><input className={receptionInputClassName} value={form.patient_name} onChange={(e) => setForm({ ...form, patient_name: e.target.value })} required /></Field>
+                <Field label="Father name"><input className={receptionInputClassName} value={form.father_name} onChange={(e) => setForm({ ...form, father_name: e.target.value })} required /></Field>
+                <Field label="Mobile number (optional)"><input className={receptionInputClassName} type="tel" inputMode="tel" value={form.mobile_number} onChange={(e) => setForm({ ...form, mobile_number: e.target.value })} /></Field>
+                <Field label="Age unit"><select className={receptionInputClassName} value={form.age_unit} onChange={(e) => setForm({ ...form, age_unit: e.target.value as AgeUnit })}><option value="month">Month</option><option value="year">Year</option></select></Field>
+                <Field label="Age"><input className={receptionInputClassName} type="number" min="0" value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} required /></Field>
+              </div>
+            </section>
+            <section className="border-t border-slate-100 pt-5">
+              <div className="mb-4 flex items-center gap-3">
+                <span className="grid h-8 w-8 place-items-center rounded-xl bg-cyan-100 text-xs font-bold text-cyan-700">02</span>
+                <div><h3 className="font-semibold text-slate-900">Service and clinician</h3><p className="text-xs text-slate-500">Choose the clinical service and assigned doctor</p></div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-4">
+                <Field label="Department">
+                  <select className={receptionInputClassName} value={form.department} onChange={(e) => { setSelectedDoctorUsername(''); setForm((current) => ({ ...current, department: e.target.value, midwifery_service: isMidwiferyDepartment(e.target.value) ? current.midwifery_service : '', midwifery_fp_service: isMidwiferyDepartment(e.target.value) ? current.midwifery_fp_service : '', emergency_services: isEmergencyDepartment(e.target.value) ? current.emergency_services : [], payment_type: isFreeDepartment(e.target.value) ? 'free' : (isFreeDepartment(current.department) ? 'full' : current.payment_type) })) }}>
+                    {departmentOptions.map((department) => <option key={department} value={department}>{department}</option>)}
+                  </select>
+                </Field>
+                {isMidwiferyDepartment(form.department) ? <Field label="Midwifery service"><select className={receptionInputClassName} value={form.midwifery_service} onChange={(e) => setForm((current) => ({ ...current, midwifery_service: e.target.value, midwifery_fp_service: e.target.value === 'fp' ? current.midwifery_fp_service : '' }))} required><option value="">Select a service</option>{isLegacyMidwiferyService(form.midwifery_service) ? <option value={form.midwifery_service}>Existing legacy service</option> : null}{midwiferyServiceOptions.map((service) => <option key={service.value} value={service.value}>{service.label}</option>)}</select></Field> : null}
+                {isMidwiferyDepartment(form.department) && form.midwifery_service === 'fp' ? <Field label="FP service"><select className={receptionInputClassName} value={form.midwifery_fp_service} onChange={(e) => setForm((current) => ({ ...current, midwifery_fp_service: e.target.value }))} required><option value="">Select an FP service</option>{midwiferyFpServiceOptions.map((service) => <option key={service.value} value={service.value}>{service.label}</option>)}</select></Field> : null}
+                {isEmergencyDepartment(form.department) ? <div className="rounded-2xl border border-rose-100 bg-rose-50/70 p-4 md:col-span-2"><p className="text-sm font-semibold text-rose-950">Emergency services <span className="font-normal text-rose-600">Select one or more</span></p><div className="mt-3 grid gap-2 sm:grid-cols-2">{emergencyServiceOptions.map((service) => <label key={service.value} className="flex cursor-pointer items-center gap-2 rounded-xl border border-rose-100 bg-white px-3 py-2.5 text-sm text-slate-800 transition hover:border-rose-200"><input className="accent-rose-600" type="checkbox" checked={form.emergency_services.includes(service.value)} onChange={() => setForm((current) => ({ ...current, emergency_services: toggleEmergencyService(current.emergency_services, service.value) }))} />{service.label}</label>)}</div></div> : null}
+                {needsReceptionDoctor(form.department) ? <ReceptionDepartmentDoctorCombo department={form.department} selectedUsername={selectedDoctorUsername} onSelect={setSelectedDoctorUsername} controlClassName={receptionInputClassName} /> : null}
+                {!departmentIsEmergency ? <Field label="Doctor fee"><input className={receptionInputClassName} type="number" min="0" step="0.01" value={departmentIsFree ? '0.00' : form.doctor_fee} onChange={(e) => setForm({ ...form, doctor_fee: e.target.value })} disabled={departmentIsFree} required={!departmentIsFree} /></Field> : null}
+              </div>
+            </section>
+            <section className="border-t border-slate-100 pt-5">
+              <div className="mb-4 flex items-center gap-3"><span className="grid h-8 w-8 place-items-center rounded-xl bg-violet-100 text-xs font-bold text-violet-700">03</span><div><h3 className="font-semibold text-slate-900">Payment details</h3><p className="text-xs text-slate-500">Select the payment arrangement and review the total</p></div></div>
+              <div className="grid gap-4 md:grid-cols-4">
+                <div className="md:col-span-4">
+                  <span className="mb-2 block text-sm font-medium text-zinc-700">Payment option</span>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    {([['full', 'Full payment', 'Standard fee'], ['free', 'Free', 'No charge'], ['discount', 'Discount', 'Set a percentage']] as const).map(([value, label, detail]) => <label key={value} className={`flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3 transition ${effectivePaymentType === value ? 'border-sky-400 bg-sky-50 ring-2 ring-sky-100' : 'border-slate-200 bg-white hover:border-sky-200'} ${(departmentIsFree && value !== 'free') ? 'cursor-not-allowed opacity-50' : ''}`}><input className="accent-sky-600" type="radio" checked={effectivePaymentType === value} onChange={() => choosePaymentType(value)} disabled={departmentIsFree && value !== 'free'} /><span><span className="block text-sm font-semibold text-slate-900">{label}</span><span className="block text-xs text-slate-500">{detail}</span></span></label>)}
+                  </div>
+                  {departmentIsFree ? <p className="mt-2 text-xs font-medium text-emerald-700">Vaccination and Malnutrition registrations are always free of charge.</p> : null}
+                </div>
+                {effectivePaymentType === 'discount' ? <Field label="Discount percentage"><input className={receptionInputClassName} type="number" min="0" max="100" step="0.01" value={form.discount_percentage} onChange={(e) => setForm({ ...form, discount_percentage: e.target.value })} placeholder="Type 20 for 20%" required /></Field> : null}
+                <Field label="Notes"><input className={receptionInputClassName} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Optional reception note" /></Field>
+              </div>
+            </section>
+            <div className="grid gap-3 rounded-2xl border border-sky-100 bg-[linear-gradient(135deg,#f0f9ff,#ffffff_55%,#ecfeff)] p-4 text-sm sm:grid-cols-3">
+              <p className="rounded-xl bg-white/80 px-3 py-2 text-slate-700"><span className="block text-xs font-medium uppercase tracking-wide text-slate-400">{departmentIsEmergency ? 'Emergency services fee' : 'Doctor fee'}</span><strong className="mt-1 block text-base text-slate-950">{formatMoney(departmentIsEmergency ? emergencyServiceFee : doctorFee)} AFN</strong></p>
+              <p className="rounded-xl bg-white/80 px-3 py-2 text-slate-700"><span className="block text-xs font-medium uppercase tracking-wide text-slate-400">Payment option</span><strong className="mt-1 block text-base text-slate-950">{effectivePaymentType === 'free' ? 'Free' : effectivePaymentType === 'discount' ? `${formatPercent(discountPercent)}% discount` : 'Full payment'}</strong></p>
+              <p className="rounded-xl bg-sky-600 px-3 py-2 text-white shadow-lg shadow-sky-200"><span className="block text-xs font-medium uppercase tracking-wide text-sky-100">Amount after discount</span><strong className="mt-1 block text-base">{effectivePaymentType === 'free' ? 'Free' : `${formatMoney(paymentAmount)} AFN`}</strong></p>
+            </div>
+            <button className="inline-flex min-h-12 w-full items-center justify-center rounded-2xl bg-gradient-to-r from-sky-600 to-cyan-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-sky-200 transition hover:-translate-y-0.5 hover:from-sky-700 hover:to-cyan-600 focus:outline-none focus:ring-4 focus:ring-sky-200 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-60" disabled={submitting} type="submit">{submitting ? 'Creating bill...' : 'Create and preview bill'}</button>
+          </form>
+        </div>
       </Panel>
       <Panel>
         <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-sm font-semibold text-slate-950">Bills and payments</p>
-            <p className="text-sm text-zinc-500">Search by patient, registration number, department, payment type, status, or notes.</p>
+            <p className="text-sm text-zinc-500">Search by patient, father name, mobile number, registration number, department, payment type, status, or notes.</p>
           </div>
           <div className="w-full max-w-4xl rounded-2xl border border-sky-100 bg-[linear-gradient(135deg,rgba(240,249,255,0.95),rgba(255,255,255,0.98)_48%,rgba(236,254,255,0.95))] p-3 shadow-sm shadow-sky-100/80">
             <div className="grid gap-3 md:grid-cols-[minmax(0,1.5fr)_minmax(0,0.8fr)_minmax(0,0.8fr)]">
@@ -1751,7 +1765,7 @@ function Payments({
                   className="h-11 w-full rounded-xl border border-white/80 bg-white/95 px-4 text-sm text-slate-800 shadow-[0_10px_30px_rgba(186,230,253,0.25)] outline-none transition placeholder:text-slate-400 focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
                   value={paymentsSearch}
                   onChange={(event) => onPaymentsSearchChange(event.target.value)}
-                  placeholder="Search patient, department, payment type, status"
+                  placeholder="Search patient, father name, mobile number, department..."
                 />
               </label>
               <label className="block">
@@ -1784,7 +1798,7 @@ function Payments({
         </div>
         <div className="overflow-auto">
           <table className="w-full text-left text-sm">
-            <thead><tr className="border-b border-zinc-200"><th className="py-2">No.</th><th>Patient ID</th><th>Patient</th><th>Age</th><th>Department</th><th>Fee</th><th>Payment</th><th>Amount after discount</th><th>Status</th><th></th></tr></thead>
+            <thead><tr className="border-b border-zinc-200"><th className="py-2">No.</th><th>Patient ID</th><th>Patient</th><th>Father name</th><th>Mobile number</th><th>Age</th><th>Department</th><th>Fee</th><th>Payment</th><th>Amount after discount</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {filteredPayments.map((payment, index) => {
                 const canEdit = isEditableReceptionPayment(payment)
@@ -1794,8 +1808,10 @@ function Payments({
                     <td className="py-2 font-medium text-slate-700">{rowNumber}</td>
                     <td><span className="inline-block rounded bg-pink-600 px-2 py-1 font-medium text-white">{payment.patient}</span></td>
                     <td className="py-2">{payment.patient_full_name || payment.patient_name}</td>
+                    <td>{payment.patient_father_name || '—'}</td>
+                    <td>{payment.patient_mobile_number || '—'}</td>
                     <td>{formatAgeWithUnit(payment.patient_age, payment.patient_age_unit)}</td>
-                    <td>{payment.department || payment.service}{payment.midwifery_service ? <p className="text-xs text-zinc-500">{payment.midwifery_service_label}</p> : null}{payment.emergency_service ? <p className="text-xs text-zinc-500">{payment.emergency_service_label}</p> : null}</td>
+                    <td>{payment.department || payment.service}{payment.midwifery_service ? <p className="text-xs text-zinc-500">{payment.midwifery_service_label}</p> : null}{payment.emergency_service_items.length ? <p className="text-xs text-zinc-500">{payment.emergency_service_items.map((item) => item.label).join(', ')}</p> : payment.emergency_service ? <p className="text-xs text-zinc-500">{payment.emergency_service_label}</p> : null}</td>
                     <td>{payment.department.trim().toLowerCase() === 'pharmacy' ? '.' : payment.department.trim().toLowerCase() === 'emergency' ? payment.emergency_service_fee : payment.doctor_fee}</td>
                     <td>{payment.payment_type === 'free' ? 'Free' : payment.payment_type === 'discount' ? `${payment.discount_percentage}% discount` : 'Full payment'}</td>
                     <td><span className="inline-block rounded bg-emerald-600 px-2 py-1 font-medium text-white">{payment.payment_type === 'free' ? 'Free' : `${Number(payment.amount).toFixed(1)} AFN`}</span></td>
@@ -1811,7 +1827,7 @@ function Payments({
               })}
               {!filteredPayments.length ? (
                 <tr>
-                  <td className="py-4 text-center text-zinc-500" colSpan={10}>{paymentsSearch.trim() ? 'No bills match this search.' : 'No bills found.'}</td>
+                  <td className="py-4 text-center text-zinc-500" colSpan={12}>{paymentsSearch.trim() ? 'No bills match this search.' : 'No bills found.'}</td>
                 </tr>
               ) : null}
             </tbody>
@@ -1832,6 +1848,8 @@ function Payments({
             <form onSubmit={submitPatientUpdate} className="grid gap-3 rounded border border-sky-100 bg-sky-50/50 p-4 md:grid-cols-4">
               {patientError ? <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 md:col-span-4">{patientError}</div> : null}
               <Field label="Patient name"><input className={inputClassName} value={patientForm.patient_name} onChange={(event) => setPatientForm((current) => ({ ...current, patient_name: event.target.value }))} required /></Field>
+              <Field label="Father name"><input className={inputClassName} value={patientForm.father_name} onChange={(event) => setPatientForm((current) => ({ ...current, father_name: event.target.value }))} required /></Field>
+              <Field label="Mobile number (optional)"><input className={inputClassName} type="tel" value={patientForm.mobile_number} onChange={(event) => setPatientForm((current) => ({ ...current, mobile_number: event.target.value }))} /></Field>
               <Field label="Age unit">
                 <select className={inputClassName} value={patientForm.age_unit} onChange={(event) => setPatientForm((current) => ({ ...current, age_unit: event.target.value as AgeUnit }))}>
                   <option value="month">Month</option>
@@ -1851,7 +1869,7 @@ function Payments({
                         department: event.target.value,
                         midwifery_service: isMidwiferyDepartment(event.target.value) ? current.midwifery_service : '',
                         midwifery_fp_service: isMidwiferyDepartment(event.target.value) ? current.midwifery_fp_service : '',
-                        emergency_service: isEmergencyDepartment(event.target.value) ? current.emergency_service : '',
+                        emergency_services: isEmergencyDepartment(event.target.value) ? current.emergency_services : [],
                         payment_type: isFreeDepartment(event.target.value) ? 'free' : (isFreeDepartment(current.department) ? 'full' : current.payment_type),
                       }))
                     }
@@ -1878,12 +1896,12 @@ function Payments({
                 </Field>
               ) : null}
               {isEmergencyDepartment(patientForm.department) ? (
-                <Field label="Emergency service">
-                  <select className={inputClassName} value={patientForm.emergency_service} onChange={(event) => setPatientForm((current) => ({ ...current, emergency_service: event.target.value }))} required>
-                    <option value="">Select an Emergency service</option>
-                    {emergencyServiceOptions.map((service) => <option key={service.value} value={service.value}>{service.label}</option>)}
-                  </select>
-                </Field>
+                <div className="rounded border border-rose-100 bg-rose-50/60 p-3 md:col-span-2">
+                  <p className="text-sm font-medium text-zinc-700">Emergency services <span className="text-rose-600">(select one or more)</span></p>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    {emergencyServiceOptions.map((service) => <label key={service.value} className="flex items-center gap-2 rounded bg-white px-3 py-2 text-sm text-slate-800"><input type="checkbox" checked={patientForm.emergency_services.includes(service.value)} onChange={() => setPatientForm((current) => ({ ...current, emergency_services: toggleEmergencyService(current.emergency_services, service.value) }))} />{service.label}</label>)}
+                  </div>
+                </div>
               ) : null}
               {needsReceptionDoctor(patientForm.department) ? <ReceptionDepartmentDoctorCombo department={patientForm.department} selectedUsername={editingDoctorUsername} onSelect={setEditingDoctorUsername} /> : null}
               {!editDepartmentIsEmergency ? <Field label="Doctor fee">
@@ -1904,7 +1922,7 @@ function Payments({
               ) : null}
               <Field label="Notes"><input className={inputClassName} value={patientForm.notes} onChange={(event) => setPatientForm((current) => ({ ...current, notes: event.target.value }))} /></Field>
               <div className="grid gap-2 rounded border border-pink-100 bg-pink-50 p-3 text-sm md:col-span-4 md:grid-cols-3">
-                {editDepartmentIsEmergency ? <p><strong>Emergency service fee:</strong> {formatMoney(editEmergencyServiceFee)}</p> : <p><strong>Doctor fee:</strong> {formatMoney(editDoctorFee)}</p>}
+                {editDepartmentIsEmergency ? <p><strong>Emergency services fee:</strong> {formatMoney(editEmergencyServiceFee)}</p> : <p><strong>Doctor fee:</strong> {formatMoney(editDoctorFee)}</p>}
                 <p><strong>Payment option:</strong> {effectiveEditPaymentType === 'free' ? 'Free' : effectiveEditPaymentType === 'discount' ? `${formatPercent(editDiscountPercent)}% discount (${formatMoney(editDiscountAmount)})` : 'Full payment'}</p>
                 <p><strong>Amount after discount:</strong> {effectiveEditPaymentType === 'free' ? 'Free' : formatMoney(editPaymentAmount)}</p>
               </div>
@@ -2404,6 +2422,8 @@ function ExpensesSection() {
         body: JSON.stringify({
           name: '',
           category: form.category.trim(),
+          is_old_expense: form.is_old_expense,
+          expense_date: form.is_old_expense ? form.expense_date : null,
           amount: isVehicleExpense && vehicleForm.expense_type === 'fuel' ? fuelCost.toFixed(2) : form.amount,
           description: form.description.trim(),
           payment_method: form.payment_method,
@@ -2462,6 +2482,8 @@ function ExpensesSection() {
     setEditingId(expense.id)
     setForm({
       category: expense.category,
+      is_old_expense: expense.is_old_expense,
+      expense_date: expense.expense_date || '',
       amount: expense.amount,
       description: expense.description,
       payment_method: expense.payment_method,
@@ -2556,6 +2578,22 @@ function ExpensesSection() {
                 setForm((current) => ({ ...current, category: code }))
               }}
             />
+            <div className="rounded border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-slate-700">
+              <label className="flex cursor-pointer items-center gap-2 font-medium text-slate-900">
+                <input
+                  type="checkbox"
+                  checked={form.is_old_expense}
+                  onChange={(event) => setForm((current) => ({ ...current, is_old_expense: event.target.checked, expense_date: event.target.checked ? current.expense_date : '' }))}
+                />
+                Old expenses
+              </label>
+              <p className="mt-1 text-xs text-slate-600">Use this only for expenses recorded on paper before the MIS was introduced.</p>
+              {form.is_old_expense ? (
+                <div className="mt-3 max-w-xs">
+                  <Field label="Expense date"><input className={inputClassName} type="date" max={todayDateInputValue()} value={form.expense_date} onChange={(event) => setForm((current) => ({ ...current, expense_date: event.target.value }))} required /></Field>
+                </div>
+              ) : null}
+            </div>
             {!editingId ? (
               <div className="rounded border border-sky-100 bg-sky-50 px-3 py-2 text-sm text-slate-700">
                 <strong>Voucher number:</strong> Generated automatically as {isVehicleExpense ? 'VCH-car-XXXXX' : 'VCH-XXXXX'} when this expense is saved.
@@ -2680,7 +2718,7 @@ function ExpensesSection() {
                     <p className="mt-1 text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">{expense.voucher_number}</p>
                     <p className="text-sm font-medium text-sky-700">{expense.category_label}</p>
                     <p className="mt-2 text-sm font-semibold text-slate-900">{formatAfn(expense.amount)}</p>
-                    <p className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-400">{new Date(expense.created_at).toLocaleString()}</p>
+                    <p className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-400">{expense.is_old_expense && expense.expense_date ? `Old expense: ${expense.expense_date}` : new Date(expense.created_at).toLocaleString()}</p>
                   </div>
                   <div className="rounded-full bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700">
                     {expense.salary_payment ? 'Generated from salary settlement' : expense.salary_advance ? 'Generated from salary advance' : (expense.created_by_name || 'Reception')}

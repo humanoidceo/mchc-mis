@@ -66,6 +66,8 @@ class Patient(TimestampedModel, SoftDeleteModel):
     registration_number = models.CharField(max_length=32, unique=True)
     first_name = models.CharField(max_length=80)
     last_name = models.CharField(max_length=80, blank=True)
+    father_name = models.CharField(max_length=120, blank=True, default='')
+    mobile_number = models.CharField(max_length=32, blank=True, default='')
     age = models.PositiveIntegerField(null=True, blank=True)
     age_unit = models.CharField(max_length=8, choices=AgeUnit.choices, default=AgeUnit.YEAR)
     gender = models.CharField(max_length=16, choices=Gender.choices)
@@ -152,6 +154,21 @@ class Payment(TimestampedModel, SoftDeleteModel):
 
     class Meta:
         ordering = ('-created_at',)
+
+
+class PaymentEmergencyService(TimestampedModel):
+    payment = models.ForeignKey(Payment, on_delete=models.CASCADE, related_name='emergency_service_items')
+    service = models.CharField(max_length=32, choices=Payment.EmergencyService.choices)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+
+    class Meta:
+        ordering = ('id',)
+        constraints = [
+            models.UniqueConstraint(fields=('payment', 'service'), name='unique_payment_emergency_service'),
+        ]
+
+    def __str__(self) -> str:
+        return f'{self.payment_id} - {self.get_service_display()}'
 
 
 class EmergencyServicePrice(TimestampedModel):
@@ -259,6 +276,11 @@ class Expense(TimestampedModel, SoftDeleteModel):
         CANCELLED = 'cancelled', 'Cancelled'
 
     voucher_number = models.CharField(max_length=24, unique=True)
+    # Keep the system timestamp in ``created_at`` for audit purposes.  Old
+    # paper records may additionally carry the date on which the expense
+    # actually occurred.
+    is_old_expense = models.BooleanField(default=False)
+    expense_date = models.DateField(null=True, blank=True, db_index=True)
     name = models.CharField(max_length=180, blank=True, default='')
     category = models.CharField(max_length=120)
     amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
