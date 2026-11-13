@@ -18,6 +18,7 @@ import { WebsitePostsPage } from '../website/WebsitePostsPage'
 import { WebsiteGalleryPage } from '../website/WebsiteGalleryPage'
 import { TrashBinPage } from '../trash/TrashBinPage'
 import { ClinicWorkspace } from './ClinicWorkspace'
+import { PatientPaymentHistoryPage } from './PatientPaymentHistoryPage'
 import { DatabaseBackupPage } from './DatabaseBackupPage'
 import { DoctorDepartmentPage } from './DoctorDepartmentPage'
 import { ExpenseCategoriesPage } from './ExpenseCategoriesPage'
@@ -322,6 +323,7 @@ export function DashboardLayout() {
             <Route path="/dashboard" element={<ClinicWorkspace view="dashboard" />} />
             <Route path="/patients" element={<ClinicWorkspace view="patients" />} />
             <Route path="/payments" element={<ClinicWorkspace view="payments" />} />
+            <Route path="/payments/:patientId/history" element={<PatientPaymentHistoryPage />} />
             <Route path="/doctor-departments" element={<DoctorDepartmentPage />} />
             <Route path="/reception-report" element={<ClinicWorkspace view="reception-report" />} />
             <Route path="/expenses" element={<ClinicWorkspace view="expenses" />} />

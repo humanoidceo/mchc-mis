@@ -1,5 +1,6 @@
 import { startTransition, useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent, UIEvent } from 'react'
+import { Banknote, CheckCircle2, Clock3, Gift, PackageCheck, Percent, Pill, RefreshCw, ShoppingCart, TriangleAlert, TrendingUp, WalletCards } from 'lucide-react'
 
 import { ApiError, apiDownload, apiFetch } from '../../api/client'
 import { buttonClassName, Field, ghostButtonClassName, inputClassName, PaginationControls, Panel, SectionHeader } from '../../components/ui'
@@ -690,23 +691,32 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
     }
   }, [period, recentSalesPage, fromDate, toDate])
 
-  const statCards: Array<{ label: string; value: string | number; amount?: string; detail?: string; secondaryLabel?: string; secondaryAmount?: string; tone: string }> = [
-    { label: 'Medicines registered', value: report.medicines_registered_count ?? 0, detail: report.period_label, tone: 'border-lime-100 bg-lime-50 text-lime-700' },
-    { label: 'Internal patients', value: report.internal_patients, amount: report.internal_amount, tone: 'border-sky-100 bg-sky-50 text-sky-700' },
-    { label: 'External patients', value: report.external_patients, amount: report.external_amount, tone: 'border-cyan-100 bg-cyan-50 text-cyan-700' },
-    { label: 'Full paid', value: report.full_paid, amount: report.full_paid_amount, tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
-    { label: 'Discounted', value: report.discounted, amount: report.discounted_amount, tone: 'border-violet-100 bg-violet-50 text-violet-700' },
-    { label: 'Free', value: report.free, amount: report.free_amount, tone: 'border-rose-100 bg-rose-50 text-rose-700' },
-    { label: 'Reception pending', value: report.pending_reception_payments, amount: report.pending_reception_amount, tone: 'border-amber-100 bg-amber-50 text-amber-700' },
-    { label: 'Reception approved', value: report.approved_reception_payments, amount: report.approved_reception_amount, tone: 'border-teal-100 bg-teal-50 text-teal-700' },
-    { label: 'Medicine stock value', value: 'Based on buy price', amount: report.inventory_value, secondaryLabel: 'Sell price', secondaryAmount: report.inventory_sale_value, tone: 'border-fuchsia-100 bg-fuchsia-50 text-fuchsia-700' },
+  const statCards: Array<{ label: string; value: string | number; amount?: string; detail?: string; secondaryLabel?: string; secondaryAmount?: string; tone: string; icon: typeof Pill }> = [
+    { label: 'Medicines registered', value: report.medicines_registered_count ?? 0, detail: report.period_label, tone: 'border-lime-100 bg-lime-50 text-lime-700', icon: Pill },
+    { label: 'Internal patients', value: report.internal_patients, amount: report.internal_amount, tone: 'border-sky-100 bg-sky-50 text-sky-700', icon: PackageCheck },
+    { label: 'External patients', value: report.external_patients, amount: report.external_amount, tone: 'border-cyan-100 bg-cyan-50 text-cyan-700', icon: ShoppingCart },
+    { label: 'Full paid', value: report.full_paid, amount: report.full_paid_amount, tone: 'border-emerald-100 bg-emerald-50 text-emerald-700', icon: Banknote },
+    { label: 'Discounted', value: report.discounted, amount: report.discounted_amount, tone: 'border-violet-100 bg-violet-50 text-violet-700', icon: Percent },
+    { label: 'Free', value: report.free, amount: report.free_amount, tone: 'border-rose-100 bg-rose-50 text-rose-700', icon: Gift },
+    { label: 'Reception pending', value: report.pending_reception_payments, amount: report.pending_reception_amount, tone: 'border-amber-100 bg-amber-50 text-amber-700', icon: Clock3 },
+    { label: 'Reception approved', value: report.approved_reception_payments, amount: report.approved_reception_amount, tone: 'border-teal-100 bg-teal-50 text-teal-700', icon: CheckCircle2 },
+    { label: 'Medicine stock value', value: 'Based on buy price', amount: report.inventory_value, secondaryLabel: 'Sell price', secondaryAmount: report.inventory_sale_value, tone: 'border-fuchsia-100 bg-fuchsia-50 text-fuchsia-700', icon: WalletCards },
   ]
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <SectionHeader title="Pharmacy dashboard" subtitle="Track internal and external billing activity, payment mix, and patient trends from one place." />
-        <div className="flex min-w-[18rem] flex-col gap-3 rounded-2xl border border-sky-100 bg-white px-4 py-3 shadow-sm shadow-sky-100/70 sm:min-w-[22rem] sm:flex-row sm:items-end sm:justify-end">
+        <div className="relative min-w-[18rem] flex-1 overflow-hidden rounded-[28px] border border-sky-100 bg-[radial-gradient(circle_at_top_right,rgba(186,230,253,0.8),transparent_38%),linear-gradient(135deg,#0f3c5d,#0e7490_55%,#0284c7)] px-5 py-5 text-white shadow-[0_24px_65px_-38px_rgba(14,116,144,0.8)] sm:px-7">
+          <div className="absolute -right-10 -top-12 h-40 w-40 rounded-full border border-white/20" />
+          <div className="absolute right-16 top-16 h-16 w-16 rounded-full bg-cyan-300/20 blur-xl" />
+          <div className="relative">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-100">MCHC pharmacy</p>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight">Pharmacy dashboard</h1>
+            <p className="mt-1 text-sm text-sky-100">Track internal and external billing activity, payment mix, and patient trends from one place.</p>
+            <div className="mt-4 inline-flex rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-cyan-50 backdrop-blur-sm">Live overview · {report.period_label}</div>
+          </div>
+        </div>
+        <div className="flex min-w-[18rem] flex-col gap-3 rounded-[22px] border border-sky-100 bg-[linear-gradient(135deg,#f0f9ff,#ffffff_60%,#ecfeff)] px-4 py-3 shadow-[0_18px_45px_-32px_rgba(14,116,144,0.5)] sm:min-w-[22rem] sm:flex-row sm:items-end sm:justify-end">
           <label className="flex-1 text-sm font-medium text-zinc-700">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">Report period</span>
             <select className={`${inputClassName} w-full`} value={period} onChange={(event) => setPeriod(event.target.value as PharmacyDashboardStats['period'])}>
@@ -725,33 +735,38 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
               </label>
             </>
           ) : null}
-          <button className={ghostButtonClassName} onClick={() => onRefresh(period, recentSalesPage, fromDate, toDate)}>Refresh data</button>
+          <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-600 to-cyan-500 px-5 text-sm font-semibold text-white shadow-lg shadow-sky-200 transition hover:-translate-y-0.5 hover:from-sky-700 hover:to-cyan-600 focus:outline-none focus:ring-4 focus:ring-sky-100" onClick={() => onRefresh(period, recentSalesPage, fromDate, toDate)}><RefreshCw className="h-4 w-4" aria-hidden="true" />Refresh data</button>
         </div>
       </div>
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-        {statCards.map((card) => (
-          <div key={card.label} className={`rounded-md border p-4 shadow-sm ${card.tone}`}>
-            <p className="text-xs font-semibold uppercase tracking-wide opacity-80">{card.label}</p>
-            <p className={`mt-3 font-semibold text-slate-950 ${card.secondaryAmount !== undefined ? 'text-base' : 'text-3xl'}`}>{card.value}</p>
+        {statCards.map((card) => {
+          const CardIcon = card.icon
+          return <div key={card.label} className={`group relative overflow-hidden rounded-[22px] border p-4 shadow-[0_18px_40px_-30px_rgba(15,23,42,0.45)] transition duration-200 hover:-translate-y-1 hover:shadow-lg ${card.tone}`}>
+            <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-white/45 transition duration-300 group-hover:scale-125" />
+            <div className="relative"><span className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/70 bg-white/65 shadow-sm"><CardIcon className="h-4.5 w-4.5" aria-hidden="true" /></span>
+            <p className="mt-3 text-[11px] font-bold uppercase tracking-[0.16em] opacity-80">{card.label}</p>
+            <p className={`mt-2 font-semibold tracking-tight text-slate-950 ${card.secondaryAmount !== undefined ? 'text-base' : 'text-3xl'}`}>{card.value}</p>
             {card.amount !== undefined ? <p className="mt-2 text-sm font-medium text-slate-700">{formatMoneyAfn(card.amount)}</p> : null}
             {card.secondaryAmount !== undefined ? <p className="mt-2 text-sm font-medium text-slate-700">{card.secondaryLabel}: {formatMoneyAfn(card.secondaryAmount)}</p> : null}
             {card.detail !== undefined ? <p className="mt-2 text-sm font-medium text-slate-700">{card.detail}</p> : null}
-          </div>
-        ))}
-        <div className="rounded-md border border-pink-100 bg-pink-50 p-4 shadow-sm text-pink-700">
-          <p className="text-xs font-semibold uppercase tracking-wide opacity-80">Family planning items donated</p>
-          <p className="mt-3 text-3xl font-semibold text-slate-950">{report.family_planning_items_dispensed}</p>
-          <p className="mt-2 text-sm font-medium text-slate-700">{report.period_label}</p>
+            </div></div>
+        })}
+        <div className="group relative overflow-hidden rounded-[22px] border border-pink-100 bg-pink-50 p-4 text-pink-700 shadow-[0_18px_40px_-30px_rgba(15,23,42,0.45)] transition hover:-translate-y-1 hover:shadow-lg">
+          <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-white/45 transition duration-300 group-hover:scale-125" />
+          <div className="relative"><span className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/70 bg-white/65 shadow-sm"><Gift className="h-4.5 w-4.5" aria-hidden="true" /></span><p className="mt-3 text-[11px] font-bold uppercase tracking-[0.16em] opacity-80">Family planning items donated</p>
+          <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">{report.family_planning_items_dispensed}</p>
+          <p className="mt-2 text-sm font-medium text-slate-700">{report.period_label}</p></div>
         </div>
-        <div className="rounded-md border border-indigo-100 bg-indigo-50 p-4 shadow-sm text-indigo-700 sm:col-span-2 lg:col-span-2 xl:col-span-2">
-          <p className="text-xs font-semibold uppercase tracking-wide opacity-80">Medicines sold</p>
-          <p className="mt-3 text-3xl font-semibold text-slate-950">{report.period_label}</p>
+        <div className="relative overflow-hidden rounded-[22px] border border-indigo-100 bg-indigo-50 p-4 text-indigo-700 shadow-[0_18px_40px_-30px_rgba(15,23,42,0.45)] sm:col-span-2 lg:col-span-2 xl:col-span-2">
+          <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-white/45" />
+          <div className="relative"><span className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/70 bg-white/65 shadow-sm"><ShoppingCart className="h-4.5 w-4.5" aria-hidden="true" /></span><p className="mt-3 text-[11px] font-bold uppercase tracking-[0.16em] opacity-80">Medicines sold</p>
+          <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">{report.period_label}</p>
           <div className="mt-3 space-y-1 text-sm font-medium text-slate-700">
             <p>Total: {formatMoneyAfn(report.sold_medicines_total)}</p>
             <p>Profit: {formatMoneyAfn(report.sold_medicines_profit)}</p>
             <p>Medicines price: {formatMoneyAfn(report.sold_medicines_price)}</p>
-          </div>
+          </div></div>
         </div>
       </section>
 
@@ -759,36 +774,37 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
 
       <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <Panel>
-          <div className="flex items-center justify-between">
+          <div className="rounded-2xl bg-[linear-gradient(135deg,#f0f9ff,#ffffff_62%,#ecfeff)] p-4">
             <div>
-              <p className="text-sm font-medium text-slate-500">{report.period_label} pharmacy summary</p>
-              <h2 className="mt-1 text-xl font-semibold text-slate-950">Billing performance</h2>
+              <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-sky-700"><Banknote className="h-4 w-4" aria-hidden="true" />{report.period_label} pharmacy summary</p>
+              <h2 className="mt-2 text-xl font-semibold text-slate-950">Billing performance</h2>
             </div>
-          </div>
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <div className="rounded-md border border-emerald-100 bg-emerald-50 p-4">
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 shadow-sm shadow-emerald-100/70">
               <p className="text-sm text-emerald-700">Total billed</p>
               <p className="mt-2 text-2xl font-semibold text-emerald-950">{formatMoneyAfn(report.total_billed)}</p>
             </div>
-            <div className="rounded-md border border-sky-100 bg-sky-50 p-4">
+            <div className="rounded-2xl border border-sky-100 bg-sky-50 p-4 shadow-sm shadow-sky-100/70">
               <p className="text-sm text-sky-700">Sales created</p>
               <p className="mt-2 text-2xl font-semibold text-sky-950">{report.sales_count}</p>
             </div>
-            <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4 sm:col-span-2">
+            <div className="rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm sm:col-span-2">
               <p className="text-sm text-zinc-600">Inventory cost value</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">{formatMoneyAfn(report.inventory_value)}</p>
+            </div>
             </div>
           </div>
         </Panel>
 
         <Panel>
-          <div>
-            <p className="text-sm font-medium text-slate-500">Attention needed</p>
-            <h2 className="mt-1 text-xl font-semibold text-slate-950">Low stock items</h2>
-          </div>
+          <div className="rounded-2xl bg-[linear-gradient(135deg,#fff7ed,#ffffff_62%,#fffbeb)] p-4">
+            <div>
+              <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-amber-700"><TriangleAlert className="h-4 w-4" aria-hidden="true" />Attention needed</p>
+              <h2 className="mt-2 text-xl font-semibold text-slate-950">Low stock items</h2>
+            </div>
           <div className="mt-5 space-y-3">
             {report.low_stock_items.length ? report.low_stock_items.map((medicine) => (
-              <div key={medicine.id} className="flex items-center justify-between rounded border border-amber-100 bg-amber-50 px-4 py-3">
+              <div key={medicine.id} className="flex items-center justify-between rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 shadow-sm shadow-amber-100/70">
                 <div>
                   <p className="font-medium text-slate-900">{medicine.name}</p>
                   <p className="text-sm text-slate-500">{medicine.generic_name || 'No generic name'}</p>
@@ -798,32 +814,36 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
                   <p className="text-lg font-semibold text-amber-950">{medicine.quantity}</p>
                 </div>
               </div>
-            )) : <p className="rounded border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">No low stock items right now.</p>}
+            )) : <p className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">No low stock items right now.</p>}
+          </div>
           </div>
         </Panel>
       </section>
 
       <Panel>
+        <div className="rounded-2xl bg-[linear-gradient(135deg,#f0f9ff,#ffffff_62%,#ecfeff)] p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm font-semibold text-slate-950">Patient trend</p>
+          <p className="inline-flex items-center gap-2 rounded-full bg-sky-50 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-sky-700"><TrendingUp className="h-4 w-4" aria-hidden="true" />Patient trend</p>
           <p className="text-xs font-medium text-zinc-500">
             {report.period === 'weekly' ? 'Daily trend for this week' : report.period === 'monthly' ? 'Daily trend for this month' : report.period === 'annual' ? 'Monthly trend for this year' : report.period === 'custom' ? 'Patient trend is not shown for custom periods' : 'Select weekly, monthly, annual, or custom'}
           </p>
         </div>
         {report.period === 'daily' || report.period === 'custom' ? (
-          <div className="mt-4 rounded border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500">
+          <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500">
             {report.period === 'custom' ? 'Choose daily, weekly, monthly, or annual to view the patient trend graph.' : 'Change the period to weekly, monthly, or annual to view the patient trend graph.'}
           </div>
         ) : (
           <PharmacyTrendChart data={report.patient_trend} />
         )}
+        </div>
       </Panel>
 
       <Panel>
-        <div>
-          <p className="text-sm font-medium text-slate-500">Latest activity</p>
-          <h2 className="mt-1 text-xl font-semibold text-slate-950">Recent bills</h2>
-        </div>
+        <div className="rounded-2xl bg-[linear-gradient(135deg,#faf5ff,#ffffff_62%,#fdf4ff)] p-4">
+          <div>
+            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-violet-700"><WalletCards className="h-4 w-4" aria-hidden="true" />Latest activity</p>
+            <h2 className="mt-2 text-xl font-semibold text-slate-950">Recent bills</h2>
+          </div>
         <div className="mt-5 overflow-x-auto">
           <table className="min-w-full text-left text-sm">
             <thead className="text-slate-500">
@@ -854,6 +874,7 @@ function PharmacyDashboard({ dashboard, onRefresh }: { dashboard: PharmacyDashbo
           </table>
         </div>
         <PaginationControls page={recentSalesPage} totalCount={report.recent_sales_count} onPageChange={setRecentSalesPage} />
+        </div>
       </Panel>
     </div>
   )

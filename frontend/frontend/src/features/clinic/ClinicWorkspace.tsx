@@ -1,5 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, UIEvent } from 'react'
+import { Banknote, Building2, Check, CheckCircle2, Clock3, Gift, History, MoreVertical, Pencil, Percent, Plus, Printer, ReceiptText, TrendingUp, Trash2, WalletCards } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 import { ApiError, apiDownload, apiFetch } from '../../api/client'
@@ -697,35 +698,36 @@ function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
   const maxDepartmentPatients = Math.max(1, ...report.departments.map((department) => department.patients))
   const paymentCards = isDoctorDashboard
     ? [
-      { label: 'Total patients', value: report.patients ?? 0, tone: 'border-sky-100 bg-sky-50 text-sky-700' },
-      { label: 'Approved patients', value: report.approved_patients ?? 0, tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
-      { label: 'Pending patients', value: report.pending_patients ?? 0, tone: 'border-amber-100 bg-amber-50 text-amber-700' },
-      { label: 'Prescriptions given', value: report.prescriptions ?? 0, tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
-      { label: 'Laboratory orders given', value: report.laboratory_orders ?? 0, tone: 'border-violet-100 bg-violet-50 text-violet-700' },
+      { label: 'Total patients', value: report.patients ?? 0, tone: 'border-sky-100 bg-sky-50 text-sky-700', icon: ReceiptText },
+      { label: 'Approved patients', value: report.approved_patients ?? 0, tone: 'border-emerald-100 bg-emerald-50 text-emerald-700', icon: CheckCircle2 },
+      { label: 'Pending patients', value: report.pending_patients ?? 0, tone: 'border-amber-100 bg-amber-50 text-amber-700', icon: Clock3 },
+      { label: 'Prescriptions given', value: report.prescriptions ?? 0, tone: 'border-emerald-100 bg-emerald-50 text-emerald-700', icon: ReceiptText },
+      { label: 'Laboratory orders given', value: report.laboratory_orders ?? 0, tone: 'border-violet-100 bg-violet-50 text-violet-700', icon: ReceiptText },
     ]
     : [
-      { label: 'Full paid', value: report.full_paid, tone: 'border-emerald-100 bg-emerald-50 text-emerald-700' },
-      { label: 'Free', value: report.free, tone: 'border-rose-100 bg-rose-50 text-rose-700' },
-      { label: 'Discounted', value: report.discounted, tone: 'border-violet-100 bg-violet-50 text-violet-700' },
-      { label: 'Pending', value: report.pending_payments, tone: 'border-amber-100 bg-amber-50 text-amber-700' },
-      { label: 'Approved', value: report.approved_payments, tone: 'border-teal-100 bg-teal-50 text-teal-700' },
-      { label: 'Total payments', value: report.total_payments, tone: 'border-slate-200 bg-slate-50 text-slate-700' },
+      { label: 'Full paid', value: report.full_paid, tone: 'border-emerald-100 bg-emerald-50 text-emerald-700', icon: Banknote },
+      { label: 'Free', value: report.free, tone: 'border-rose-100 bg-rose-50 text-rose-700', icon: Gift },
+      { label: 'Discounted', value: report.discounted, tone: 'border-violet-100 bg-violet-50 text-violet-700', icon: Percent },
+      { label: 'Pending', value: report.pending_payments, tone: 'border-amber-100 bg-amber-50 text-amber-700', icon: Clock3 },
+      { label: 'Approved', value: report.approved_payments, tone: 'border-teal-100 bg-teal-50 text-teal-700', icon: CheckCircle2 },
+      { label: 'Total payments', value: report.total_payments, tone: 'border-slate-200 bg-slate-50 text-slate-700', icon: WalletCards },
       ...(showExpensesCard ? [
       {
         label: 'Expenses',
         value: report.expenses_count,
         detail: formatAfn(report.expenses_amount),
         tone: 'border-orange-100 bg-orange-50 text-orange-700',
+        icon: Banknote,
         onClick: () => navigate('/expenses'),
       },
       ] : []),
     ]
 
   return (
-    <section className="print-area a4-report space-y-5">
+    <section className="print-area a4-report space-y-6">
       <div className="no-print flex flex-wrap items-start justify-between gap-4">
-        <SectionHeader title={dashboardTitle} subtitle={dashboardSubtitle} />
-        <div className="flex min-w-[18rem] flex-col gap-3 rounded-2xl border border-sky-100 bg-white px-4 py-3 shadow-sm shadow-sky-100/70 sm:min-w-[22rem] sm:flex-row sm:items-end sm:justify-end">
+        {isDoctorDashboard ? <SectionHeader title={dashboardTitle} subtitle={dashboardSubtitle} /> : <div className="relative min-w-[18rem] flex-1 overflow-hidden rounded-[28px] border border-sky-100 bg-[radial-gradient(circle_at_top_right,rgba(186,230,253,0.8),transparent_38%),linear-gradient(135deg,#0f3c5d,#0e7490_55%,#0284c7)] px-5 py-5 text-white shadow-[0_24px_65px_-38px_rgba(14,116,144,0.8)] sm:px-7"><div className="absolute -right-10 -top-12 h-40 w-40 rounded-full border border-white/20" /><div className="absolute right-16 top-16 h-16 w-16 rounded-full bg-cyan-300/20 blur-xl" /><div className="relative"><p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-100">MCHC operations</p><h1 className="mt-1 text-2xl font-semibold tracking-tight">{dashboardTitle}</h1><p className="mt-1 text-sm text-sky-100">{dashboardSubtitle}</p><div className="mt-4 inline-flex rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-cyan-50 backdrop-blur-sm">Live overview · {report.period_label}</div></div></div>}
+        <div className={`flex min-w-[18rem] flex-col gap-3 rounded-[22px] border px-4 py-3 shadow-[0_18px_45px_-32px_rgba(14,116,144,0.5)] sm:min-w-[22rem] sm:flex-row sm:items-end sm:justify-end ${isDoctorDashboard ? 'border-sky-100 bg-white' : 'border-sky-100 bg-[linear-gradient(135deg,#f0f9ff,#ffffff_60%,#ecfeff)]'}`}>
           <label className="flex-1 text-sm font-medium text-zinc-700">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">Report period</span>
             <select className={`${inputClassName} w-full`} value={period} onChange={(event) => setPeriod(event.target.value as DashboardStats['period'])}>
@@ -745,7 +747,7 @@ function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
             </>
           ) : null}
           <button
-            className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white shadow-sm shadow-slate-200 transition hover:bg-slate-800"
+            className="inline-flex h-11 items-center justify-center rounded-xl bg-gradient-to-r from-sky-600 to-cyan-500 px-5 text-sm font-semibold text-white shadow-lg shadow-sky-200 transition hover:-translate-y-0.5 hover:from-sky-700 hover:to-cyan-600 focus:outline-none focus:ring-4 focus:ring-sky-100"
             onClick={() => window.print()}
           >
             Print dashboard report
@@ -762,18 +764,18 @@ function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
       {error ? <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
 
       <div className={`grid gap-3 sm:grid-cols-2 ${isDoctorDashboard ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} ${isDoctorDashboard ? '' : showExpensesCard ? 'xl:grid-cols-8' : 'xl:grid-cols-7'}`}>
-        {paymentCards.map((card) => (
-          <button
+        {paymentCards.map((card) => {
+          const CardIcon = card.icon
+          return <button
             key={card.label}
             type="button"
             onClick={card.onClick}
-            className={`rounded-md border p-4 text-left shadow-sm transition ${card.onClick ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-md' : 'cursor-default'} ${card.tone}`}
+          className={`group relative overflow-hidden rounded-[22px] border p-4 text-left shadow-[0_18px_40px_-30px_rgba(15,23,42,0.45)] transition duration-200 ${card.onClick ? 'cursor-pointer hover:-translate-y-1 hover:shadow-lg' : 'cursor-default'} ${card.tone}`}
           >
-            <p className="text-xs font-semibold uppercase tracking-wide opacity-80">{card.label}</p>
-            <p className="mt-3 text-3xl font-semibold text-slate-950">{card.value}</p>
-            {'detail' in card && card.detail ? <p className="mt-2 text-sm font-semibold text-slate-700">{card.detail}</p> : null}
+            <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-white/45 transition duration-300 group-hover:scale-125" />
+            <div className="relative"><span className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/70 bg-white/65 shadow-sm"><CardIcon className="h-4.5 w-4.5" aria-hidden="true" /></span><p className="mt-3 text-[11px] font-bold uppercase tracking-[0.16em] opacity-80">{card.label}</p><p className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">{card.value}</p>{'detail' in card && card.detail ? <p className="mt-2 text-sm font-semibold text-slate-700">{card.detail}</p> : null}</div>
           </button>
-        ))}
+        })}
       </div>
 
       {isDoctorDashboard ? <Panel>
@@ -796,29 +798,35 @@ function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
 
       {!isDoctorDashboard ? <div className="grid gap-4 lg:grid-cols-3">
         <Panel>
-          <p className="text-sm font-semibold text-slate-950">{isDoctorDashboard ? 'Patient money summary' : 'Payment money'}</p>
+          <div className="rounded-2xl bg-[linear-gradient(135deg,#f0f9ff,#ffffff_62%,#ecfeff)] p-4">
+          <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-sky-700"><Banknote className="h-4 w-4" aria-hidden="true" />Payment money</p>
           <div className="mt-4 space-y-3 text-sm">
             <MoneyBar label="Pending amount" value={Number(report.pending_amount || 0)} max={Number(report.total_amount || 0) || 1} className="bg-amber-400" />
             <MoneyBar label="Approved amount" value={Number(report.approved_amount || 0)} max={Number(report.total_amount || 0) || 1} className="bg-emerald-500" />
           </div>
-          <p className="mt-5 rounded bg-slate-950 px-3 py-2 text-sm font-semibold text-white">Total money: {formatStatMoney(report.total_amount)}</p>
+          <p className="mt-5 rounded-xl bg-gradient-to-r from-sky-700 to-cyan-600 px-3 py-3 text-sm font-semibold text-white shadow-lg shadow-sky-100">Total money: {formatStatMoney(report.total_amount)}</p>
+          </div>
         </Panel>
 
         <Panel>
-          <p className="text-sm font-semibold text-slate-950">Payment type mix</p>
+          <div className="rounded-2xl bg-[linear-gradient(135deg,#faf5ff,#ffffff_62%,#fdf4ff)] p-4">
+          <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-violet-700"><WalletCards className="h-4 w-4" aria-hidden="true" />Payment type mix</p>
           <div className="mt-4 space-y-3 text-sm">
             <CountBar label="Full paid" value={report.full_paid} max={report.total_payments || 1} className="bg-emerald-500" />
             <CountBar label="Free" value={report.free} max={report.total_payments || 1} className="bg-rose-500" />
             <CountBar label="Discounted" value={report.discounted} max={report.total_payments || 1} className="bg-violet-500" />
           </div>
+          </div>
         </Panel>
 
         {!isDoctorDashboard ? (
           <Panel>
-            <p className="text-sm font-semibold text-slate-950">Payment status</p>
+            <div className="rounded-2xl bg-[linear-gradient(135deg,#ecfdf5,#ffffff_62%,#f0fdfa)] p-4">
+            <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />Payment status</p>
             <div className="mt-4 space-y-3 text-sm">
               <CountBar label="Pending" value={report.pending_payments} max={report.total_payments || 1} className="bg-amber-400" />
               <CountBar label="Approved" value={report.approved_payments} max={report.total_payments || 1} className="bg-teal-500" />
+            </div>
             </div>
           </Panel>
         ) : null}
@@ -826,8 +834,8 @@ function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
 
       {!isDoctorDashboard ? <Panel>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm font-semibold text-slate-950">Patient trend</p>
-          <p className="text-xs font-medium text-zinc-500">
+          <p className="inline-flex items-center gap-2 rounded-full bg-sky-50 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-sky-700"><TrendingUp className="h-4 w-4" aria-hidden="true" />Patient trend</p>
+          <p className="text-xs font-medium text-slate-500">
             {report.period === 'weekly' ? 'Daily trend for this week' : report.period === 'monthly' ? 'Daily trend for this month' : report.period === 'annual' ? 'Monthly trend for this year' : report.period === 'custom' ? 'Patient trend is not shown for custom periods' : 'Select weekly, monthly, annual, or custom'}
           </p>
         </div>
@@ -843,14 +851,14 @@ function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
       {!isDoctorDashboard ? (
         <Panel>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-slate-950">Patients and money by department</p>
-            <p className="text-xs font-medium text-zinc-500">{report.period_label} report</p>
+            <p className="inline-flex items-center gap-2 rounded-full bg-violet-50 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-violet-700"><Building2 className="h-4 w-4" aria-hidden="true" />Patients and money by department</p>
+            <p className="text-xs font-medium text-slate-500">{report.period_label} report</p>
           </div>
           <div className="mt-4 grid gap-3">
             {report.departments.length ? report.departments.map((department) => {
               const amount = Number(department.amount || 0)
               return (
-                <div key={department.department} className="grid gap-2 rounded border border-sky-100 bg-white p-3 md:grid-cols-[11rem_1fr_1fr] md:items-center">
+                <div key={department.department} className="grid gap-3 rounded-2xl border border-sky-100 bg-[linear-gradient(135deg,#ffffff,#f8fdff)] p-4 shadow-sm shadow-sky-100/60 transition hover:border-sky-200 hover:shadow-md md:grid-cols-[11rem_1fr_1fr] md:items-center">
                   <div>
                     <p className="font-semibold text-slate-950">{department.department}</p>
                     <p className="text-xs text-zinc-500">{department.payments} payment(s)</p>
@@ -859,10 +867,10 @@ function Dashboard({ stats, role }: { stats: DashboardStats; role?: string }) {
                   <DepartmentBar label={`${formatStatMoney(amount)} money`} percent={(amount / maxDepartmentAmount) * 100} className="bg-pink-500" />
                   {department.midwifery_services.length ? (
                     <div className="border-t border-sky-100 pt-3 md:col-span-3">
-                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-sky-700">Midwifery service breakdown</p>
+                      <p className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-sky-700">Midwifery service breakdown</p>
                       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                         {department.midwifery_services.map((service) => (
-                          <div key={service.service || 'unspecified'} className="rounded border border-sky-100 bg-sky-50/60 px-3 py-2 text-sm">
+                          <div key={service.service || 'unspecified'} className="rounded-xl border border-sky-100 bg-sky-50/60 px-3 py-2 text-sm">
                             <p className="font-medium text-slate-900">{service.service_label}</p>
                             <p className="mt-1 text-xs text-zinc-600">{service.patients} patient(s) · {service.payments} payment(s)</p>
                             <p className="mt-1 font-semibold text-pink-700">{formatStatMoney(service.amount)}</p>
@@ -890,8 +898,8 @@ function CountBar({ label, value, max, className }: { label: string; value: numb
         <span className="font-medium text-zinc-700">{label}</span>
         <span className="font-semibold text-slate-950">{value}</span>
       </div>
-      <div className="h-3 overflow-hidden rounded-full bg-zinc-100">
-        <div className={`h-full rounded-full ${className}`} style={{ width: `${Math.min(100, (value / max) * 100)}%` }} />
+      <div className="h-2.5 overflow-hidden rounded-full bg-slate-100 shadow-inner">
+        <div className={`h-full rounded-full shadow-sm ${className}`} style={{ width: `${Math.min(100, (value / max) * 100)}%` }} />
       </div>
     </div>
   )
@@ -904,8 +912,8 @@ function MoneyBar({ label, value, max, className }: { label: string; value: numb
         <span className="font-medium text-zinc-700">{label}</span>
         <span className="font-semibold text-slate-950">{formatStatMoney(value)}</span>
       </div>
-      <div className="h-3 overflow-hidden rounded-full bg-zinc-100">
-        <div className={`h-full rounded-full ${className}`} style={{ width: `${Math.min(100, (value / max) * 100)}%` }} />
+      <div className="h-2.5 overflow-hidden rounded-full bg-slate-100 shadow-inner">
+        <div className={`h-full rounded-full shadow-sm ${className}`} style={{ width: `${Math.min(100, (value / max) * 100)}%` }} />
       </div>
     </div>
   )
@@ -915,8 +923,8 @@ function DepartmentBar({ label, percent, className }: { label: string; percent: 
   return (
     <div>
       <p className="mb-1 text-xs font-medium text-zinc-600">{label}</p>
-      <div className="h-3 overflow-hidden rounded-full bg-zinc-100">
-        <div className={`h-full rounded-full ${className}`} style={{ width: `${Math.min(100, percent)}%` }} />
+      <div className="h-2.5 overflow-hidden rounded-full bg-slate-100 shadow-inner">
+        <div className={`h-full rounded-full shadow-sm ${className}`} style={{ width: `${Math.min(100, percent)}%` }} />
       </div>
     </div>
   )
@@ -931,14 +939,14 @@ function PatientTrendChart({ data }: { data: Array<{ label: string; value: numbe
 
   return (
     <div className="mt-5">
-      <div className="flex h-64 items-end gap-2 rounded-xl border border-sky-100 bg-sky-50/60 p-4">
+      <div className="flex h-64 items-end gap-2 rounded-2xl border border-sky-100 bg-[radial-gradient(circle_at_top_right,rgba(186,230,253,0.8),transparent_32%),linear-gradient(135deg,#f0f9ff,#ffffff_55%,#ecfeff)] p-4 shadow-inner shadow-sky-100/50">
         {data.map((item) => {
           const height = item.value > 0 ? `${Math.max(6, (item.value / maxValue) * 100)}%` : '0%'
           return (
             <div key={item.label} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
               <span className="text-xs font-semibold text-slate-700">{item.value}</span>
               <div className="flex h-full w-full items-end">
-                <div className="w-full rounded-t-lg bg-gradient-to-t from-sky-500 to-pink-400" style={{ height }} title={`${item.label}: ${item.value}`} />
+                <div className="w-full rounded-t-xl bg-gradient-to-t from-sky-600 via-cyan-500 to-cyan-300 shadow-[0_0_18px_rgba(14,165,233,0.25)]" style={{ height }} title={`${item.label}: ${item.value}`} />
               </div>
               <span className="text-[11px] font-medium text-zinc-500">{item.label}</span>
             </div>
@@ -1326,6 +1334,7 @@ function Payments({
   onSaved: () => Promise<void>
   onPrint: (payment: Payment) => void
 }) {
+  const navigate = useNavigate()
   const [form, setForm] = useState({
     patient_name: '',
     father_name: '',
@@ -1349,8 +1358,23 @@ function Payments({
   const [editingPaymentId, setEditingPaymentId] = useState<number | null>(null)
   const [patientSubmitting, setPatientSubmitting] = useState(false)
   const [patientError, setPatientError] = useState('')
-  const [patientPendingDeletion, setPatientPendingDeletion] = useState<{ id: number; name: string } | null>(null)
-  const [deletingPatientId, setDeletingPatientId] = useState<number | null>(null)
+  const [paymentPendingDeletion, setPaymentPendingDeletion] = useState<Payment | null>(null)
+  const [deletingPaymentId, setDeletingPaymentId] = useState<number | null>(null)
+  const [openPaymentActionsId, setOpenPaymentActionsId] = useState<number | null>(null)
+  const [addingPaymentFor, setAddingPaymentFor] = useState<Payment | null>(null)
+  const [additionalPaymentDoctorUsername, setAdditionalPaymentDoctorUsername] = useState('')
+  const [additionalPaymentError, setAdditionalPaymentError] = useState('')
+  const [additionalPaymentSubmitting, setAdditionalPaymentSubmitting] = useState(false)
+  const [additionalPaymentForm, setAdditionalPaymentForm] = useState({
+    department: departmentOptions[0],
+    midwifery_service: '',
+    midwifery_fp_service: '',
+    emergency_services: [] as string[],
+    doctor_fee: '',
+    payment_type: 'full' as Payment['payment_type'],
+    discount_percentage: '',
+    notes: '',
+  })
   const [patientForm, setPatientForm] = useState({
     patient_name: '',
     father_name: '',
@@ -1387,6 +1411,15 @@ function Payments({
   const editDiscountPercent = effectiveEditPaymentType === 'discount' ? Math.min(100, Math.max(0, parseAmount(patientForm.discount_percentage))) : effectiveEditPaymentType === 'free' ? 100 : 0
   const editDiscountAmount = editBillableFee * (editDiscountPercent / 100)
   const editPaymentAmount = Math.max(0, editBillableFee - editDiscountAmount)
+  const additionalDepartmentIsFree = isFreeDepartment(additionalPaymentForm.department)
+  const additionalDepartmentIsEmergency = isEmergencyDepartment(additionalPaymentForm.department)
+  const effectiveAdditionalPaymentType: Payment['payment_type'] = additionalDepartmentIsFree ? 'free' : additionalPaymentForm.payment_type
+  const additionalEmergencyServiceFee = additionalDepartmentIsEmergency ? additionalPaymentForm.emergency_services.reduce((total, service) => total + parseAmount(emergencyServicePrices.find((price) => price.service === service)?.price || '0'), 0) : 0
+  const additionalDoctorFee = additionalDepartmentIsFree || additionalDepartmentIsEmergency ? 0 : parseAmount(additionalPaymentForm.doctor_fee)
+  const additionalBillableFee = additionalDepartmentIsEmergency ? additionalEmergencyServiceFee : additionalDoctorFee
+  const additionalDiscountPercent = effectiveAdditionalPaymentType === 'discount' ? Math.min(100, Math.max(0, parseAmount(additionalPaymentForm.discount_percentage))) : effectiveAdditionalPaymentType === 'free' ? 100 : 0
+  const additionalDiscountAmount = additionalBillableFee * (additionalDiscountPercent / 100)
+  const additionalPaymentAmount = Math.max(0, additionalBillableFee - additionalDiscountAmount)
   const filteredPayments = useMemo(() => {
     const query = paymentsSearch.trim().toLowerCase()
     if (!query) return payments
@@ -1484,6 +1517,32 @@ function Payments({
     setPatientForm((current) => ({ ...current, doctor_fee: '0' }))
   }, [editDepartmentIsEmergency, patientForm.doctor_fee])
 
+  useEffect(() => {
+    if (!additionalDepartmentIsFree) return
+    if (additionalPaymentForm.payment_type === 'free' && (additionalPaymentForm.doctor_fee === '' || additionalPaymentForm.doctor_fee === '0' || additionalPaymentForm.doctor_fee === '0.00') && additionalPaymentForm.discount_percentage === '') return
+    setAdditionalPaymentForm((current) => ({
+      ...current,
+      doctor_fee: '0',
+      payment_type: 'free',
+      discount_percentage: '',
+    }))
+  }, [additionalDepartmentIsFree, additionalPaymentForm.discount_percentage, additionalPaymentForm.doctor_fee, additionalPaymentForm.payment_type])
+
+  useEffect(() => {
+    if (!additionalDepartmentIsEmergency || additionalPaymentForm.doctor_fee === '0') return
+    setAdditionalPaymentForm((current) => ({ ...current, doctor_fee: '0' }))
+  }, [additionalDepartmentIsEmergency, additionalPaymentForm.doctor_fee])
+
+  useEffect(() => {
+    if (openPaymentActionsId === null) return
+    const closeActions = (event: MouseEvent) => {
+      if (event.target instanceof Element && event.target.closest('[data-payment-actions]')) return
+      setOpenPaymentActionsId(null)
+    }
+    document.addEventListener('mousedown', closeActions)
+    return () => document.removeEventListener('mousedown', closeActions)
+  }, [openPaymentActionsId])
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setFormError('')
@@ -1544,6 +1603,98 @@ function Payments({
       setFormError(describeApiError(caught))
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  function resetAdditionalPaymentForm() {
+    setAddingPaymentFor(null)
+    setAdditionalPaymentDoctorUsername('')
+    setAdditionalPaymentError('')
+    setAdditionalPaymentSubmitting(false)
+    setAdditionalPaymentForm({
+      department: departmentOptions[0],
+      midwifery_service: '',
+      midwifery_fp_service: '',
+      emergency_services: [],
+      doctor_fee: '',
+      payment_type: 'full',
+      discount_percentage: '',
+      notes: '',
+    })
+  }
+
+  function startAdditionalPayment(payment: Payment) {
+    setAdditionalPaymentError('')
+    setAdditionalPaymentDoctorUsername('')
+    setAdditionalPaymentForm({
+      department: departmentOptions[0],
+      midwifery_service: '',
+      midwifery_fp_service: '',
+      emergency_services: [],
+      doctor_fee: '',
+      payment_type: 'full',
+      discount_percentage: '',
+      notes: '',
+    })
+    setAddingPaymentFor(payment)
+  }
+
+  function chooseAdditionalPaymentType(paymentType: Payment['payment_type']) {
+    if (additionalDepartmentIsFree) return
+    setAdditionalPaymentForm((current) => ({
+      ...current,
+      payment_type: paymentType,
+      discount_percentage: paymentType === 'discount' ? current.discount_percentage : '',
+    }))
+  }
+
+  async function submitAdditionalPayment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (addingPaymentFor === null) return
+    setAdditionalPaymentError('')
+    if (needsReceptionDoctor(additionalPaymentForm.department) && !additionalPaymentDoctorUsername) {
+      setAdditionalPaymentError('Select a doctor assigned to this department.')
+      return
+    }
+    if (isMidwiferyDepartment(additionalPaymentForm.department) && !additionalPaymentForm.midwifery_service) {
+      setAdditionalPaymentError('Select a Midwifery service.')
+      return
+    }
+    if (isMidwiferyDepartment(additionalPaymentForm.department) && additionalPaymentForm.midwifery_service === 'fp' && !additionalPaymentForm.midwifery_fp_service) {
+      setAdditionalPaymentError('Select an FP service.')
+      return
+    }
+    if (isEmergencyDepartment(additionalPaymentForm.department) && !additionalPaymentForm.emergency_services.length) {
+      setAdditionalPaymentError('Select at least one Emergency service.')
+      return
+    }
+
+    setAdditionalPaymentSubmitting(true)
+    try {
+      const payment = await apiFetch<Payment>('/payments/reception-payment/', {
+        method: 'POST',
+        body: JSON.stringify({
+          patient_id: addingPaymentFor.patient,
+          payment: {
+            service: `${additionalPaymentForm.department} consultation`,
+            department: additionalPaymentForm.department,
+            midwifery_service: additionalPaymentForm.midwifery_service,
+            midwifery_fp_service: additionalPaymentForm.midwifery_fp_service,
+            emergency_services: additionalPaymentForm.emergency_services,
+            doctor_name: additionalPaymentDoctorUsername,
+            doctor_fee: formatMoney(additionalDoctorFee),
+            payment_type: effectiveAdditionalPaymentType,
+            discount_percentage: effectiveAdditionalPaymentType === 'discount' ? additionalPaymentForm.discount_percentage || '0' : '0',
+            notes: additionalPaymentForm.notes,
+          },
+        }),
+      })
+      resetAdditionalPaymentForm()
+      onCreated(payment)
+    } catch (caught) {
+      setAdditionalPaymentError(describeApiError(caught, 'Unable to add this payment.'))
+    } finally {
+      setAdditionalPaymentSubmitting(false)
     }
   }
 
@@ -1655,20 +1806,17 @@ function Payments({
     }
   }
 
-  async function deletePatient(patientId: number) {
+  async function deletePayment(paymentId: number) {
     setPatientError('')
-    setDeletingPatientId(patientId)
+    setDeletingPaymentId(paymentId)
     try {
-      await apiFetch(`/patients/${patientId}/`, { method: 'DELETE' })
-      if (editingPatientId === patientId) {
-        resetPatientForm()
-      }
+      await apiFetch(`/payments/${paymentId}/`, { method: 'DELETE' })
       await onSaved()
-      setPatientPendingDeletion(null)
+      setPaymentPendingDeletion(null)
     } catch (caught) {
-      setPatientError(describeApiError(caught))
+      setPatientError(describeApiError(caught, 'Unable to delete this payment.'))
     } finally {
-      setDeletingPatientId(null)
+      setDeletingPaymentId(null)
     }
   }
 
@@ -1816,11 +1964,18 @@ function Payments({
                     <td>{payment.payment_type === 'free' ? 'Free' : payment.payment_type === 'discount' ? `${payment.discount_percentage}% discount` : 'Full payment'}</td>
                     <td><span className="inline-block rounded bg-emerald-600 px-2 py-1 font-medium text-white">{payment.payment_type === 'free' ? 'Free' : `${Number(payment.amount).toFixed(1)} AFN`}</span></td>
                     <td><span className={`inline-block rounded px-2 py-1 font-medium text-white ${payment.status === 'pending' ? 'bg-orange-500' : 'bg-green-400'}`}>{payment.status}</span></td>
-                    <td className="flex gap-2 py-2">
-                      <button className={ghostButtonClassName} onClick={() => onPrint(payment)}>Print</button>
-                      {canEdit ? <button className={ghostButtonClassName} onClick={() => startPatientEdit(payment)}>Edit</button> : null}
-                      {canEdit ? <button className={ghostButtonClassName} onClick={() => setPatientPendingDeletion({ id: payment.patient, name: payment.patient_full_name || payment.patient_name })}>Delete</button> : null}
-                      {payment.status === 'pending' ? <button className={ghostButtonClassName} onClick={() => void approve(payment.id)}>Approve</button> : null}
+                    <td className="relative py-2" data-payment-actions>
+                      <button className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700 focus:outline-none focus:ring-4 focus:ring-sky-100" type="button" aria-label={`Open actions for ${payment.patient_full_name || payment.patient_name}`} aria-expanded={openPaymentActionsId === payment.id} aria-haspopup="menu" title="More actions" onClick={() => setOpenPaymentActionsId((current) => current === payment.id ? null : payment.id)}><MoreVertical className="h-4 w-4" aria-hidden="true" /></button>
+                      {openPaymentActionsId === payment.id ? (
+                        <div className="absolute right-0 top-12 z-30 w-52 rounded-2xl border border-slate-200 bg-white p-2 shadow-[0_18px_45px_rgba(15,23,42,0.18)]" role="menu" aria-label="Payment actions">
+                          <button className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-sky-700 transition hover:bg-sky-50" type="button" onClick={() => { setOpenPaymentActionsId(null); startAdditionalPayment(payment) }}><Plus className="h-4 w-4" aria-hidden="true" />Add Payment</button>
+                          <button className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-violet-700 transition hover:bg-violet-50" type="button" onClick={() => { setOpenPaymentActionsId(null); navigate(`/payments/${payment.patient}/history`) }}><History className="h-4 w-4" aria-hidden="true" />Payment history</button>
+                          <button className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-cyan-800 transition hover:bg-cyan-50" type="button" onClick={() => { setOpenPaymentActionsId(null); onPrint(payment) }}><Printer className="h-4 w-4" aria-hidden="true" />Print bill</button>
+                          {canEdit ? <button className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-amber-800 transition hover:bg-amber-50" type="button" onClick={() => { setOpenPaymentActionsId(null); startPatientEdit(payment) }}><Pencil className="h-4 w-4" aria-hidden="true" />Edit</button> : null}
+                          {payment.status === 'pending' ? <button className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50" type="button" onClick={() => { setOpenPaymentActionsId(null); void approve(payment.id) }}><Check className="h-4 w-4" aria-hidden="true" />Approve</button> : null}
+                          {canEdit ? <button className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-rose-700 transition hover:bg-rose-50" type="button" onClick={() => { setOpenPaymentActionsId(null); setPaymentPendingDeletion(payment) }}><Trash2 className="h-4 w-4" aria-hidden="true" />Delete payment</button> : null}
+                        </div>
+                      ) : null}
                     </td>
                   </tr>
                 )
@@ -1835,6 +1990,76 @@ function Payments({
         </div>
         <PaginationControls page={page} totalCount={totalCount} onPageChange={onPageChange} />
       </Panel>
+      {addingPaymentFor ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/50 px-4 py-6" role="dialog" aria-modal="true" aria-labelledby="add-reception-payment-title">
+          <div className="my-auto flex max-h-[calc(100dvh-3rem)] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-sky-100 bg-white shadow-2xl">
+            <div className="relative shrink-0 overflow-hidden bg-[radial-gradient(circle_at_top_right,rgba(186,230,253,0.72),transparent_34%),linear-gradient(135deg,#0f3c5d,#0e7490_55%,#0284c7)] px-5 py-4 text-white sm:px-7">
+              <div className="absolute -right-10 -top-12 h-40 w-40 rounded-full border border-white/20" />
+              <div className="relative flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-100">Reception desk</p>
+                  <h2 id="add-reception-payment-title" className="mt-1 text-xl font-semibold tracking-tight">Add payment</h2>
+                  <p className="mt-1 text-sm text-sky-100">Create a new bill for this registered patient without registering them again.</p>
+                </div>
+                <button className="rounded-xl border border-white/30 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20" type="button" onClick={resetAdditionalPaymentForm}>Cancel</button>
+              </div>
+            </div>
+            <form onSubmit={submitAdditionalPayment} className="min-h-0 space-y-4 overflow-y-auto p-4 sm:p-5">
+              <div className="rounded-2xl border border-sky-100 bg-[linear-gradient(135deg,#f0f9ff,#ffffff_60%,#ecfeff)] p-3.5">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Registered patient</p>
+                <div className="mt-2 grid gap-3 text-sm md:grid-cols-3">
+                  <p><span className="block text-xs text-slate-500">Patient</span><strong className="text-slate-950">{addingPaymentFor.patient_full_name || addingPaymentFor.patient_name}</strong></p>
+                  <p><span className="block text-xs text-slate-500">Father name</span><strong className="text-slate-950">{addingPaymentFor.patient_father_name || '—'}</strong></p>
+                  <p><span className="block text-xs text-slate-500">Registration / mobile</span><strong className="text-slate-950">{addingPaymentFor.patient_name}{addingPaymentFor.patient_mobile_number ? ` · ${addingPaymentFor.patient_mobile_number}` : ''}</strong></p>
+                </div>
+                <p className="mt-2 text-xs text-sky-800">This creates a new bill only; the patient registration is unchanged.</p>
+              </div>
+              {additionalPaymentError ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{additionalPaymentError}</div> : null}
+              <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+              <section className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
+                <div className="mb-3 flex items-center gap-3"><span className="grid h-8 w-8 place-items-center rounded-xl bg-cyan-100 text-xs font-bold text-cyan-700">01</span><div><h3 className="font-semibold text-slate-900">Service and clinician</h3><p className="text-xs text-slate-500">Choose the service for this visit</p></div></div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Department">
+                    <select className={receptionInputClassName} value={additionalPaymentForm.department} onChange={(event) => {
+                      setAdditionalPaymentDoctorUsername('')
+                      setAdditionalPaymentForm((current) => ({
+                        ...current,
+                        department: event.target.value,
+                        midwifery_service: isMidwiferyDepartment(event.target.value) ? current.midwifery_service : '',
+                        midwifery_fp_service: isMidwiferyDepartment(event.target.value) ? current.midwifery_fp_service : '',
+                        emergency_services: isEmergencyDepartment(event.target.value) ? current.emergency_services : [],
+                        payment_type: isFreeDepartment(event.target.value) ? 'free' : (isFreeDepartment(current.department) ? 'full' : current.payment_type),
+                      }))
+                    }}>
+                      {departmentOptions.map((department) => <option key={department} value={department}>{department}</option>)}
+                    </select>
+                  </Field>
+                  {isMidwiferyDepartment(additionalPaymentForm.department) ? <Field label="Midwifery service"><select className={receptionInputClassName} value={additionalPaymentForm.midwifery_service} onChange={(event) => setAdditionalPaymentForm((current) => ({ ...current, midwifery_service: event.target.value, midwifery_fp_service: event.target.value === 'fp' ? current.midwifery_fp_service : '' }))} required><option value="">Select a service</option>{midwiferyServiceOptions.map((service) => <option key={service.value} value={service.value}>{service.label}</option>)}</select></Field> : null}
+                  {isMidwiferyDepartment(additionalPaymentForm.department) && additionalPaymentForm.midwifery_service === 'fp' ? <Field label="FP service"><select className={receptionInputClassName} value={additionalPaymentForm.midwifery_fp_service} onChange={(event) => setAdditionalPaymentForm((current) => ({ ...current, midwifery_fp_service: event.target.value }))} required><option value="">Select an FP service</option>{midwiferyFpServiceOptions.map((service) => <option key={service.value} value={service.value}>{service.label}</option>)}</select></Field> : null}
+                  {needsReceptionDoctor(additionalPaymentForm.department) ? <ReceptionDepartmentDoctorCombo department={additionalPaymentForm.department} selectedUsername={additionalPaymentDoctorUsername} onSelect={setAdditionalPaymentDoctorUsername} controlClassName={receptionInputClassName} /> : null}
+                  {!additionalDepartmentIsEmergency ? <Field label="Doctor fee"><input className={receptionInputClassName} type="number" min="0" step="0.01" value={additionalDepartmentIsFree ? '0.00' : additionalPaymentForm.doctor_fee} onChange={(event) => setAdditionalPaymentForm((current) => ({ ...current, doctor_fee: event.target.value }))} disabled={additionalDepartmentIsFree} required={!additionalDepartmentIsFree} /></Field> : null}
+                </div>
+                {isEmergencyDepartment(additionalPaymentForm.department) ? <div className="mt-3 rounded-2xl border border-rose-100 bg-rose-50/70 p-3"><p className="text-sm font-semibold text-rose-950">Emergency services <span className="font-normal text-rose-600">Select one or more</span></p><div className="mt-2 grid gap-2 sm:grid-cols-2">{emergencyServiceOptions.map((service) => <label key={service.value} className="flex cursor-pointer items-center gap-2 rounded-xl border border-rose-100 bg-white px-3 py-2 text-sm text-slate-800"><input className="accent-rose-600" type="checkbox" checked={additionalPaymentForm.emergency_services.includes(service.value)} onChange={() => setAdditionalPaymentForm((current) => ({ ...current, emergency_services: toggleEmergencyService(current.emergency_services, service.value) }))} />{service.label}</label>)}</div></div> : null}
+              </section>
+              <section className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
+                <div className="mb-3 flex items-center gap-3"><span className="grid h-8 w-8 place-items-center rounded-xl bg-violet-100 text-xs font-bold text-violet-700">02</span><div><h3 className="font-semibold text-slate-900">Payment details</h3><p className="text-xs text-slate-500">Choose the arrangement</p></div></div>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="md:col-span-3"><span className="mb-2 block text-sm font-medium text-zinc-700">Payment option</span><div className="grid gap-2 sm:grid-cols-3">{([['full', 'Full payment', 'Standard fee'], ['free', 'Free', 'No charge'], ['discount', 'Discount', 'Set a percentage']] as const).map(([value, label, detail]) => <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 transition ${effectiveAdditionalPaymentType === value ? 'border-sky-400 bg-sky-50 ring-2 ring-sky-100' : 'border-slate-200 bg-white hover:border-sky-200'} ${(additionalDepartmentIsFree && value !== 'free') ? 'cursor-not-allowed opacity-50' : ''}`}><input className="accent-sky-600" type="radio" checked={effectiveAdditionalPaymentType === value} onChange={() => chooseAdditionalPaymentType(value)} disabled={additionalDepartmentIsFree && value !== 'free'} /><span><span className="block text-sm font-semibold text-slate-900">{label}</span><span className="block text-xs text-slate-500">{detail}</span></span></label>)}</div>{additionalDepartmentIsFree ? <p className="mt-2 text-xs font-medium text-emerald-700">Vaccination and Malnutrition registrations are always free of charge.</p> : null}</div>
+                  {effectiveAdditionalPaymentType === 'discount' ? <Field label="Discount percentage"><input className={receptionInputClassName} type="number" min="0" max="100" step="0.01" value={additionalPaymentForm.discount_percentage} onChange={(event) => setAdditionalPaymentForm((current) => ({ ...current, discount_percentage: event.target.value }))} placeholder="Type 20 for 20%" required /></Field> : null}
+                  <Field label="Notes"><input className={receptionInputClassName} value={additionalPaymentForm.notes} onChange={(event) => setAdditionalPaymentForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Optional reception note" /></Field>
+                </div>
+              </section>
+              </div>
+              <div className="grid gap-3 rounded-2xl border border-sky-100 bg-[linear-gradient(135deg,#f0f9ff,#ffffff_55%,#ecfeff)] p-4 text-sm sm:grid-cols-3">
+                <p className="rounded-xl bg-white/80 px-3 py-2 text-slate-700"><span className="block text-xs font-medium uppercase tracking-wide text-slate-400">{additionalDepartmentIsEmergency ? 'Emergency services fee' : 'Doctor fee'}</span><strong className="mt-1 block text-base text-slate-950">{formatMoney(additionalDepartmentIsEmergency ? additionalEmergencyServiceFee : additionalDoctorFee)} AFN</strong></p>
+                <p className="rounded-xl bg-white/80 px-3 py-2 text-slate-700"><span className="block text-xs font-medium uppercase tracking-wide text-slate-400">Payment option</span><strong className="mt-1 block text-base text-slate-950">{effectiveAdditionalPaymentType === 'free' ? 'Free' : effectiveAdditionalPaymentType === 'discount' ? `${formatPercent(additionalDiscountPercent)}% discount` : 'Full payment'}</strong></p>
+                <p className="rounded-xl bg-sky-600 px-3 py-2 text-white shadow-lg shadow-sky-200"><span className="block text-xs font-medium uppercase tracking-wide text-sky-100">Amount after discount</span><strong className="mt-1 block text-base">{effectiveAdditionalPaymentType === 'free' ? 'Free' : `${formatMoney(additionalPaymentAmount)} AFN`}</strong></p>
+              </div>
+              <div className="flex flex-wrap justify-end gap-3"><button className={ghostButtonClassName} type="button" onClick={resetAdditionalPaymentForm} disabled={additionalPaymentSubmitting}>Cancel</button><button className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-600 to-cyan-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-sky-200 transition hover:from-sky-700 hover:to-cyan-600 disabled:cursor-not-allowed disabled:opacity-60" disabled={additionalPaymentSubmitting} type="submit">{additionalPaymentSubmitting ? 'Adding payment...' : 'Add payment and preview bill'}</button></div>
+            </form>
+          </div>
+        </div>
+      ) : null}
       {editingPatientId !== null || patientError ? (
         <Panel>
           <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -1935,16 +2160,16 @@ function Payments({
           )}
         </Panel>
       ) : null}
-      {patientPendingDeletion ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6" role="dialog" aria-modal="true" aria-labelledby="delete-reception-bill-title">
+      {paymentPendingDeletion ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6" role="dialog" aria-modal="true" aria-labelledby="delete-reception-payment-title">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100 text-xl font-bold text-red-700" aria-hidden="true">!</div>
-            <h2 id="delete-reception-bill-title" className="mt-4 text-xl font-semibold text-slate-950">Delete this reception bill?</h2>
-            <p className="mt-2 text-sm text-slate-600">Patient {patientPendingDeletion.name} and the linked reception payment records will be deleted. This action cannot be undone.</p>
+            <h2 id="delete-reception-payment-title" className="mt-4 text-xl font-semibold text-slate-950">Delete this payment?</h2>
+            <p className="mt-2 text-sm text-slate-600">Only this payment for {paymentPendingDeletion.patient_full_name || paymentPendingDeletion.patient_name} will be removed. The patient and all other payment records will remain unchanged.</p>
             <div className="mt-6 flex justify-center gap-3">
-              <button className={ghostButtonClassName} type="button" disabled={deletingPatientId !== null} onClick={() => setPatientPendingDeletion(null)}>Cancel</button>
-              <button className="inline-flex h-10 items-center justify-center rounded-lg bg-red-600 px-4 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300" type="button" disabled={deletingPatientId !== null} onClick={() => void deletePatient(patientPendingDeletion.id)}>
-                {deletingPatientId === patientPendingDeletion.id ? 'Deleting...' : 'Yes, delete bill'}
+              <button className={ghostButtonClassName} type="button" disabled={deletingPaymentId !== null} onClick={() => setPaymentPendingDeletion(null)}>Cancel</button>
+              <button className="inline-flex h-10 items-center justify-center rounded-lg bg-red-600 px-4 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300" type="button" disabled={deletingPaymentId !== null} onClick={() => void deletePayment(paymentPendingDeletion.id)}>
+                {deletingPaymentId === paymentPendingDeletion.id ? 'Deleting...' : 'Yes, delete payment'}
               </button>
             </div>
           </div>

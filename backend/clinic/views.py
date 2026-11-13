@@ -592,6 +592,7 @@ class PaymentViewSet(PermissionedModelViewSet):
         'destroy': 'payments.approve',
         'approve': 'payments.approve',
         'reception_bill': 'payments.approve',
+        'reception_payment': 'payments.approve',
     }
 
     def get_queryset(self):
@@ -604,6 +605,8 @@ class PaymentViewSet(PermissionedModelViewSet):
                 Q(patient__registration_number__icontains=search)
                 | Q(patient__first_name__icontains=search)
                 | Q(patient__last_name__icontains=search)
+                | Q(patient__father_name__icontains=search)
+                | Q(patient__mobile_number__icontains=search)
                 | Q(department__icontains=search)
                 | Q(service__icontains=search)
                 | Q(payment_type__icontains=search)
@@ -708,25 +711,47 @@ class PaymentViewSet(PermissionedModelViewSet):
         self._guard_external_department_edit(instance)
         soft_delete_instance(instance, self.request.user)
 
+    def _validate_reception_doctor_assignment(self, department: str, doctor_username: str) -> None:
+        if department.lower() not in RECEPTION_DOCTOR_DEPARTMENTS:
+            return
+        has_valid_assignment = bool(doctor_username) and DoctorDepartmentAssignment.objects.filter(
+            department__iexact=department,
+            doctor__username=doctor_username,
+            doctor__is_active=True,
+            doctor__staff_profile__deleted_at__isnull=True,
+            doctor__staff_profile__role__in=ASSIGNABLE_CLINICAL_ROLES,
+        ).exists()
+        if not has_valid_assignment:
+            raise serializers.ValidationError({
+                'payment': {'doctor_name': 'Select a current doctor assigned to this department.'},
+            })
+
+    def _create_reception_payment(self, *, patient: Patient, payment_data: dict, use_patient_profile_age: bool = False) -> Payment:
+        serializer_data = {
+            **payment_data,
+            'patient': patient.id,
+        }
+        if use_patient_profile_age:
+            # A later payment takes its demographic snapshot from the existing profile.
+            serializer_data.update({
+                'patient_age': patient.age,
+                'patient_age_unit': patient.age_unit,
+            })
+        payment_serializer = self.get_serializer(
+            data=serializer_data,
+        )
+        payment_serializer.is_valid(raise_exception=True)
+        return payment_serializer.save(created_by=self.request.user)
+
     @action(detail=False, methods=['post'], url_path='reception-bill')
     def reception_bill(self, request):
         patient_data = request.data.get('patient') or {}
         payment_data = request.data.get('payment') or {}
+        if not isinstance(patient_data, dict) or not isinstance(payment_data, dict):
+            raise serializers.ValidationError({'detail': 'Patient and payment details must be valid objects.'})
         department = canonical_reception_department(str(payment_data.get('department') or '').strip())
         doctor_username = str(payment_data.get('doctor_name') or '').strip()
-
-        if department.lower() in RECEPTION_DOCTOR_DEPARTMENTS:
-            has_valid_assignment = bool(doctor_username) and DoctorDepartmentAssignment.objects.filter(
-                department__iexact=department,
-                doctor__username=doctor_username,
-                doctor__is_active=True,
-                doctor__staff_profile__deleted_at__isnull=True,
-                doctor__staff_profile__role__in=ASSIGNABLE_CLINICAL_ROLES,
-            ).exists()
-            if not has_valid_assignment:
-                raise serializers.ValidationError({
-                    'payment': {'doctor_name': 'Select a current doctor assigned to this department.'},
-                })
+        self._validate_reception_doctor_assignment(department, doctor_username)
 
         with transaction.atomic():
             patient_serializer = PatientSerializer(data=patient_data, context=self.get_serializer_context())
@@ -736,16 +761,91 @@ class PaymentViewSet(PermissionedModelViewSet):
                 registration_number=next_patient_registration_number(),
             )
 
-            payment_serializer = self.get_serializer(
-                data={
-                    **payment_data,
-                    'patient': patient.id,
-                },
-            )
-            payment_serializer.is_valid(raise_exception=True)
-            payment = payment_serializer.save(created_by=request.user)
+            payment = self._create_reception_payment(patient=patient, payment_data=payment_data)
 
         return Response(self.get_serializer(payment).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'], url_path='reception-payment')
+    def reception_payment(self, request):
+        patient_id = request.data.get('patient_id')
+        payment_data = request.data.get('payment') or {}
+        if not isinstance(patient_id, int) or isinstance(patient_id, bool):
+            raise serializers.ValidationError({'patient_id': 'Select a valid registered patient.'})
+        if not isinstance(payment_data, dict):
+            raise serializers.ValidationError({'payment': 'Payment details must be a valid object.'})
+
+        department = canonical_reception_department(str(payment_data.get('department') or '').strip())
+        doctor_username = str(payment_data.get('doctor_name') or '').strip()
+        self._validate_reception_doctor_assignment(department, doctor_username)
+
+        with transaction.atomic():
+            # The active manager excludes deleted patients, preventing payments against archived records.
+            patient = get_object_or_404(Patient.objects.select_for_update(), pk=patient_id)
+            payment = self._create_reception_payment(
+                patient=patient,
+                payment_data=payment_data,
+                use_patient_profile_age=True,
+            )
+
+        return Response(self.get_serializer(payment).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get'], url_path='history')
+    def history(self, request, pk=None):
+        patient = get_object_or_404(Patient.objects, pk=pk)
+        from_date_raw = request.query_params.get('from', '').strip()
+        to_date_raw = request.query_params.get('to', '').strip()
+        from_date = parse_date(from_date_raw) if from_date_raw else None
+        to_date = parse_date(to_date_raw) if to_date_raw else None
+        errors: dict[str, str] = {}
+        if from_date_raw and from_date is None:
+            errors['from'] = 'Select a valid from date.'
+        if to_date_raw and to_date is None:
+            errors['to'] = 'Select a valid to date.'
+        if from_date and to_date and to_date < from_date:
+            errors['to'] = 'To date must be on or after from date.'
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        payments = self.get_queryset().filter(patient=patient)
+        if from_date is not None:
+            payments = payments.filter(created_at__date__gte=from_date)
+        if to_date is not None:
+            payments = payments.filter(created_at__date__lte=to_date)
+        total_amount = payments.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+
+        page = self.paginate_queryset(payments)
+        if page is not None:
+            response = self.get_paginated_response(self.get_serializer(page, many=True).data)
+            response.data.update({
+                'patient': {
+                    'id': patient.id,
+                    'registration_number': patient.registration_number,
+                    'full_name': f'{patient.first_name} {patient.last_name}'.strip(),
+                    'father_name': patient.father_name,
+                    'mobile_number': patient.mobile_number,
+                },
+                'from': from_date.isoformat() if from_date else None,
+                'to': to_date.isoformat() if to_date else None,
+                'total_amount': str(total_amount),
+            })
+            return response
+
+        return Response({
+            'patient': {
+                'id': patient.id,
+                'registration_number': patient.registration_number,
+                'full_name': f'{patient.first_name} {patient.last_name}'.strip(),
+                'father_name': patient.father_name,
+                'mobile_number': patient.mobile_number,
+            },
+            'from': from_date.isoformat() if from_date else None,
+            'to': to_date.isoformat() if to_date else None,
+            'count': payments.count(),
+            'next': None,
+            'previous': None,
+            'results': self.get_serializer(payments, many=True).data,
+            'total_amount': str(total_amount),
+        })
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
