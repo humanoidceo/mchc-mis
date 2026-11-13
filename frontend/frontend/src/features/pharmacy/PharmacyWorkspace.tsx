@@ -106,6 +106,9 @@ const emptySetting: PharmacySetting = {
   default_profit_percentage: '20.00',
 }
 
+const pharmacyBillingInputClassName = 'w-full rounded-2xl border border-slate-200 bg-white/90 px-3.5 py-3 text-sm text-slate-900 shadow-sm outline-none transition duration-200 placeholder:text-slate-400 hover:border-sky-200 focus:border-sky-500 focus:ring-4 focus:ring-sky-100 disabled:cursor-not-allowed disabled:bg-slate-100'
+const pharmacyBillingFilterClassName = 'rounded-xl border border-slate-200 bg-white/90 px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition duration-200 placeholder:text-slate-400 hover:border-sky-200 focus:border-sky-500 focus:ring-4 focus:ring-sky-100'
+
 function formatMoney(value: string | number): string {
   return Number(value || 0).toFixed(2)
 }
@@ -1194,17 +1197,31 @@ function SalesWorkspace({
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+    <div className="space-y-6">
       <Panel>
-        <SectionHeader title="Create pharmacy bill" subtitle="Internal patients load medicines from the doctor prescription. External customers are billed manually and then sent to reception for approval." />
-        <div className="mt-4 rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-900">
-          <p className="font-medium">{setting.pharmacy_name}</p>
+        <div className="overflow-hidden rounded-[28px] border border-sky-100 bg-white shadow-[0_24px_65px_-38px_rgba(14,116,144,0.55)]">
+          <div className="relative overflow-hidden bg-[radial-gradient(circle_at_top_right,rgba(186,230,253,0.72),transparent_34%),linear-gradient(135deg,#0f3c5d,#0e7490_55%,#0284c7)] px-5 py-5 text-white sm:px-7">
+            <div className="absolute -right-10 -top-12 h-40 w-40 rounded-full border border-white/20" />
+            <div className="absolute right-16 top-16 h-16 w-16 rounded-full bg-cyan-300/20 blur-xl" />
+            <div className="relative flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-100">Pharmacy desk</p>
+                <h2 className="mt-1 text-xl font-semibold tracking-tight">{editingSaleId === null ? 'Create pharmacy bill' : 'Update pharmacy bill'}</h2>
+                <p className="mt-1 text-sm text-sky-100">Prepare the medicines, confirm the payment, and send the bill to reception.</p>
+              </div>
+              <div className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2 text-sm backdrop-blur-sm"><span className="block text-[11px] uppercase tracking-[0.18em] text-cyan-100">Secure billing</span><span className="font-medium">Stock + reception</span></div>
+            </div>
+          </div>
+          <div className="p-4 sm:p-6">
+        <div className="rounded-2xl border border-sky-100 bg-[linear-gradient(135deg,#f0f9ff,#ffffff_60%,#ecfeff)] px-4 py-3 text-sm text-sky-900">
+          <p className="font-semibold">{setting.pharmacy_name}</p>
           <p className="mt-1 text-sky-700">{setting.address || 'Address not configured yet'}</p>
         </div>
+        <div className="mt-5 flex items-center gap-3"><span className="grid h-8 w-8 place-items-center rounded-xl bg-sky-100 text-xs font-bold text-sky-700">01</span><div><h3 className="font-semibold text-slate-900">Customer details</h3><p className="text-xs text-slate-500">Choose how this pharmacy bill will be prepared</p></div></div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <button
             type="button"
-            className={`rounded border px-4 py-3 text-left text-sm ${customerType === 'internal' ? 'border-pink-200 bg-pink-50 text-pink-700' : 'border-sky-100 bg-white text-slate-700 hover:bg-sky-50'} ${editingSaleId !== null ? 'cursor-not-allowed opacity-70' : ''}`}
+            className={`rounded-2xl border px-4 py-3 text-left text-sm transition ${customerType === 'internal' ? 'border-sky-400 bg-sky-50 text-sky-800 ring-2 ring-sky-100' : 'border-slate-200 bg-white text-slate-700 hover:border-sky-200'} ${editingSaleId !== null ? 'cursor-not-allowed opacity-70' : ''}`}
             onClick={() => {
               if (editingSaleId !== null) return
               setCustomerType('internal')
@@ -1213,11 +1230,11 @@ function SalesWorkspace({
             }}
           >
             <p className="font-semibold">Internal customer</p>
-            <p className={`mt-1 ${customerType === 'internal' ? 'text-pink-600' : 'text-slate-500'}`}>Search a registered patient and load the latest prescription.</p>
+            <p className={`mt-1 ${customerType === 'internal' ? 'text-sky-700' : 'text-slate-500'}`}>Search a registered patient and load the latest prescription.</p>
           </button>
           <button
             type="button"
-            className={`rounded border px-4 py-3 text-left text-sm ${customerType === 'external' ? 'border-pink-200 bg-pink-50 text-pink-700' : 'border-sky-100 bg-white text-slate-700 hover:bg-sky-50'} ${editingSaleId !== null ? 'cursor-not-allowed opacity-70' : ''}`}
+            className={`rounded-2xl border px-4 py-3 text-left text-sm transition ${customerType === 'external' ? 'border-sky-400 bg-sky-50 text-sky-800 ring-2 ring-sky-100' : 'border-slate-200 bg-white text-slate-700 hover:border-sky-200'} ${editingSaleId !== null ? 'cursor-not-allowed opacity-70' : ''}`}
             onClick={() => {
               if (editingSaleId !== null) return
               setCustomerType('external')
@@ -1228,23 +1245,24 @@ function SalesWorkspace({
             }}
           >
             <p className="font-semibold">External customer</p>
-            <p className={`mt-1 ${customerType === 'external' ? 'text-pink-600' : 'text-slate-500'}`}>Type the name, select medicines, print the bill, then send to reception.</p>
+            <p className={`mt-1 ${customerType === 'external' ? 'text-sky-700' : 'text-slate-500'}`}>Type the name, select medicines, print the bill, then send to reception.</p>
           </button>
         </div>
         {error ? <div className="mt-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
         {notice ? <div className="mt-4 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div> : null}
-        <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+        <form onSubmit={handleSubmit} className="mt-6 space-y-6">
           {customerType === 'internal' ? (
             <div className="space-y-4">
               <SearchCombo<PharmacyPatientSearchOption>
                 label="Internal patient"
                 placeholder="Search registration number or patient name"
                 searchPath="/pharmacy/patients/"
+                controlClassName={pharmacyBillingInputClassName}
                 renderOption={(patient) => `${patient.registration_number} - ${patient.first_name} ${patient.last_name}${patient.age ? ` (${patient.age})` : ''}`}
                 onSelect={(patient) => void loadPrescription(patient)}
               />
               {selectedPatient ? (
-                <div className="rounded border border-sky-100 bg-slate-50 p-4 text-sm text-slate-700">
+                <div className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4 text-sm text-slate-700">
                   <p className="font-semibold text-slate-950">{selectedPatient.first_name} {selectedPatient.last_name}</p>
                   <p className="mt-1">Registration {selectedPatient.registration_number}</p>
                   {prescription ? <p className="mt-2 text-sky-700">Loaded prescription {prescription.title} from {formatDate(prescription.created_at)}.</p> : null}
@@ -1254,19 +1272,22 @@ function SalesWorkspace({
             </div>
           ) : (
             <Field label="External customer name">
-              <input value={customerName} onChange={(event) => setCustomerName(event.target.value)} className={inputClassName} placeholder="Type customer name" required />
+              <input value={customerName} onChange={(event) => setCustomerName(event.target.value)} className={pharmacyBillingInputClassName} placeholder="Type customer name" required />
             </Field>
           )}
+          <section className="border-t border-slate-100 pt-5">
+            <div className="mb-4 flex items-center gap-3"><span className="grid h-8 w-8 place-items-center rounded-xl bg-cyan-100 text-xs font-bold text-cyan-700">02</span><div><h3 className="font-semibold text-slate-900">Medicines</h3><p className="text-xs text-slate-500">Select the medicine and quantity for this bill</p></div></div>
           <div className="space-y-3">
             {rows.map((row, index) => {
               return (
-                <div key={index} className="grid gap-3 rounded border border-sky-100 bg-slate-50 p-4 md:grid-cols-[1fr_120px_auto]">
+                <div key={index} className="grid gap-3 rounded-2xl border border-sky-100 bg-sky-50/60 p-4 md:grid-cols-[1fr_120px_auto]">
                   <SearchCombo<PharmacyMedicine>
                     label={`Medicine ${index + 1}`}
                     placeholder="Search medicine stock"
                     searchPath="/pharmacy/medicines/search/"
                     extraParams="available=1"
                     valueText={row.medicine_label || ''}
+                    controlClassName={pharmacyBillingInputClassName}
                     renderOption={(medicine) => `${medicine.name} - stock ${medicine.quantity}`}
                     onSelect={(medicine) => {
                       const nextRows = [...rows]
@@ -1285,20 +1306,20 @@ function SalesWorkspace({
                       const nextRows = [...rows]
                       nextRows[index] = { ...row, quantity: normalizeSaleQuantityInput(event.target.value) }
                       setRows(nextRows)
-                    }} className={inputClassName} min="0.01" step="0.01" inputMode="decimal" type="number" required />
+                    }} className={pharmacyBillingInputClassName} min="0.01" step="0.01" inputMode="decimal" type="number" required />
                   </Field>
                   <div className="flex items-end">
                     <button className={ghostButtonClassName} disabled={rows.length === 1} onClick={() => setRows(rows.filter((_, rowIndex) => rowIndex !== index))} type="button">Remove</button>
                   </div>
                   {row.prescribed_name ? (
-                    <div className="md:col-span-3 rounded border border-dashed border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+                    <div className="md:col-span-3 rounded-xl border border-dashed border-sky-200 bg-white/80 px-3 py-2 text-sm text-sky-900">
                       <p><strong>Doctor wrote:</strong> {row.prescribed_name}</p>
                       <p><strong>Instruction:</strong> {row.instructions || 'No instruction'}</p>
                     </div>
                   ) : null}
                   {row.stock !== undefined ? (
-                    <div className="md:col-span-3">
-                      <p className="text-sm text-slate-500">
+                    <div className="md:col-span-3 rounded-xl bg-white/70 px-3 py-2">
+                      <p className="text-sm text-slate-600">
                         Stock {row.stock}. Sell price {formatMoney(row.unit_price || 0)} each. Subtotal {formatMoney(Number(row.unit_price || 0) * Number(row.quantity || 0))}
                       </p>
                     </div>
@@ -1307,94 +1328,118 @@ function SalesWorkspace({
               )
             })}
             {customerType === 'external' ? (
-              <button className={ghostButtonClassName} onClick={() => setRows([...rows, { medicine: '', quantity: '1' }])} type="button">Add medicine</button>
+              <button className="rounded-xl border border-sky-200 bg-white px-4 py-2.5 text-sm font-medium text-sky-800 transition hover:bg-sky-50" onClick={() => setRows([...rows, { medicine: '', quantity: '1' }])} type="button">Add medicine</button>
             ) : null}
           </div>
-          <div className="rounded border border-sky-200 bg-white p-4">
+          </section>
+          <section className="border-t border-slate-100 pt-5">
+            <div className="mb-4 flex items-center gap-3"><span className="grid h-8 w-8 place-items-center rounded-xl bg-violet-100 text-xs font-bold text-violet-700">03</span><div><h3 className="font-semibold text-slate-900">Payment details</h3><p className="text-xs text-slate-500">Confirm the arrangement and review the final amount</p></div></div>
+          <div className="rounded-2xl border border-sky-100 bg-white p-4">
             <span className="block text-sm font-medium text-zinc-700">Payment option</span>
-            <div className="mt-2 flex flex-wrap gap-4 text-sm">
-              <label className="flex items-center gap-2">
-                <input type="radio" checked={paymentType === 'full'} onChange={() => { setPaymentType('full'); setDiscountPercentage('') }} />
-                Full payment
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <label className={`flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3 transition ${paymentType === 'full' ? 'border-sky-400 bg-sky-50 ring-2 ring-sky-100' : 'border-slate-200 bg-white hover:border-sky-200'}`}>
+                <input className="accent-sky-600" type="radio" checked={paymentType === 'full'} onChange={() => { setPaymentType('full'); setDiscountPercentage('') }} />
+                <span><span className="block text-sm font-semibold text-slate-900">Full payment</span><span className="block text-xs text-slate-500">Standard bill amount</span></span>
               </label>
-              <label className="flex items-center gap-2">
-                <input type="radio" checked={paymentType === 'discount'} onChange={() => setPaymentType('discount')} />
-                Discount percentage
+              <label className={`flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3 transition ${paymentType === 'discount' ? 'border-sky-400 bg-sky-50 ring-2 ring-sky-100' : 'border-slate-200 bg-white hover:border-sky-200'}`}>
+                <input className="accent-sky-600" type="radio" checked={paymentType === 'discount'} onChange={() => setPaymentType('discount')} />
+                <span><span className="block text-sm font-semibold text-slate-900">Discount</span><span className="block text-xs text-slate-500">Set a percentage</span></span>
               </label>
             </div>
             {paymentType === 'discount' ? (
               <div className="mt-3 max-w-xs">
                 <Field label="Discount percentage">
-                  <input className={inputClassName} type="number" min="0" max="100" step="0.01" value={discountPercentage} onChange={(event) => setDiscountPercentage(event.target.value)} placeholder="Type 20 for 20%" required />
+                  <input className={pharmacyBillingInputClassName} type="number" min="0" max="100" step="0.01" value={discountPercentage} onChange={(event) => setDiscountPercentage(event.target.value)} placeholder="Type 20 for 20%" required />
                 </Field>
               </div>
             ) : null}
-            <div className="mt-3 grid gap-2 rounded border border-pink-100 bg-pink-50 p-3 text-sm sm:grid-cols-3">
-              <p><strong>Bill total:</strong> {formatReceiptAmount(billTotal)} AFN</p>
-              <p><strong>Discount:</strong> {paymentType === 'discount' ? String(effectiveDiscountPercentage) + '% (' + formatReceiptAmount(discountAmount) + ' AFN)' : 'None'}</p>
-              <p><strong>Final amount:</strong> {formatReceiptAmount(finalAmount)} AFN</p>
+            <div className="mt-4 grid gap-3 rounded-2xl border border-sky-100 bg-[linear-gradient(135deg,#f0f9ff,#ffffff_55%,#ecfeff)] p-4 text-sm sm:grid-cols-3">
+              <p className="rounded-xl bg-white/80 px-3 py-2 text-slate-700"><span className="block text-xs font-medium uppercase tracking-wide text-slate-400">Bill total</span><strong className="mt-1 block text-base text-slate-950">{formatReceiptAmount(billTotal)} AFN</strong></p>
+              <p className="rounded-xl bg-white/80 px-3 py-2 text-slate-700"><span className="block text-xs font-medium uppercase tracking-wide text-slate-400">Discount</span><strong className="mt-1 block text-base text-slate-950">{paymentType === 'discount' ? `${String(effectiveDiscountPercentage)}% (${formatReceiptAmount(discountAmount)} AFN)` : 'None'}</strong></p>
+              <p className="rounded-xl bg-sky-600 px-3 py-2 text-white shadow-lg shadow-sky-200"><span className="block text-xs font-medium uppercase tracking-wide text-sky-100">Final amount</span><strong className="mt-1 block text-base">{formatReceiptAmount(finalAmount)} AFN</strong></p>
             </div>
           </div>
+          </section>
           <div className="flex flex-wrap gap-2">
-            <button className={buttonClassName} disabled={submitting || (customerType === 'internal' && loadingPrescription)} type="submit">{submitting ? 'Saving...' : editingSaleId === null ? 'Create bill and send to reception' : 'Save bill changes'}</button>
+            <button className="inline-flex min-h-12 flex-1 items-center justify-center rounded-2xl bg-gradient-to-r from-sky-600 to-cyan-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-sky-200 transition hover:-translate-y-0.5 hover:from-sky-700 hover:to-cyan-600 focus:outline-none focus:ring-4 focus:ring-sky-200 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-60" disabled={submitting || (customerType === 'internal' && loadingPrescription)} type="submit">{submitting ? 'Saving...' : editingSaleId === null ? 'Create bill and send to reception' : 'Save bill changes'}</button>
             {editingSaleId !== null ? <button className={ghostButtonClassName} type="button" onClick={resetBillingForm}>Cancel edit</button> : null}
           </div>
         </form>
+          </div>
+        </div>
       </Panel>
 
       <Panel>
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <SectionHeader title="Recent bills" subtitle="Search and reopen any bill for review or printing." />
-          <div className="flex flex-wrap gap-2">
-            <input value={filterText} onChange={(event) => setFilterText(event.target.value)} className={inputClassName} placeholder="Search by bill or customer" />
-            <button className={ghostButtonClassName} onClick={() => void loadSales(currentPage, deferredFilterText)}>Refresh</button>
-            <select value={paymentStatusFilter} onChange={(event) => setPaymentStatusFilter(event.target.value as 'all' | 'pending' | 'approved')} className={inputClassName}>
-              <option value="all">All payments</option>
-              <option value="pending">Pending payments</option>
-              <option value="approved">Approved payments</option>
-            </select>
-            <input type="date" value={fromDateFilter} onChange={(event) => setFromDateFilter(event.target.value)} className={inputClassName} aria-label="From date" title="From date" />
-            <input type="date" value={toDateFilter} onChange={(event) => setToDateFilter(event.target.value)} className={inputClassName} aria-label="To date" title="To date" />
+        <div className="overflow-hidden rounded-[28px] border border-sky-100 bg-white shadow-[0_24px_65px_-38px_rgba(14,116,144,0.55)]">
+          <div className="relative overflow-hidden bg-[radial-gradient(circle_at_top_right,rgba(186,230,253,0.72),transparent_34%),linear-gradient(135deg,#0f3c5d,#0e7490_55%,#0284c7)] px-5 py-5 text-white sm:px-7">
+            <div className="absolute -right-10 -top-12 h-40 w-40 rounded-full border border-white/20" />
+            <div className="absolute right-16 top-16 h-16 w-16 rounded-full bg-cyan-300/20 blur-xl" />
+            <div className="relative flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-100">Pharmacy desk</p>
+                <h2 className="mt-1 text-xl font-semibold tracking-tight">Recent bills</h2>
+                <p className="mt-1 text-sm text-sky-100">Search, review, print, or reopen a pharmacy bill whenever you need it.</p>
+              </div>
+              <div className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2 text-sm backdrop-blur-sm"><span className="block text-[11px] uppercase tracking-[0.18em] text-cyan-100">Bill history</span><span className="font-medium">{totalCount} recorded</span></div>
+            </div>
           </div>
-        </div>
-
-        <div className="mt-5 space-y-3">
-          {sales.map((sale) => (
-            <div key={sale.id} className="rounded border border-sky-100 bg-white p-4 shadow-sm shadow-sky-100/60">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-lg font-semibold text-slate-950">{sale.bill_no}</p>
-                  <p className="text-sm text-slate-500">{saleCustomerLabel(sale)}</p>
-                  <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-400">{formatDate(sale.created_at)}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">{sale.customer_type_label}</p>
-                  <p className="text-sm text-slate-500">Total</p>
-                  <p className="text-xl font-semibold text-slate-950">{formatReceiptAmount(pharmacyBillFinalAmount(sale))} AFN</p>
-                </div>
+          <div className="p-4 sm:p-6">
+            <div className="flex flex-wrap items-end justify-between gap-3 rounded-2xl border border-sky-100 bg-[linear-gradient(135deg,#f0f9ff,#ffffff_60%,#ecfeff)] p-4">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Find a bill</p>
+                <p className="mt-1 text-xs text-slate-500">Filter by customer, bill number, payment status, or date.</p>
               </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {sale.items.slice(0, 3).map((item) => (
-                  <span key={item.id} className="rounded-full bg-sky-50 px-3 py-1 text-xs font-medium text-sky-800">
-                    {item.medicine_name} x {item.quantity}
-                  </span>
-                ))}
-                {sale.items.length > 3 ? <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">+{sale.items.length - 3} more</span> : null}
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <span className={`rounded-full px-3 py-1 text-xs font-medium ${sale.payment_status === 'approved' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-                  Reception payment {sale.payment_status ?? 'pending'}
-                </span>
-              </div>
-              <div className="mt-4 flex gap-2">
-                <button className={buttonClassName} onClick={() => onSelectSale(sale)}>Print bill</button>
-                <button className={ghostButtonClassName} onClick={() => void editSale(sale)}>Edit</button>
-                <button className={ghostButtonClassName} onClick={() => setSalePendingDeletion(sale)}>Delete</button>
+              <div className="flex flex-wrap gap-2">
+                <input value={filterText} onChange={(event) => setFilterText(event.target.value)} className={`${pharmacyBillingFilterClassName} min-w-64 flex-1`} placeholder="Search by bill or customer" />
+                <button className={ghostButtonClassName} onClick={() => void loadSales(currentPage, deferredFilterText)}>Refresh</button>
+                <select value={paymentStatusFilter} onChange={(event) => setPaymentStatusFilter(event.target.value as 'all' | 'pending' | 'approved')} className={pharmacyBillingFilterClassName}>
+                  <option value="all">All payments</option>
+                  <option value="pending">Pending payments</option>
+                  <option value="approved">Approved payments</option>
+                </select>
+                <input type="date" value={fromDateFilter} onChange={(event) => setFromDateFilter(event.target.value)} className={pharmacyBillingFilterClassName} aria-label="From date" title="From date" />
+                <input type="date" value={toDateFilter} onChange={(event) => setToDateFilter(event.target.value)} className={pharmacyBillingFilterClassName} aria-label="To date" title="To date" />
               </div>
             </div>
-          ))}
-          {!sales.length ? <p className="rounded border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-600">No bills found.</p> : null}
-          <PaginationControls page={currentPage} totalCount={totalCount} onPageChange={setCurrentPage} />
+          </div>
+          <div className="space-y-3 px-4 pb-4 sm:px-6 sm:pb-6">
+            {sales.map((sale) => (
+              <div key={sale.id} className="rounded-2xl border border-sky-100 bg-white p-4 shadow-sm shadow-sky-100/60 transition hover:border-sky-200 hover:shadow-md">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-lg font-semibold text-slate-950">{sale.bill_no}</p>
+                    <p className="text-sm text-slate-500">{saleCustomerLabel(sale)}</p>
+                    <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-400">{formatDate(sale.created_at)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400">{sale.customer_type_label}</p>
+                    <p className="text-sm text-slate-500">Total</p>
+                    <p className="text-xl font-semibold text-slate-950">{formatReceiptAmount(pharmacyBillFinalAmount(sale))} AFN</p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {sale.items.slice(0, 3).map((item) => (
+                    <span key={item.id} className="rounded-full bg-sky-50 px-3 py-1 text-xs font-medium text-sky-800">
+                      {item.medicine_name} x {item.quantity}
+                    </span>
+                  ))}
+                  {sale.items.length > 3 ? <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">+{sale.items.length - 3} more</span> : null}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${sale.payment_status === 'approved' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                    Reception payment {sale.payment_status ?? 'pending'}
+                  </span>
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <button className={buttonClassName} onClick={() => onSelectSale(sale)}>Print bill</button>
+                  <button className={ghostButtonClassName} onClick={() => void editSale(sale)}>Edit</button>
+                  <button className={ghostButtonClassName} onClick={() => setSalePendingDeletion(sale)}>Delete</button>
+                </div>
+              </div>
+            ))}
+            {!sales.length ? <p className="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-slate-600">No bills found.</p> : null}
+            <PaginationControls page={currentPage} totalCount={totalCount} onPageChange={setCurrentPage} />
+          </div>
         </div>
       </Panel>
 
@@ -1823,6 +1868,7 @@ function SearchCombo<T extends { id: number }>({
   valueText,
   renderOption,
   onSelect,
+  controlClassName = inputClassName,
 }: {
   label: string
   placeholder: string
@@ -1831,6 +1877,7 @@ function SearchCombo<T extends { id: number }>({
   valueText?: string
   renderOption: (item: T) => string
   onSelect: (item: T) => void
+  controlClassName?: string
 }) {
   const [query, setQuery] = useState('')
   const [items, setItems] = useState<T[]>([])
@@ -1894,7 +1941,7 @@ function SearchCombo<T extends { id: number }>({
     <div ref={rootRef} className="relative">
       <Field label={label}>
         <input
-          className={inputClassName}
+          className={controlClassName}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onFocus={() => setOpen(true)}
